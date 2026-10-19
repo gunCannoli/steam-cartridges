@@ -28,6 +28,7 @@ export function normalizeMetadata(meta: GameMetadata): GameMetadata {
         publishers: strings(meta.publishers),
         franchises: strings(meta.franchises),
         genres: strings(meta.genres),
+        platforms: strings(meta.platforms),
         release_date: seconds(meta.release_date),
         original_release_date: seconds(meta.original_release_date),
     };

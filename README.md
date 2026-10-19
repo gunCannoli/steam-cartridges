@@ -20,8 +20,8 @@ own components, on the desktop **and** in Big Picture.
 - **Artwork:** a Steam match brings the native portrait, hero, logo and wide art; games without one get artwork and a
   proper library icon from SteamGridDB.
 - **Achievements for non-Steam games:** RetroAchievements for ROMs (hashed locally, no extra tools), RPCS3 and shadPS4
-  trophies, and the emulator logs it recognises. They show in Steam's own achievements page, with Steam's own unlock
-  toasts and progress bars.
+  trophies, the Bloodborne PC port's trophies (with their icons from your own dump), and the emulator logs it recognises. They show in Steam's own achievements page, with Steam's own unlock
+  toasts and progress bars. What each source needs: [Achievements.md](Achievements.md).
 - **Community tab content:** trailers, artwork and game manuals (with a ScreenScraper account) as cards in the
   Community section.
 - **Nothing is rebuilt:** the plugin restores the sections Steam hides from shortcuts and feeds Steam's own stores, so

@@ -11,6 +11,8 @@ export interface SteamAchievementItem {
     strImage: string;
     bAchieved: boolean;
     rtUnlocked: number;
+    /** A secret achievement (Steam: AchievementsFullStore keeps it in `hidden` while locked). */
+    bHidden?: boolean;
     flMinProgress?: number;
     flCurrentProgress?: number;
     flMaxProgress?: number;
@@ -22,7 +24,12 @@ export interface SteamAppAchievements {
     nAchieved: number;
     vecHighlight: SteamAchievementItem[];
     vecAchieved: SteamAchievementItem[];
+    /** Visible locked achievements only: Steam lists no locked hidden one here (verified on 692850, 2026-10-19). */
     vecUnachieved: SteamAchievementItem[];
+    /** Unlocked hidden achievements (Steam's own field; they are in vecAchieved too). */
+    vecAchievedHidden: SteamAchievementItem[];
+    /** Locked hidden achievements: counted in nTotal, fed to AchievementsFullStore's `hidden` map. Ours, not Steam's. */
+    vecHidden: SteamAchievementItem[];
 }
 
 /** One entry of Steam's `appAchievementProgressCache.m_achievementProgress.mapCache`, in Steam's own shape (ADR-0045). */

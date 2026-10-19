@@ -113,7 +113,9 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
       local due = ctx.force or not cached or fresh().is_stale(appid, "achievements", cached, now)
       -- ADR-0060: with nothing stored, a lookup that found no source or failed is not repeated until it comes
       -- due (24 h / 30 min): every view, ingest run and observer poll used to ask the sources again.
-      local remembered = not cached and not ctx.force and fresh().remembered(appid, "achievements", now)
+      -- An "unsupported" memo carries the source list it was found with (ach_service.signature): an update that adds a
+      -- source or a native port (ADR-0072) asks once again instead of waiting out the 24 h.
+      local remembered = not cached and not ctx.force and fresh().remembered(appid, "achievements", now, ach().signature())
       if cached and not due then
         parts.achievements = cached
       elseif remembered then
@@ -130,7 +132,7 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
           title = ctx.title,
         })
         local st = parts.achievements.status
-        if st == "ok" or st == "error" or st == "unsupported" then fresh().touch(appid, "achievements", now_ms(), st) end
+        if st == "ok" or st == "error" or st == "unsupported" then fresh().touch(appid, "achievements", now_ms(), st, ach().signature()) end
         if st == "error" then
           fresh().remember_error(appid, "achievements", now_ms(), parts.achievements)
           -- A failed refresh keeps what is stored (as metadata does), and comes due again after 30 min.

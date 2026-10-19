@@ -5,6 +5,7 @@
 --- files the observer reads the unlocks back from, each backed up first:
 ---   rpcs3      RPCS3's TROPUSR.DAT
 ---   shadps4    shadPS4's trophy XML save files
+---   native_port  a native port's unlock files, cleared by their format (native_ports.FORMATS; ADR-0072)
 --- RetroAchievements unlocks live on the user's account; its API cannot reset them, so the source
 --- is listed with `resettable = false` and a note.
 
@@ -83,6 +84,27 @@ function M.sources(shortcut_appid, _native_appid)
     if #ps4.files > 0 then out[#out + 1] = ps4 end
   end
 
+  -- A native port's unlock files (Bloodborne PC: trophies.log, emptied as the port's own launcher resets it).
+  if schema.native_port then
+    local sc
+    if M.deps.entry then sc = M.deps.entry(s_appid) else sc = observer.shortcut_entry(s_appid) end
+    local ports = require("native_ports")
+    local port = observer.native_port(schema, sc)
+    if port then
+      local src = { id = "native_port", label = port.def.name .. " trophies", resettable = true, unlocked = 0, files = {},
+        formats = {}, note = "Trophies a save already earned come back when the game loads that save." }
+      for _, f in ipairs(ports.unlock_files(port)) do
+        local data = read(f.path)
+        if data then
+          src.files[#src.files + 1] = f.path
+          src.formats[f.path] = f.format
+          for _ in pairs(ports.parse(port, f.format, data)) do src.unlocked = src.unlocked + 1 end
+        end
+      end
+      if #src.files > 0 then out[#out + 1] = src end
+    end
+  end
+
   -- RetroAchievements: on the user's account, not resettable from here.
   local ra_id = math.floor(tonumber(schema.ra_game_id) or 0)
   if ra_id > 0 then
@@ -101,7 +123,7 @@ local function backup_path(p)
 end
 
 --- Clears one file's unlocks after copying it to a backup. Returns cleared count, or nil and why.
-local function clear_file(source_id, p)
+local function clear_file(source_id, p, format)
   local content = read(p)
   if not content then return nil, "cannot read " .. p end
   local next_content, cleared, why
@@ -109,6 +131,9 @@ local function clear_file(source_id, p)
     next_content, cleared, why = files.rpcs3_lock_all(content)
   elseif source_id == "shadps4" then
     next_content, cleared = files.shadps4_lock_all(content)
+  elseif source_id == "native_port" then
+    local f = require("native_ports").FORMATS[format or ""]
+    if f then next_content, cleared = f.clear(content) end
   end
   if not next_content then return nil, why or "unsupported file" end
   if cleared == 0 then return 0 end
@@ -131,7 +156,7 @@ function M.reset(shortcut_appid, native_appid, chosen, game_title)
     if want[src.id] and src.resettable then
       local r = { id = src.id, ok = true, cleared = 0 }
       for _, p in ipairs(src.files) do
-        local n, err = clear_file(src.id, p)
+        local n, err = clear_file(src.id, p, src.formats and src.formats[p])
         if n then
           r.cleared = r.cleared + n
         else

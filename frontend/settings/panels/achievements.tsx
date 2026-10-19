@@ -36,7 +36,7 @@ const ALL_ACHIEVEMENT_SOURCES: AchievementSourceDef[] = [
 const SOURCE_DESCRIPTIONS: Record<AchievementSourceDef["id"], string> = {
     steam_store: "The achievement list and rarity of the Steam game a shortcut maps to.",
     retroachievements: "Your RetroAchievements unlocks. Sign in with your username and Web API key.",
-    console_emulators: "Reads PS3 / PS4 trophies (RPCS3, shadPS4) and DuckStation, PCSX2, Dolphin, PPSSPP and RPCS3 logs.",
+    console_emulators: "Reads PS3 / PS4 trophies (RPCS3, shadPS4, Bloodborne PC) and DuckStation, PCSX2, Dolphin, PPSSPP and RPCS3 logs.",
 };
 
 export function AchievementsSection() {

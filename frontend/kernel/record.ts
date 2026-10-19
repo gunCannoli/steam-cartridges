@@ -100,6 +100,8 @@ export interface GameMetadata {
     /** First release (Early Access start) when it differs from release_date; Steam Store only. */
     original_release_date?: number;
     genres?: string[];
+    /** Platforms the game was released on (IGDB names and abbreviations, ScreenScraper's system); ADR-0073. */
+    platforms?: string[];
     categories?: GameCategories;
     /** Steam's own player + controller category ids (StoreItemCache); filtered by category-policy.ts. */
     store_category_ids?: number[];
@@ -118,6 +120,8 @@ export interface AchievementSchemaItem {
     description: string;
     icon: string;
     global_pct: number;
+    /** A secret achievement: Steam lists it only once unlocked (bHidden; PS3/PS4/native-port trophies). */
+    hidden?: boolean;
 }
 
 /** An app's achievement schema as the backend stores it (moved from rpc.ts in M3.5). */

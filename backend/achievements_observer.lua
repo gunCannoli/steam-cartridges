@@ -1,7 +1,8 @@
 --- steam-cartridges - In-game achievement observer (Phase 5).
 ---
 --- Detects unlocks out-of-process from console emulators: their logs (RetroArch, DuckStation, PCSX2,
---- Dolphin, PPSSPP, RPCS3, shadPS4) and RPCS3 / shadPS4 trophy files. Steam API emulator saves and
+--- Dolphin, PPSSPP, RPCS3, shadPS4), RPCS3 / shadPS4 trophy files and native ports' unlock files
+--- (native_ports.lua, ADR-0072). Steam API emulator saves and
 --- PC-game engine logs belong to the steam-cartridges-local extension (ADR-0063).
 ---
 --- Matches observed tokens against the mirrored Steam schema (achievements_store)
@@ -202,6 +203,12 @@ function M.trophy_files(schema, sc_match, exe_dir)
   return out
 end
 
+--- The port a native-port shortcut launches (native_ports.find), or nil for any other schema.
+function M.native_port(schema, sc_match)
+  if not (schema and schema.native_port and sc_match) then return nil end
+  return require("native_ports").find(sc_match.exe, sc_match.launch_options)
+end
+
 --- The newest RetroArch log in `dir`: with log_to_file_timestamp on, RetroArch writes one
 --- "retroarch__YYYY_MM_DD__HH_MM_SS.log" per run and never "retroarch.log". The names sort by time.
 function M.newest_retroarch_log(dir)
@@ -321,7 +328,13 @@ function M.check_unlocks(shortcut_appid, native_appid, game_title)
 
   local sc_match, exe_dir = M.shortcut_entry(s_appid)
 
-  -- 1. RPCS3 / shadPS4 trophy files
+  -- 1. Native ports' unlock files, the platinum included (native_ports.read_unlocks)
+  local port = M.native_port(st.schema, sc_match)
+  if port then
+    for id, info in pairs(require("native_ports").read_unlocks(port)) do candidate_unlocks[id] = info end
+  end
+
+  -- 2. RPCS3 / shadPS4 trophy files
   for _, path in ipairs(M.trophy_files(st.schema, sc_match, exe_dir)) do
     local data = read_file(path)
     local parsed = data and (path:match("%.[Dd][Aa][Tt]$") and files.rpcs3_unlocked(data) or files.shadps4_unlocked(data)) or {}
@@ -330,7 +343,7 @@ function M.check_unlocks(shortcut_appid, native_appid, game_title)
     end
   end
 
-  -- 2. Console-emulator logs, read from where the last check stopped
+  -- 3. Console-emulator logs, read from where the last check stopped
   for _, logpath in ipairs(M.log_paths(game_title, sc_match, exe_dir)) do
     local detected = M.scan_log_for_unlocks(logpath)
     for id, info in pairs(detected) do
@@ -339,7 +352,7 @@ function M.check_unlocks(shortcut_appid, native_appid, game_title)
   end
   save_offsets()
 
-  -- 3. Match Candidates Against Schema & Record Unlocks
+  -- 4. Match Candidates Against Schema & Record Unlocks
   local new_unlocks = {}
   for raw_id, info in pairs(candidate_unlocks) do
     local canonical = M.resolve_canonical_item(raw_id, schema_achievements)

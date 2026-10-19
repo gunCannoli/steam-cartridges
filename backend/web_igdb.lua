@@ -342,6 +342,132 @@ local function score_candidate(cand, clean_lower, hints)
   return score
 end
 
+--- An IGDB game (the fields fetch_game_metadata and fetch_by_id ask for) as our metadata record.
+---@param appid number
+---@param raw_title string
+---@param game table
+---@return table
+function igdb.to_consolidated_metadata(appid, raw_title, game)
+  -- Developers & Publishers
+  local devs = {}
+  local pubs = {}
+  if type(game.involved_companies) == "table" then
+    for _, comp in ipairs(game.involved_companies) do
+      local cname = comp.company and comp.company.name
+      if cname then
+        if comp.developer then devs[#devs + 1] = cname end
+        if comp.publisher then pubs[#pubs + 1] = cname end
+      end
+    end
+  end
+
+  -- Franchises (check both singular franchise and plural franchises)
+  local franchises = {}
+  local seen_franchises = {}
+  local function add_franchise(fn)
+    if fn and fn ~= "" and not seen_franchises[fn] then
+      seen_franchises[fn] = true
+      franchises[#franchises + 1] = fn
+    end
+  end
+
+  if type(game.franchise) == "table" and game.franchise.name then
+    add_franchise(game.franchise.name)
+  end
+  if type(game.franchises) == "table" then
+    for _, f in ipairs(game.franchises) do
+      if f.name then add_franchise(f.name) end
+    end
+  end
+
+  -- Genres
+  local genres = {}
+  if type(game.genres) == "table" then
+    for _, g in ipairs(game.genres) do
+      if g.name then genres[#genres + 1] = g.name end
+    end
+  end
+
+  -- Platforms the game was released on (names, abbreviations when IGDB has one): the frontend infers controller
+  -- support from a console release (domain/controller-platforms.ts, ADR-0073).
+  local platforms = {}
+  if type(game.platforms) == "table" then
+    for _, p in ipairs(game.platforms) do
+      if type(p) == "table" and type(p.name) == "string" and p.name ~= "" then
+        platforms[#platforms + 1] = p.name
+        if type(p.abbreviation) == "string" and p.abbreviation ~= "" and p.abbreviation ~= p.name then
+          platforms[#platforms + 1] = p.abbreviation
+        end
+      end
+    end
+  end
+
+  -- Categories from game_modes
+  local single_player = false
+  local multiplayer = false
+  local coop = false
+  local split_screen = false
+
+  if type(game.game_modes) == "table" then
+    for _, m in ipairs(game.game_modes) do
+      local mname = tostring(m.name or ""):lower()
+      if mname:find("single") then single_player = true end
+      if mname:find("multi") then multiplayer = true end
+      if mname:find("co%-op") or mname:find("coop") or mname:find("cooperative") then coop = true end
+      if mname:find("split") then split_screen = true end
+    end
+  else
+    -- Default to single player if not specified
+    single_player = true
+  end
+
+  -- Description priority:
+  -- 1. Use summary
+  -- 2. Fallback to parent_game summary if port
+  -- 3. Only fallback to storyline if summary is completely empty
+  local raw_desc = (game.summary and #game.summary > 0) and game.summary or ""
+  if (raw_desc == "" or raw_desc:lower():find("port of")) and game.parent_game and game.parent_game.summary and #game.parent_game.summary > 0 then
+    raw_desc = game.parent_game.summary
+  end
+  if raw_desc == "" and game.storyline and #game.storyline > 0 then
+    raw_desc = game.storyline
+  end
+
+  local alt_names = {}
+  if type(game.alternative_names) == "table" then
+    for _, alt in ipairs(game.alternative_names) do
+      if type(alt) == "table" and alt.name and #alt.name > 0 then
+        alt_names[#alt_names + 1] = alt.name
+      end
+    end
+  end
+
+  local main_desc = truncate_smart(raw_desc, 400, 120)
+
+  return {
+    appid = appid,
+    title = raw_title,
+    igdb_id = game.id,
+    matched_title = game.name,
+    alternative_names = alt_names,
+    description = main_desc,
+    developers = devs,
+    publishers = pubs,
+    franchises = franchises,
+    release_date = game.first_release_date or 0,
+    genres = genres,
+    platforms = platforms,
+    categories = {
+      single_player = single_player,
+      multiplayer = multiplayer,
+      coop = coop,
+      split_screen = split_screen,
+      full_controller = true, -- emulator/gamepad shortcut default
+    },
+    custom_override = false,
+  }
+end
+
 --- Search for a game on IGDB and convert into consolidated metadata
 ---@param appid number
 ---@param raw_title string
@@ -421,109 +547,7 @@ function igdb.fetch_game_metadata(appid, raw_title, shortcut_info)
   local game = best_game
   logger:info("Matched IGDB game: '" .. tostring(game.name) .. "' (ID: " .. tostring(game.id) .. ", slug: " .. tostring(game.slug) .. ", category: " .. tostring(game.category) .. ", score: " .. tostring(best_score) .. ")")
 
-  -- Developers & Publishers
-  local devs = {}
-  local pubs = {}
-  if type(game.involved_companies) == "table" then
-    for _, comp in ipairs(game.involved_companies) do
-      local cname = comp.company and comp.company.name
-      if cname then
-        if comp.developer then devs[#devs + 1] = cname end
-        if comp.publisher then pubs[#pubs + 1] = cname end
-      end
-    end
-  end
-
-  -- Franchises (check both singular franchise and plural franchises)
-  local franchises = {}
-  local seen_franchises = {}
-  local function add_franchise(fn)
-    if fn and fn ~= "" and not seen_franchises[fn] then
-      seen_franchises[fn] = true
-      franchises[#franchises + 1] = fn
-    end
-  end
-
-  if type(game.franchise) == "table" and game.franchise.name then
-    add_franchise(game.franchise.name)
-  end
-  if type(game.franchises) == "table" then
-    for _, f in ipairs(game.franchises) do
-      if f.name then add_franchise(f.name) end
-    end
-  end
-
-  -- Genres
-  local genres = {}
-  if type(game.genres) == "table" then
-    for _, g in ipairs(game.genres) do
-      if g.name then genres[#genres + 1] = g.name end
-    end
-  end
-
-  -- Categories from game_modes
-  local single_player = false
-  local multiplayer = false
-  local coop = false
-  local split_screen = false
-
-  if type(game.game_modes) == "table" then
-    for _, m in ipairs(game.game_modes) do
-      local mname = tostring(m.name or ""):lower()
-      if mname:find("single") then single_player = true end
-      if mname:find("multi") then multiplayer = true end
-      if mname:find("co%-op") or mname:find("coop") or mname:find("cooperative") then coop = true end
-      if mname:find("split") then split_screen = true end
-    end
-  else
-    -- Default to single player if not specified
-    single_player = true
-  end
-
-  -- Description priority:
-  -- 1. Use summary
-  -- 2. Fallback to parent_game summary if port
-  -- 3. Only fallback to storyline if summary is completely empty
-  local raw_desc = (game.summary and #game.summary > 0) and game.summary or ""
-  if (raw_desc == "" or raw_desc:lower():find("port of")) and game.parent_game and game.parent_game.summary and #game.parent_game.summary > 0 then
-    raw_desc = game.parent_game.summary
-  end
-  if raw_desc == "" and game.storyline and #game.storyline > 0 then
-    raw_desc = game.storyline
-  end
-
-  local alt_names = {}
-  if type(game.alternative_names) == "table" then
-    for _, alt in ipairs(game.alternative_names) do
-      if type(alt) == "table" and alt.name and #alt.name > 0 then
-        alt_names[#alt_names + 1] = alt.name
-      end
-    end
-  end
-
-  local main_desc = truncate_smart(raw_desc, 400, 120)
-
-  return {
-    appid = appid,
-    title = raw_title,
-    igdb_id = game.id,
-    matched_title = game.name,
-    alternative_names = alt_names,
-    description = main_desc,
-    developers = devs,
-    publishers = pubs,
-    franchises = franchises,
-    release_date = game.first_release_date or 0,
-    genres = genres,
-    categories = {
-      single_player = single_player,
-      multiplayer = multiplayer,
-      coop = coop,
-      split_screen = split_screen,
-      full_controller = true, -- emulator/gamepad shortcut default
-    },
-    custom_override = false,
-  }
+  return igdb.to_consolidated_metadata(appid, raw_title, game)
 end
 
 --- Search IGDB by term for candidate games (for manual link picker).

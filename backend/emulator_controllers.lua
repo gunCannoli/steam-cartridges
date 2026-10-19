@@ -97,6 +97,9 @@ function M.infer(entry)
   if M.EMULATORS_WITH_CONTROLLER[program] or (head and M.EMULATORS_WITH_CONTROLLER[head]) then
     return true
   end
+  -- A native port (native_ports.lua, ADR-0072) says whether its game is a controller game.
+  local port = require("native_ports").for_program(program)
+  if port and port.controller ~= nil then return port.controller == true end
   for emu_name in pairs(M.EMULATORS_WITH_CONTROLLER) do
     if lower:find(emu_name, 1, true) then
       return true

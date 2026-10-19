@@ -23,7 +23,7 @@ RPC.CartridgesAchievementsUnlock = method("CartridgesAchievementsUnlock", functi
   return store.unlock(shortcut_appid, achievement_id, data.unlock_time)
 end)
 
---- data = { shortcut_appid, native_appid?, sources? = { "rpcs3" | "shadps4" }, title? }
+--- data = { shortcut_appid, native_appid?, sources? = { "rpcs3" | "shadps4" | "native_port" }, title? }
 --- Clears the plugin's unlocks, and the chosen sources' files (backed up first): ADR-0054.
 RPC.CartridgesAchievementsReset = method("CartridgesAchievementsReset", function(data)
   local shortcut_appid = normalize_appid(data.shortcut_appid)

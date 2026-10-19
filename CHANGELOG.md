@@ -7,8 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- **Bloodborne PC trophies**: a shortcut that runs a Bloodborne PC port (Awakenchan's BloodBorneButPc, or pyL1nx's
+  bloodborne_pc) gets its 40 trophies in Steam, with PlayStation's rarity, unlocks from the port's trophy log (player
+  profiles too) and icons taken from your own game dump. Reset Achievements can clear the port's trophy log (a backup
+  is kept). More native ports can be added as they appear.
+- **Secret achievements stay secret**: trophies a game marks as hidden (Bloodborne's endings and bosses, PS3 and PS4
+  trophies) are hidden in Steam until you unlock them, as on a Steam game.
+- **Full Controller Support for console games**: a game IGDB or ScreenScraper lists on a console, a handheld or arcade
+  (PlayStation, Xbox, Nintendo, Sega, ...) gets the Full Controller Support badge, unless you chose otherwise for it.
+
 ### Fixed
 
+- **Linking a game to IGDB by hand failed** every time (Game Data editor); it now fetches the game's data.
+- **A shortcut whose achievements were not found stayed that way for a day** after an update that can read them; it is
+  checked again right away.
 - **A softcore RetroAchievements unlock showed as locked**: the profile lookup asked for hardcore unlocks only; it now takes
   both modes, and a refetch no longer drops an unlock already stored.
 

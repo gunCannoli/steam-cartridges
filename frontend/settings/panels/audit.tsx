@@ -17,6 +17,7 @@ import { backend } from "../../ports/backend";
 import type { AutoRoutingProfile } from "../../domain/routing/policy";
 import { type GameMetadata } from "../../kernel/record";
 import { lookupStored } from "../../kernel/appid";
+import { controllerFromPlatforms } from "../../domain/controller-platforms";
 import { usePanelContext } from "../context";
 import {
     ActionRow,
@@ -251,6 +252,7 @@ export function RevisionSection() {
             override === "partial" ||
             (override !== "none" && (
                 inferred === true ||
+                controllerFromPlatforms(meta?.platforms) === true ||
                 meta?.categories?.full_controller === true ||
                 meta?.categories?.partial_controller === true ||
                 isSteamMapped ||

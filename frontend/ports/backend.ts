@@ -8,7 +8,7 @@ export type { CallOptions, Lane } from "./transport";
 
 /** A place a shortcut's unlocks come from, as the backend lists it (achievements_reset.lua). */
 export interface AchievementResetSource {
-    /** "rpcs3", "shadps4" or "retroachievements"; extension sources use the provider's id (ADR-0063). */
+    /** "rpcs3", "shadps4", "native_port" or "retroachievements"; extension sources use the provider's id (ADR-0063). */
     id: string;
     label: string;
     resettable: boolean;

@@ -46,8 +46,10 @@ end
 ---   developpeur -> developers, editeur -> publishers, familles -> franchises, genres -> genres
 ---   dates -> release_date = the EARLIEST regional date (Steam shows one original release date)
 ---   joueurs -> single_player (min players is 1) and multiplayer (max players > 1)
+---   systeme -> platforms (the system of the release ScreenScraper matched; the frontend infers controller
+---              support from a console, ADR-0073)
 --- Co-op, split screen and controller flags are not provided by ScreenScraper (controller support
---- keeps coming from the emulator inference, ADR-0038), so they are left unset.
+--- keeps coming from the emulator and platform inference, ADR-0038 / ADR-0073), so they are left unset.
 local function text_of(v)
   if type(v) == "string" then return v end
   if type(v) ~= "table" then return nil end
@@ -135,6 +137,7 @@ function M.screenscraper_to_metadata(jeu, appid, title)
     franchises = names_of(jeu.familles),
     release_date = earliest_date(jeu.dates),
     genres = names_of(jeu.genres),
+    platforms = names_of(jeu.systeme),
     categories = {
       single_player = min_p == nil or min_p <= 1,
       multiplayer = max_p ~= nil and max_p > 1,

@@ -6,6 +6,8 @@
 ---                     steam-cartridges-third-party): the stored set is the answer, no network; refreshed only by
 ---                     the extension's next push
 ---   steam             the shortcut has a Steam match (ctx.native > 0)
+---   native_port       the shortcut launches a native port (src_native_ports.supports; ADR-0072); this service
+---                     persists what the source answers, the source never writes the store
 ---   rpcs3             a PS3 trophy directory is found from the launch command
 ---   shadps4           a PS4 trophy directory is found from the launch command
 ---   retroachievements a ROM path is found from the launch command
@@ -23,6 +25,8 @@ M.deps = {
   steam = nil, -- fun(appid, native) -> res, err   ; nil = steam_schema.get_or_fetch
   ps3 = nil,   -- fun(appid) -> res, err          ; nil = ps3_trophies.get_or_fetch
   ps4 = nil,   -- fun(appid) -> res, err          ; nil = ps4_trophies.get_or_fetch
+  native_port = nil, -- fun(entry, stored) -> answer, err ; nil = src_native_ports.fetch
+  native_port_supports = nil, -- fun(entry) -> boolean ; nil = src_native_ports.supports
   ra = nil,    -- fun(appid, hardcore) -> res, err ; nil = retroachievements.get_or_fetch
   ps3_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps3_trophies.find_trophy_dir
   ps4_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps4_trophies.find_trophy_dir
@@ -68,6 +72,22 @@ local SOURCES = {
     fetch = function(appid, ctx) return dep("steam", "steam_schema", "get_or_fetch")(appid, tonumber(ctx.native)) end,
   },
   {
+    name = "native_port",
+    supports = function(_, entry)
+      return entry ~= nil and dep("native_port_supports", "src_native_ports", "supports")(entry) == true
+    end,
+    fetch = function(appid, _, entry)
+      local res, err = dep("native_port", "src_native_ports", "fetch")(entry, store.get_state(appid))
+      if not res then return nil, err end
+      if res.rebuilt then
+        store.save_schema_and_sync(appid, res.key, res.schema, res.unlocks, "native_port")
+      else
+        for id, info in pairs(res.added or {}) do store.unlock(appid, id, info.unlocked_time) end
+      end
+      return { schema = res.schema, unlocks = res.unlocks }
+    end,
+  },
+  {
     name = "rpcs3",
     supports = function(_, entry)
       return entry ~= nil and dep("ps3_dir", "ps3_trophies", "find_trophy_dir")(entry.exe, entry.launch_options) ~= nil
@@ -106,7 +126,7 @@ function M._resolve(appid, ctx)
     local okS, supported = pcall(source.supports, ctx, entry)
     if okS and supported then
       asked = true
-      local okF, res, err = pcall(source.fetch, appid, ctx)
+      local okF, res, err = pcall(source.fetch, appid, ctx, entry)
       if okF and type(res) == "table" and res.schema then
         return {
           status = "ok",
@@ -121,6 +141,21 @@ function M._resolve(appid, ctx)
 
   if not asked then return { status = "unsupported", checkedAt = now_ms() }, nil end
   return { status = "error", message = tostring(last_err or "no source returned a schema"), checkedAt = now_ms() }, nil
+end
+
+local signature = nil
+--- What this build can answer: the source names and every native port definition id. A remembered "unsupported"
+--- found with another signature is asked again (record_rpc, fresh_policy.remembered).
+function M.signature()
+  if signature then return signature end
+  local names = {}
+  for _, source in ipairs(SOURCES) do names[#names + 1] = source.name end
+  local ok, defs = pcall(function() return require("native_ports").definitions() end)
+  local ids = {}
+  for _, def in ipairs(ok and defs or {}) do ids[#ids + 1] = tostring(def.id) end
+  table.sort(ids)
+  signature = table.concat(names, ",") .. "|" .. table.concat(ids, ",")
+  return signature
 end
 
 --- Full resolution. Returns a Part<{ schema, unlocks }>.

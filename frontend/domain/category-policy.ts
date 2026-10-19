@@ -11,6 +11,7 @@
  * (docs/steam-components.md, "Store categories and feature badges").
  */
 import type { GameCategories } from '../kernel/record';
+import { controllerFromPlatforms } from './controller-platforms.ts';
 import { MANAGED_CATEGORY_IDS, PORTABLE_CATEGORY_IDS, STEAM_ONLY_CATEGORY_IDS } from '../kernel/record.ts';
 
 export { MANAGED_CATEGORY_IDS, PORTABLE_CATEGORY_IDS, STEAM_ONLY_CATEGORY_IDS };
@@ -30,21 +31,24 @@ export function portableCategoryIds(ids: Iterable<unknown>): number[] {
  * What decides the controller badge of a shortcut without Steam Store data
  * (ADR-0038 addendum). `inferred` comes from the shortcut's emulator
  * (backend emulator_controllers.lua): true, false, or undefined when unknown.
+ * `fromPlatforms` comes from the game's release platforms (controller-platforms.ts, ADR-0073): true or undefined.
  * `defaultFull` is the setting "Default to full controller support".
  */
 export interface ControllerContext {
     inferred?: boolean;
+    fromPlatforms?: boolean;
     defaultFull?: boolean;
     override?: 'full' | 'partial' | 'none' | 'auto';
 }
 
-/** Full Controller Support (28) from override first, then emulator, then user's default; else none. */
+/** Full Controller Support (28) from override first, then emulator, then a console release, then user's default; else none. */
 export function inferredControllerIds(ctx: ControllerContext = {}): number[] {
     if (ctx.override === 'full') return [28];
     if (ctx.override === 'partial') return [18];
     if (ctx.override === 'none') return [];
     if (ctx.inferred === true) return [28];
     if (ctx.inferred === false) return [];
+    if (ctx.fromPlatforms === true) return [28];
     return ctx.defaultFull === true ? [28] : [];
 }
 
@@ -68,13 +72,14 @@ export function inferredControllerIds(ctx: ControllerContext = {}): number[] {
  *
  * Controller precedence (ADR-0038 addendum): the user's override for the game
  * (Game Data editor, Library Audit) > Steam Store data > emulator inference >
- * the default setting > no badge. Steam Store data is `store_category_ids` or the
+ * a console release (the record's `platforms`, ADR-0073) > the default setting > no badge. Steam Store data is
+ * `store_category_ids` or the
  * explicit flags of a `source: 'steam-store'` record. Local and IGDB records carry
  * no controller data (web_igdb.lua and the fallback record always write
  * `full_controller = true`), so their controller flags are ignored.
  */
 export function badgeCategoryIds(
-    meta: { categories?: GameCategories; store_category_ids?: unknown; source?: string },
+    meta: { categories?: GameCategories; store_category_ids?: unknown; source?: string; platforms?: unknown },
     controller: ControllerContext = {},
     opts: { hasAchievements?: boolean } = {},
 ): number[] {
@@ -89,7 +94,7 @@ function withControllerOverride(ids: number[], override: ControllerContext['over
 }
 
 function badgeIdsWithoutOverride(
-    meta: { categories?: GameCategories; store_category_ids?: unknown; source?: string },
+    meta: { categories?: GameCategories; store_category_ids?: unknown; source?: string; platforms?: unknown },
     controller: ControllerContext,
     opts: { hasAchievements?: boolean },
 ): number[] {
@@ -113,7 +118,7 @@ function badgeIdsWithoutOverride(
         if (c.full_controller === true) ids.push(28);
         if (c.partial_controller === true) ids.push(18);
     } else {
-        ids.push(...inferredControllerIds(controller));
+        ids.push(...inferredControllerIds({ ...controller, fromPlatforms: controller.fromPlatforms ?? controllerFromPlatforms(meta.platforms) }));
     }
     return portableCategoryIds(ids);
 }

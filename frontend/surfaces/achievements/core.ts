@@ -17,6 +17,10 @@ export function buildSteamAchievements(
 
     const achieved: SteamAchievementItem[] = [];
     const unachieved: SteamAchievementItem[] = [];
+    // Steam's shape for secret achievements (692850, 2026-10-19): a locked one is in no list, only in nTotal (and in
+    // AchievementsFullStore's `hidden` map); an unlocked one is listed like any other, with bHidden, and in
+    // vecAchievedHidden.
+    const hidden: SteamAchievementItem[] = [];
 
     for (const item of items) {
         const unlock = unlocks[item.id];
@@ -28,11 +32,14 @@ export function buildSteamAchievements(
             strImage: item.icon,
             bAchieved: isUnlocked,
             rtUnlocked: unlock?.unlocked_time ?? 0,
+            bHidden: item.hidden === true,
             flAchieved: item.global_pct,
         };
 
         if (isUnlocked) {
             achieved.push(entry);
+        } else if (entry.bHidden) {
+            hidden.push(entry);
         } else {
             unachieved.push(entry);
         }
@@ -53,6 +60,8 @@ export function buildSteamAchievements(
         vecHighlight,
         vecAchieved: achieved,
         vecUnachieved: unachieved,
+        vecAchievedHidden: achieved.filter((a) => a.bHidden),
+        vecHidden: hidden,
     };
 }
 

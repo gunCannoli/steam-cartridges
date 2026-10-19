@@ -90,7 +90,7 @@ export function feedAchievementsFullStore(
             strDescription: a.strDescription,
             strImage: a.strImage,
             bAchieved: true,
-            bHidden: false,
+            bHidden: a.bHidden === true,
             rtUnlocked: a.rtUnlocked,
             flAchieved: a.flAchieved ?? 0,
             flCurrentProgress: 0,
@@ -113,11 +113,28 @@ export function feedAchievementsFullStore(
         globalPcts[a.strID] = a.flAchieved ?? 0;
     }
 
+    // Locked secret achievements: Steam's own `hidden` map (bHidden true), never in `unachieved`.
+    const hidden: Record<string, any> = {};
+    for (const a of achievements.vecHidden ?? []) {
+        hidden[a.strID] = {
+            strID: a.strID,
+            strName: a.strName,
+            strDescription: a.strDescription,
+            strImage: a.strImage,
+            bAchieved: false,
+            bHidden: true,
+            rtUnlocked: 0,
+            flAchieved: a.flAchieved ?? 0,
+            flCurrentProgress: 0,
+        };
+        globalPcts[a.strID] = a.flAchieved ?? 0;
+    }
+
     store.m_mapMyAchievements.set(shortcutAppId, {
         data: {
             achieved,
             unachieved,
-            hidden: {},
+            hidden,
         },
     });
 
@@ -193,9 +210,11 @@ export function ensureAchievementsFullStoreHooked(): boolean {
                 if (local) {
                     const achieved: Record<string, any> = {};
                     const unachieved: Record<string, any> = {};
+                    const hidden: Record<string, any> = {};
                     for (const a of local.vecAchieved) achieved[a.strID] = a;
                     for (const a of local.vecUnachieved) unachieved[a.strID] = a;
-                    return { data: { achieved, unachieved } };
+                    for (const a of local.vecHidden ?? []) hidden[a.strID] = a;
+                    return { data: { achieved, unachieved, hidden } };
                 }
             }
             return origGetPlayer.call(this, appId, accountId);

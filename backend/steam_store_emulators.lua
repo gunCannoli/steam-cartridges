@@ -1,6 +1,7 @@
 --- Emulator executables: shortcuts that launch these never get an automatic
 --- store match (the shortcut title is a ROM, not a Steam game). A guard against
 --- wrong matches, not bucket guessing. A manual mapping still works.
+--- A native port whose definition says `store_match = false` counts too (native_ports.lua, ADR-0072).
 
 local M = {}
 
@@ -34,6 +35,8 @@ end
 function M.is_emulator(exe)
   local b = M.program(exe)
   if EMULATORS[b] then return true end
+  local port = require("native_ports").for_program(b)
+  if port and port.store_match == false then return true end
   -- Suffixed builds: "dolphin-x64", "rpcs3-qt", "pcsx2-qt".
   local head = b:match("^(%w+)[%-_ ]")
   return head ~= nil and EMULATORS[head] == true

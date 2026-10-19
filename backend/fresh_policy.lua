@@ -116,8 +116,9 @@ local function error_base(part)
 end
 
 --- Record a check at `now` (ms). An `error` result is backdated so it comes due after the short
---- error TTL instead of the long ok TTL. `unsupported` and `error` are remembered (M.remembered).
-function M.touch(appid, part, now, status)
+--- error TTL instead of the long ok TTL. `unsupported` and `error` are remembered (M.remembered); an `unsupported`
+--- one keeps `sig` (what the caller could answer then), when given.
+function M.touch(appid, part, now, status, sig)
   local s = load()
   local k = key(appid)
   s.parts[k] = s.parts[k] or {}
@@ -127,6 +128,7 @@ function M.touch(appid, part, now, status)
   end
   s.parts[k][part] = at
   s.parts[k][part .. "_status"] = (status == "unsupported" or status == "error") and status or nil
+  s.parts[k][part .. "_sig"] = (status == "unsupported" and type(sig) == "string") and sig or nil
   -- Bookkeeping only: a disk error costs a refetch later, never a failed EnsureFresh.
   return pcall(save)
 end
@@ -142,9 +144,15 @@ end
 --- ADR-0060: a check that found no source (`unsupported`, for M.TTL.unsupported) or failed (`error`, for
 --- M.TTL.error) and has not come due at `now` (ms): { status, at }, else nil. A part with nothing stored
 --- answers this instead of asking its sources again on every view, ingest run and observer poll.
-function M.remembered(appid, part, now)
+--- With `sig`, an `unsupported` found with another signature (or none) is not remembered: the caller can answer
+--- more now (ADR-0072).
+function M.remembered(appid, part, now, sig)
   local status = M.last_status(appid, part)
   if not status then return nil end
+  if status == "unsupported" and sig ~= nil then
+    local entry = load().parts[key(appid)]
+    if not entry or entry[part .. "_sig"] ~= sig then return nil end
+  end
   local at = M.checked_at(appid, part)
   if not at then return nil end
   local ttl = status == "unsupported" and M.TTL.unsupported or error_base(part)
