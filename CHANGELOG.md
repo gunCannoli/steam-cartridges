@@ -5,21 +5,25 @@ All notable changes to **Steam Cartridges**.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0-beta] - 2026-10-19
 
 ### Added
 
 - **Bloodborne PC trophies**: a shortcut that runs a Bloodborne PC port (Awakenchan's BloodBorneButPc, or pyL1nx's
   bloodborne_pc) gets its 40 trophies in Steam, with PlayStation's rarity, unlocks from the port's trophy log (player
-  profiles too) and icons taken from your own game dump. Reset Achievements can clear the port's trophy log (a backup
-  is kept). More native ports can be added as they appear.
+  profiles too) and icons taken from your own game dump. More native ports can be added as they appear.
 - **Secret achievements stay secret**: trophies a game marks as hidden (Bloodborne's endings and bosses, PS3 and PS4
   trophies) are hidden in Steam until you unlock them, as on a Steam game.
 - **Full Controller Support for console games**: a game IGDB or ScreenScraper lists on a console, a handheld or arcade
   (PlayStation, Xbox, Nintendo, Sega, ...) gets the Full Controller Support badge, unless you chose otherwise for it.
 
+- **A ready-to-use download** on the Releases page: no build needed.
+- **[Achievements.md](Achievements.md)**: what each achievements source needs to link a game.
+
 ### Fixed
 
+- **Your own artwork is kept**: a game matched to Steam no longer replaces a portrait, hero, logo or wide capsule you
+  set yourself; only empty ones are filled.
 - **Linking a game to IGDB by hand failed** every time (Game Data editor); it now fetches the game's data.
 - **A shortcut whose achievements were not found stayed that way for a day** after an update that can read them; it is
   checked again right away.

@@ -9,6 +9,10 @@
  *
  * A slot the user removed in Steam is pruned from `slots` by the backend and is
  * not in `failed`, so it is never written again (the user wins).
+ *
+ * With `emptySlots` (the backend's: no file in Steam's config/grid), a slot is written only when it is empty or holds
+ * art this plugin wrote (`applied.slots`): artwork the user set is never replaced by a Steam match (ADR-0075), as
+ * SteamGridDB never replaces it.
  */
 import type { ArtworkPlan, ArtworkUrls, StoreApplied } from '../kernel/record';
 import { union } from "../kernel/lists.ts";
@@ -28,12 +32,19 @@ export function slotList(v: unknown): number[] {
     return Array.isArray(v) ? v.filter((s): s is number => typeof s === 'number' && ALL_SLOTS.includes(s)) : [];
 }
 
-export function artworkPlan(applied: StoreApplied | null, steamAppid: number, retriedThisSession: boolean): ArtPlan {
-    if (!applied) return { clear: [], write: [...ALL_SLOTS] };
-    const slots = slotList(applied.slots);
-    if (applied.steam_appid !== steamAppid) return { clear: slots, write: [...ALL_SLOTS] };
+export function artworkPlan(
+    applied: StoreApplied | null,
+    steamAppid: number,
+    retriedThisSession: boolean,
+    emptySlots?: readonly number[],
+): ArtPlan {
+    const ours = applied ? slotList(applied.slots) : [];
+    const mayWrite = (s: number) => emptySlots === undefined || emptySlots.includes(s) || ours.includes(s);
+    if (!applied) return { clear: [], write: ALL_SLOTS.filter(mayWrite) };
+    const slots = ours;
+    if (applied.steam_appid !== steamAppid) return { clear: slots, write: ALL_SLOTS.filter(mayWrite) };
     if (retriedThisSession) return { clear: [], write: [] };
-    return { clear: [], write: slotList(applied.failed).filter((s) => !slots.includes(s)) };
+    return { clear: [], write: slotList(applied.failed).filter((s) => !slots.includes(s) && mayWrite(s)) };
 }
 
 /** Only the URLs of the slots to write. */
@@ -107,7 +118,7 @@ export function buildPlan(raw: RawArtwork, at: number): { plan: ArtworkPlan; ico
     const iconUrl = icon?.url;
     const iconFallback = icon?.fallback;
     if (raw.source === 'steam-cdn' && raw.steamAppid !== undefined) {
-        const plan = artworkPlan(applied, raw.steamAppid, false);
+        const plan = artworkPlan(applied, raw.steamAppid, false, slotList(raw.emptySlots));
         const kept = applied && applied.steam_appid === raw.steamAppid ? slotList(applied.slots) : [];
         return {
             plan: { source: 'steam-cdn', steamAppid: raw.steamAppid, urls: pickUrls(raw.urls, plan.write), write: plan.write, clear: plan.clear, tried: [], kept, at },

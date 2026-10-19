@@ -22,7 +22,7 @@ simply has no achievements section, and nothing is requested for it.
 
 | Order | Source | Applies when | You need |
 | --- | --- | --- | --- |
-| 1 | Steam | the game is matched to a Steam game | a **Steam Store** collection |
+| 1 | Steam | the game is matched to a Steam game | a PC game (not an emulator) |
 | 2 | Native PC ports | the shortcut runs a supported port | the port, installed as it ships |
 | 3 | RPCS3 | the shortcut points at a PS3 game with its trophy data | RPCS3 |
 | 4 | shadPS4 | the shortcut points at a PS4 game with its trophy data | shadPS4 |
@@ -90,8 +90,8 @@ Steam game's own achievement list, icons and global rarity, read from Steam's pu
 
 ### What you need
 
-1. **The game in a collection set to "Steam Store"** (Steam Cartridges settings → Collections). Only games in such a
-   collection are matched to a Steam game.
+1. **A PC game.** With Auto Mode (on by default), every shortcut that does not run an emulator is matched to a Steam
+   game. A routing rule can include or exclude games from the **Steam Store Mirror** service.
 2. **A match to the right Steam game.** The shortcut's title is matched against the games Steam already knows about,
    then against Steam's store search; near matches are suggestions you accept. You can also link it by hand
    ([below](#linking-a-game-by-hand)).

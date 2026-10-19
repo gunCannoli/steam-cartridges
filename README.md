@@ -31,30 +31,50 @@ own components, on the desktop **and** in Big Picture.
 
 ## Install
 
-Requires [Millennium](https://steambrew.app). Build from source (Node.js 20+):
+Requires [Millennium](https://steambrew.app).
+
+1. Download `steam-cartridges-<version>.zip` from the [latest release](../../releases).
+2. Extract it into `<Steam>/millennium/plugins/`, so the plugin is in `<Steam>/millennium/plugins/steam-cartridges`.
+3. Restart Steam and enable **Steam Cartridges** in the Millennium settings.
+
+To update, replace that folder with the new release's. Your settings and data are kept (they live in Steam's
+`millennium/config` folder, not in the plugin's).
+
+<details>
+<summary>Build from source instead</summary>
+
+Node.js 20+:
 
 ```bash
 npm install
 npm run build
 ```
 
-Then copy the folder (with the generated `.millennium` folder inside it) to `<Steam>/millennium/plugins/steam-cartridges`,
-restart Steam and enable **Steam Cartridges** in the Millennium settings.
+Then copy the folder (with the generated `.millennium` folder inside it) to `<Steam>/millennium/plugins/steam-cartridges`.
+
+</details>
 
 ## Setup
 
 It works on its own with no setup: install it and your non-Steam games get Steam's page and Post-Game Summary from the
-captures Steam already has. The rest is opt-in, in Steam's Millennium settings under **Steam Cartridges**:
+captures Steam already has. The rest is in Steam's Millennium settings under **Steam Cartridges**:
 
-- **Metadata:** add your IGDB (Twitch), SteamGridDB or ScreenScraper credentials with **Add service**.
-- **Collections ("buckets"):** put games in a collection and assign the collection in the settings.
-  - **Steam Store:** the game borrows Steam's own data. The title is matched against native games Steam already knows,
-    then against Steam's store search; near matches are suggestions you accept.
-  - **Web Scraping:** the game gets Game Info from IGDB or ScreenScraper.
-- **Routing rules:** choose per collection or per game which sources are used.
+- **Metadata:** add your IGDB (Twitch), SteamGridDB or ScreenScraper credentials with **Add service**. Game Info and
+  artwork from the web need at least one of them.
+- **Auto Mode (on by default):** every non-Steam game is looked up automatically, by what its shortcut runs:
+  - **Emulators and ROMs** (RetroArch, DuckStation, PCSX2, ...): Game Info from IGDB, then ScreenScraper.
+  - **PC games:** a match to the same game on Steam first (Steam's own Game Info and artwork), else IGDB.
+- **Your own rules** (Routing Rules → **Custom Rules**) take over from Auto Mode: include or exclude games from a
+  service (Steam Store Mirror, IGDB, ScreenScraper, SteamGridDB, RetroAchievements, Console Emulators) by **collection**,
+  **game title** or a **regex pattern**. With **Auto Mode** off, every service may be used for every game unless a
+  rule excludes it.
+- **Manual Edit:** your own Game Info for a game always wins, and Library Analytics → Review links a game to the right
+  Steam, IGDB or RetroAchievements entry by hand.
 
-Game Info from the web runs only for games in a collection you assigned to **Web Scraping**, so until you assign one,
-no game gets web Game Info.
+**Your artwork stays yours.** A portrait, hero, logo, wide capsule or icon you set yourself in Steam is never replaced:
+Steam Cartridges only fills the empty ones (and replaces only art it put there itself).
+
+Achievements and what each source needs: [Achievements.md](Achievements.md).
 
 For your screenshots and recordings as "{Username} captured" cards in the Activity feed, install
 [Steam Captured Activity](https://github.com/gunCannoli/steam-captured-activity) next to it.
