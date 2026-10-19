@@ -1,0 +1,7 @@
+.millennium/
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+.env
+.env.*

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig.json",
+
+  "exclude": ["node_modules", ".millennium"],
+  "include": ["frontend"],
+
+  "compilerOptions": {
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+
+    "declaration": false,
+    "noEmitHelpers": true,
+    "newLine": "lf",
+
+    "rootDir": "frontend",
+    "outDir": ".millennium/Dist"
+  }
+}
