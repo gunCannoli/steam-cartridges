@@ -1230,27 +1230,31 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
   end
 
   if #u > 0 and #t > 0 then
-    local unl_url = string.format(
-      "https://retroachievements.org/dorequest.php?r=unlocks&g=%d&h=%d&u=%s&t=%s",
-      gid, h_val, utils.url_encode(u), utils.url_encode(t)
-    )
-    local u_ok, u_res = pcall(net.get, unl_url, {
-      source = "retroachievements",
-      headers = { ["User-Agent"] = "RetroArch/1.19.0" },
-      timeout = 10,
-    })
+    -- Both modes, unioned: `h=1` lists hardcore unlocks only, so a softcore unlock (RetroArch's default, and the profile
+    -- shows it) never came back. Strategy A already counts either date.
+    for _, h in ipairs({ h_val, 1 - h_val }) do
+      local unl_url = string.format(
+        "https://retroachievements.org/dorequest.php?r=unlocks&g=%d&h=%d&u=%s&t=%s",
+        gid, h, utils.url_encode(u), utils.url_encode(t)
+      )
+      local u_ok, u_res = pcall(net.get, unl_url, {
+        source = "retroachievements",
+        headers = { ["User-Agent"] = "RetroArch/1.19.0" },
+        timeout = 10,
+      })
 
-    if u_ok and u_res and u_res.status == 200 and u_res.body then
-      local ok_unl, u_data = pcall(json.decode, u_res.body)
-      if ok_unl and type(u_data) == "table" and type(u_data.UserUnlocks) == "table" then
-        for _, ach_id in ipairs(u_data.UserUnlocks) do
-          unlocks[tostring(ach_id)] = {
-            unlocked_time = os.time(),
-          }
+      if u_ok and u_res and u_res.status == 200 and u_res.body then
+        local ok_unl, u_data = pcall(json.decode, u_res.body)
+        if ok_unl and type(u_data) == "table" and type(u_data.UserUnlocks) == "table" then
+          for _, ach_id in ipairs(u_data.UserUnlocks) do
+            local key = tostring(ach_id)
+            if not unlocks[key] then unlocks[key] = { unlocked_time = os.time() } end
+          end
         end
+      elseif u_res and u_res.status == 401 then
+        logger:warn(string.format("RetroAchievements unlocks returned 401 Unauthorized for user %q", u))
+        break
       end
-    elseif u_res and u_res.status == 401 then
-      logger:warn(string.format("RetroAchievements unlocks returned 401 Unauthorized for user %q", u))
     end
   end
 
@@ -1409,6 +1413,13 @@ function M.get_or_fetch(shortcut_appid, hardcore)
 
   -- 8. Save schema & unlocks in achievements_store (atomic sync, ADR-0056)
   local schema_key = "ra_" .. tostring(game_id)
+  -- A refetch never drops an unlock already stored (the profile answer can lack one: another mode, a failed request).
+  local prior = store.get_state(s_appid)
+  if prior and type(prior.unlocks) == "table" and prior.schema_appid == schema_key then
+    for id, info in pairs(prior.unlocks) do
+      if not unlocks[id] then unlocks[id] = info end
+    end
+  end
   store.save_schema_and_sync(s_appid, schema_key, schema, unlocks, "retroachievements")
 
   local final_state = store.get_state(s_appid)

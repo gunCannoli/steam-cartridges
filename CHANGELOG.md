@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Fixed
+
+- **A softcore RetroAchievements unlock showed as locked**: the profile lookup asked for hardcore unlocks only; it now takes
+  both modes, and a refetch no longer drops an unlock already stored.
+
 ## [0.1.0-beta] - 2026-10-19
 
 First public beta, for testing. Expect rough edges; please report what you find.
