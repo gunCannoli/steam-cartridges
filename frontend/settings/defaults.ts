@@ -40,6 +40,8 @@ export interface Settings {
     services: ServicesConfig;
     /** Per-game controller overrides. */
     controllerOverrides: Record<string, ControllerOverride>;
+    /** Games whose issues the user chose to ignore (Game Data editor): left out of "games with issues". */
+    ignoredIssues: Record<string, boolean>;
     /** Show native activity card when a non-Steam game is added to the library. Default true. */
     activityShowAddedToLibrary: boolean;
     /** Show native activity card when a non-Steam game is played for the first time. Default true. */
@@ -75,6 +77,7 @@ export const DEFAULTS: Settings = {
     autoRoutingMode: true,
     services: DEFAULT_SERVICES,
     controllerOverrides: {},
+    ignoredIssues: {},
     activityShowAddedToLibrary: true,
     activityShowFirstPlayed: true,
     activityShowAchievements: true,

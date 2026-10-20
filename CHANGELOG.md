@@ -5,6 +5,40 @@ All notable changes to **Steam Cartridges**.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Manual Edit is full screen and shows what each game is missing**: the games on the left, with **Only games with
+  issues** and a count per game; the missing Game Info, controller support or achievements of a game are tinted red.
+  Fix them there, link the right RetroAchievements, Steam or IGDB entry, mark a game as having **No achievements**, or
+  **Ignore issues** to take it off the list. **Fix issues** in Library Analytics opens the first one.
+
+- **Link a game to ScreenScraper** from Manual Edit: enter its id (or its page address), check the game it finds
+  (title, platforms, year, developers) and save its Game Info (best for console and arcade games). IGDB is linked by
+  its id the same way.
+- **Game Info from both web sources**: when IGDB leaves a field empty (developers, publishers, description, release
+  date, genres), ScreenScraper fills it, and the other way round, so one account is enough and two give the most.
+- **Removed games are forgotten**: a game removed from your library loses its stored data after a week (your own
+  edits and achievement unlocks are kept, in case you add it back).
+- **Loading indicators in Manual Edit**: a search, a link, a save or Fetch now shows Steam's spinner and what is
+  running ("Searching ScreenScraper...") in the card you used, until it is done; opening Manual Edit and choosing a
+  game show it too while their data loads.
+- **A game you link to IGDB or ScreenScraper stays linked**: the link is kept as your own edit (Revert undoes it); before,
+  the next refresh could match the title to another game.
+
+### Fixed
+
+- **The wrong IGDB entry for some games** (re-releases with no data won over the original); entries with developers
+  and a summary now win.
+- **Manual Edit's issues**: a fixed game leaves the "with issues" list, a missing publisher is no longer an issue, a
+  game removed from the library leaves the list while the window is open, and "No achievements" is only offered to a
+  game without any.
+
+### Removed
+
+- The **Review** popup of Library Analytics: everything it did is in Manual Edit.
+
 ## [0.2.0-beta] - 2026-10-19
 
 ### Added

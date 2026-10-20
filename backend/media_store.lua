@@ -59,4 +59,11 @@ function M.delete(appid)
   return pcall(save)
 end
 
+--- Every shortcut key (a string) the store holds, in no order (prune_removed.lua).
+function M.keys()
+  local out = {}
+  for k in pairs(load().games) do out[#out + 1] = k end
+  return out
+end
+
 return M

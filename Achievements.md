@@ -164,20 +164,23 @@ shadPS4's log is also read while you play. Like RPCS3, this source is not yet te
 
 ## Linking a game by hand
 
-Steam Cartridges settings → **Library Analytics → Review** lists games without a match. For each game you can:
+Steam Cartridges settings → **Library Analytics → Manual Edit** opens every game full screen. Turn on **Only games
+with issues** (or use **Fix issues**) to see the games missing something; what they miss is tinted red. For a game you
+can:
 
 - **Link RetroAchievements:** paste the game's RetroAchievements URL (`https://retroachievements.org/game/1234`) or its
-  id. Use this when the title match picked the wrong game.
-- **Link to Steam:** enter the Steam App ID (or store URL) of the same game, for its achievement list.
-- **No Achievements (Mark None):** stop looking for achievements for this game.
-- **Reset Achievement Source:** forget the link and let Steam Cartridges look again.
-- **Fetch:** look the game up again now.
+  id. Use this when the automatic match picked the wrong game.
+- **Steam link:** search Steam and link the same game, for its achievement list.
+- **No achievements:** the game has none; turn achievement detection off for it. **Retry achievement detection** turns
+  it back on.
+- **Fetch now:** look the game up again now.
+- **Ignore issues:** take the game off the issues list without changing anything.
 
 ## Troubleshooting
 
 - **No achievements section at all:** no source applies to the shortcut. Check the source's *What you need* above
   (most often: the ROM path is missing from the shortcut's command, or the file was moved).
-- **A game that was not found is not looked up again for a day.** Use **Fetch** in Library Analytics → Review to look it
+- **A game that was not found is not looked up again for a day.** Use **Fetch now** in Manual Edit to look it
   up now (after fixing the shortcut, for example). An update of Steam Cartridges that adds a source looks again by itself.
 - **RetroAchievements shows nothing:** check that you are signed in (an emulator's login, or the Web API Key in
   Achievements → Add source), and that RetroAchievements supports your ROM's version (its game page lists the supported

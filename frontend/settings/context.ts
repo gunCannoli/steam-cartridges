@@ -4,7 +4,14 @@
 import type { AutoRoutingProfile, ServiceTarget } from '../domain/routing/policy';
 import type { MetadataDraft } from '../domain/metadata-edit';
 import type { GameMetadata, SyncProgress } from '../kernel/record';
-import type { IgdbCandidate, StoreCandidate, StoreMapping } from '../ports/backend';
+import type { StoreCandidate, StoreMapping } from '../ports/backend';
+import type { ReactElement } from 'react';
+
+/** Structural copy of app/game-editor.ts LinkPreview (settings never import app/). */
+export interface LinkPreview {
+    title: string;
+    details: string;
+}
 
 /** Structural copy of app/game-editor.ts EditorSnapshot (settings never import app/; index.tsx checks the match). */
 export interface EditorSnapshot {
@@ -45,7 +52,9 @@ export interface PanelContext {
         /** Re-derive a game's badges after its controller override changed. */
         refresh(appid: number): void;
     };
-    steamStore: { setMapping(appid: number, steamAppid: number, name?: string): Promise<{ mapping?: unknown; error?: string }> };
+    /** Opens a dialog in its own window, as big as the screen (steam/modal.ts; ADR-0076): the settings window is narrow. */
+    /** `from`: the window the user clicked in (its screen sizes the popup, and the popup opens over it). */
+    dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window): void };
     editor: {
         load(appid: number): Promise<EditorSnapshot>;
         save(appid: number, draft: MetadataDraft): Promise<void>;
@@ -53,8 +62,10 @@ export interface PanelContext {
         search(term: string): Promise<{ candidates: StoreCandidate[]; error?: string }>;
         link(appid: number, steamAppid: number, name?: string): Promise<{ error?: string }>;
         unlink(appid: number, reject: boolean): Promise<{ error?: string }>;
-        searchIgdb(term: string): Promise<{ candidates: IgdbCandidate[]; error?: string }>;
         linkIgdb(appid: number, igdbId: number, title?: string): Promise<{ error?: string }>;
+        previewIgdb(appid: number, igdbId: number): Promise<{ game?: LinkPreview; error?: string }>;
+        linkScreenscraper(appid: number, ssId: number, title?: string): Promise<{ error?: string }>;
+        previewScreenscraper(appid: number, ssId: number): Promise<{ game?: LinkPreview; error?: string }>;
     };
 }
 
@@ -74,7 +85,7 @@ const INERT: PanelContext = {
     ingest: { progress: () => EMPTY_PROGRESS, onProgress: () => () => {}, trigger: () => {}, start: async () => {} },
     records: { achievementsOf: () => undefined },
     controller: { load: async () => {}, inferredFor: () => undefined, refresh: () => {} },
-    steamStore: { setMapping: async () => ({ error: 'not ready' }) },
+    dialog: { open: () => {} },
     editor: {
         load: async (appid) => ({ appid, title: String(appid), metadata: { appid, title: String(appid) }, hasMetadata: false, custom: false, link: null, rejected: [] }),
         save: async () => {},
@@ -82,8 +93,10 @@ const INERT: PanelContext = {
         search: async () => ({ candidates: [] }),
         link: async () => ({ error: 'not ready' }),
         unlink: async () => ({ error: 'not ready' }),
-        searchIgdb: async () => ({ candidates: [] }),
         linkIgdb: async () => ({ error: 'not ready' }),
+        linkScreenscraper: async () => ({ error: 'not ready' }),
+        previewIgdb: async () => ({ error: 'not ready' }),
+        previewScreenscraper: async () => ({ error: 'not ready' }),
     },
 };
 

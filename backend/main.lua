@@ -66,8 +66,8 @@ SaveCustomMetadata  = RECORD_RPC.SaveCustomMetadata
 ClearCustomMetadata = RECORD_RPC.ClearCustomMetadata
 SetAchievementSource = RECORD_RPC.SetAchievementSource
 ClearAchievementSource = RECORD_RPC.ClearAchievementSource
-IgdbSearch     = RECORD_RPC.IgdbSearch
 IgdbLink       = RECORD_RPC.IgdbLink
+ScreenscraperLink   = RECORD_RPC.ScreenscraperLink
 CheckUnlocks   = RECORD_RPC.CheckUnlocks
 GetNewShortcuts = RECORD_RPC.GetNewShortcuts
 MarkKnown      = RECORD_RPC.MarkKnown
@@ -119,6 +119,10 @@ local function on_load()
 
   millennium.ready()
   logger:info("Backend loaded.")
+
+  -- Forget shortcuts gone from the library for a week (ADR-0078); after ready, so it never delays the backend.
+  local ok_p, err_p = pcall(function() return require("prune_removed").run() end)
+  if not ok_p then logger:warn("pruning removed shortcuts failed: " .. tostring(err_p)) end
 end
 
 local function on_frontend_loaded()

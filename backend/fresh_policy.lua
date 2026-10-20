@@ -181,4 +181,18 @@ function M.recent_error(appid, part, now)
   return e.value
 end
 
+
+--- Every shortcut key (a string) with a check recorded, in no order (prune_removed.lua).
+function M.keys()
+  local out = {}
+  for k in pairs(load().parts) do out[#out + 1] = k end
+  return out
+end
+
+--- Forget every check of a shortcut (prune_removed.lua).
+function M.forget(appid)
+  load().parts[key(appid)] = nil
+  return pcall(save)
+end
+
 return M

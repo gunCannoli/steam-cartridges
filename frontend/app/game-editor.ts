@@ -4,8 +4,23 @@
 import type { ShortcutId } from "../kernel/appid";
 import { toShortcutId } from "../kernel/appid.ts";
 import type { GameMetadata, Identity, Part, RecordStore, Route } from "../kernel/record";
-import type { backend as Backend, IgdbCandidate, StoreCandidate, StoreMapping } from "../ports/backend";
+import type { backend as Backend, StoreCandidate, StoreMapping } from "../ports/backend";
 import { applyDraft, type MetadataDraft } from "../domain/metadata-edit.ts";
+
+/** A game found by id, shown for the user to confirm before it is saved (ADR-0079). */
+export interface LinkPreview {
+    title: string;
+    /** Platforms, year, developers: enough to tell versions apart. */
+    details: string;
+}
+
+/** The confirmation line of a fetched record. */
+export function previewOf(meta: GameMetadata): LinkPreview {
+    const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x !== "") : []);
+    const year = typeof meta.release_date === "number" && meta.release_date > 0 ? String(new Date(meta.release_date * 1000).getUTCFullYear()) : undefined;
+    const parts = [list(meta.platforms).slice(0, 2).join(", "), year, list(meta.developers).slice(0, 2).join(", ")].filter((x) => !!x);
+    return { title: meta.matched_title || meta.title || "Untitled", details: parts.join(" · ") };
+}
 
 export interface EditorSnapshot {
     appid: number;
@@ -31,12 +46,16 @@ export interface GameEditor {
     link(appid: number, steamAppid: number, name?: string): Promise<{ error?: string }>;
     /** reject = also remember the native app as "never suggest again". */
     unlink(appid: number, reject: boolean): Promise<{ error?: string }>;
-    searchIgdb(term: string): Promise<{ candidates: IgdbCandidate[]; error?: string }>;
     linkIgdb(appid: number, igdbId: number, title?: string): Promise<{ error?: string }>;
+    /** The IGDB game of an id, not saved. */
+    previewIgdb(appid: number, igdbId: number): Promise<{ game?: LinkPreview; error?: string }>;
+    linkScreenscraper(appid: number, ssId: number, title?: string): Promise<{ error?: string }>;
+    /** The ScreenScraper game of an id, not saved. */
+    previewScreenscraper(appid: number, ssId: number): Promise<{ game?: LinkPreview; error?: string }>;
 }
 
 export interface GameEditorDeps {
-    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbSearch" | "igdbLink">;
+    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbLink" | "screenscraperLink">;
     records: RecordStore;
     ensureBase(appid: ShortcutId): void;
     titleOf(appid: number): string | undefined;
@@ -116,11 +135,6 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
             return { error: res.error };
         },
 
-        async searchIgdb(term) {
-            const res = await deps.backend.igdbSearch(term);
-            return { candidates: res.candidates ?? [], error: res.error };
-        },
-
         async linkIgdb(appid, igdbId, title) {
             const id = shortcut(appid);
             deps.ensureBase(id);
@@ -128,6 +142,31 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
             if (res.error) return { error: res.error };
             if (res.metadata) {
                 deps.records.update(id, { metadata: { status: "ok", data: res.metadata, source: "igdb" } });
+            }
+            return {};
+        },
+
+        async previewIgdb(appid, igdbId) {
+            const id = shortcut(appid);
+            const res = await deps.backend.igdbLink(id, igdbId, deps.titleOf(id), true);
+            if (res.error || !res.metadata) return { error: res.error ?? "No IGDB game has this id." };
+            return { game: previewOf(res.metadata) };
+        },
+
+        async previewScreenscraper(appid, ssId) {
+            const id = shortcut(appid);
+            const res = await deps.backend.screenscraperLink(id, ssId, deps.titleOf(id), true);
+            if (res.error || !res.metadata) return { error: res.error ?? "No ScreenScraper game has this id." };
+            return { game: previewOf(res.metadata) };
+        },
+
+        async linkScreenscraper(appid, ssId, title) {
+            const id = shortcut(appid);
+            deps.ensureBase(id);
+            const res = await deps.backend.screenscraperLink(id, ssId, title ?? deps.titleOf(id));
+            if (res.error) return { error: res.error };
+            if (res.metadata) {
+                deps.records.update(id, { metadata: { status: "ok", data: res.metadata, source: "screenscraper" } });
             }
             return {};
         },

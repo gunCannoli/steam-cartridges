@@ -336,6 +336,45 @@ function M.search_jeu(appid, title, system_id)
   return jeu_cache[appid]
 end
 
+-- ---------- Manual link (Game Data editor, ADR-0077) ----------
+
+--- One request to ScreenScraper's API with this PC's accounts: the decoded `response`, or nil and "no-credentials" |
+--- "request-failed" | "not-found". The address carries the accounts: never logged.
+local function request(endpoint, extra, timeout)
+  local creds = config.get_screenscraper_credentials()
+  if not creds or (creds.dev_user == "" and creds.user == "") then return nil, "no-credentials" end
+  local dev_id = creds.dev_user ~= "" and creds.dev_user or creds.user
+  local dev_pw = creds.dev_pw ~= "" and creds.dev_pw or creds.pass
+  local url = string.format("https://api.screenscraper.fr/api2/%s?devid=%s&devpassword=%s&softname=steam-cartridges&output=json",
+    endpoint, utils.url_encode(dev_id), utils.url_encode(dev_pw))
+  if #creds.user > 0 and #creds.pass > 0 then
+    url = url .. string.format("&ssid=%s&sspassword=%s", utils.url_encode(creds.user), utils.url_encode(creds.pass))
+  end
+  local ok, res = pcall(net.get, url .. extra, { source = "screenscraper", user_agent = "steam-cartridges/1.0", timeout = timeout or 15 })
+  if not ok or not res or res.status ~= 200 or not res.body then
+    logger:info("ScreenScraper API request returned status " .. tostring(res and res.status))
+    return nil, "request-failed"
+  end
+  local decoded_ok, data = pcall(json.decode, res.body)
+  if not decoded_ok or type(data) ~= "table" or type(data.response) ~= "table" then return nil, "not-found" end
+  return data.response
+end
+
+--- The `jeu` of a ScreenScraper game id (jeuInfos.php?gameid=), also kept as this shortcut's game for the session (the
+--- media source then lists its images); or nil and why.
+function M.jeu_by_id(appid, game_id)
+  local id = tonumber(game_id)
+  if not id or id <= 0 then return nil, "not-found" end
+  local response, err = request("jeuInfos.php", "&gameid=" .. tostring(math.floor(id)))
+  if not response then return nil, err end
+  if type(response.jeu) ~= "table" then return nil, "not-found" end
+  if appid then
+    jeu_cache[appid] = response.jeu
+    search_missed[appid] = nil
+  end
+  return response.jeu
+end
+
 -- ---------- Community media (features plan F2b) ----------
 
 --- ScreenScraper media types Steam's Community Content section can show, and the card each becomes. Image types

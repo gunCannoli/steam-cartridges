@@ -87,16 +87,6 @@ export interface StoreCandidate {
     name: string;
 }
 
-export interface IgdbCandidate {
-    id: number;
-    name: string;
-    slug?: string;
-    year?: number;
-    platforms?: string[];
-    summary?: string;
-    cover?: string;
-}
-
 export interface FreshContext {
     /** The shortcut's display name (""  when unknown). */
     title: string;
@@ -317,10 +307,12 @@ export const backend = {
     clearAchievementSource(appid: number) {
         return call<{ ok?: boolean; error?: string }>("ClearAchievementSource", { appid });
     },
-    igdbSearch(query: string) {
-        return call<{ candidates?: IgdbCandidate[]; error?: string }>("IgdbSearch", { query });
+    /** `preview`: return the game without saving it (the user confirms first, ADR-0079). */
+    igdbLink(appid: number, igdb_id: number, title?: string, preview?: boolean) {
+        return call<{ ok?: boolean; preview?: boolean; metadata?: GameMetadata; error?: string }>("IgdbLink", { appid, igdb_id, title, preview });
     },
-    igdbLink(appid: number, igdb_id: number, title?: string) {
-        return call<{ ok?: boolean; metadata?: GameMetadata; error?: string }>("IgdbLink", { appid, igdb_id, title });
+    /** `preview`: return the game without saving it (the user confirms first, ADR-0079). */
+    screenscraperLink(appid: number, ss_id: number, title?: string, preview?: boolean) {
+        return call<{ ok?: boolean; preview?: boolean; metadata?: GameMetadata; error?: string }>("ScreenscraperLink", { appid, ss_id, title, preview });
     },
 };

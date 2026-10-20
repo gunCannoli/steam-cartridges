@@ -68,8 +68,10 @@ captures Steam already has. The rest is in Steam's Millennium settings under **S
   service (Steam Store Mirror, IGDB, ScreenScraper, SteamGridDB, RetroAchievements, Console Emulators) by **collection**,
   **game title** or a **regex pattern**. With **Auto Mode** off, every service may be used for every game unless a
   rule excludes it.
-- **Manual Edit:** your own Game Info for a game always wins, and Library Analytics → Review links a game to the right
-  Steam, IGDB or RetroAchievements entry by hand.
+- **Manual Edit** (Library Analytics): every game full screen. **Only games with issues** lists the games missing
+  Game Info, controller support or achievements, with what they miss tinted red; fill it in, link the right Steam, IGDB
+  ScreenScraper or RetroAchievements entry, mark a game as having **No achievements**, or **Ignore issues**. Your own Game Info for a
+  game always wins.
 
 **Your artwork stays yours.** A portrait, hero, logo, wide capsule or icon you set yourself in Steam is never replaced:
 Steam Cartridges only fills the empty ones (and replaces only art it put there itself).

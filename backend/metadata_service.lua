@@ -240,6 +240,42 @@ local function fallback_record(appid, title)
   }
 end
 
+--- The Game Info fields a source may leave empty that another can fill (titles and player flags never mix).
+M.GAP_FIELDS = { "description", "developers", "publishers", "release_date", "genres", "franchises" }
+
+local function empty(v)
+  if v == nil then return true end
+  if type(v) == "string" then return v:match("^%s*$") ~= nil end
+  if type(v) == "number" then return v <= 0 end
+  if type(v) == "table" then return next(v) == nil end
+  return false
+end
+
+--- `meta` with its empty GAP_FIELDS (and `platforms`) taken from `other()` -> other meta, other source name, asked only
+--- when a field is empty. Records where they came from in `filled_from` (field -> source). The record keeps its own
+--- `source` and ids; the other source's id is added when the record has none.
+function M.fill_gaps(meta, source, other)
+  local missing = {}
+  for _, k in ipairs(M.GAP_FIELDS) do
+    if empty(meta[k]) then missing[#missing + 1] = k end
+  end
+  if #missing == 0 or type(other) ~= "function" then return meta end
+  local ok, extra, extra_source = pcall(other)
+  if not ok or type(extra) ~= "table" then return meta end
+  meta.filled_from = type(meta.filled_from) == "table" and meta.filled_from or {}
+  for _, k in ipairs(missing) do
+    if not empty(extra[k]) then
+      meta[k] = extra[k]
+      meta.filled_from[k] = extra_source
+    end
+  end
+  if empty(meta.platforms) and not empty(extra.platforms) then meta.platforms = extra.platforms end
+  if meta.igdb_id == nil and extra.igdb_id ~= nil then meta.igdb_id = extra.igdb_id end
+  if meta.ss_id == nil and extra.ss_id ~= nil then meta.ss_id = extra.ss_id end
+  if next(meta.filled_from) == nil then meta.filled_from = nil end
+  return meta
+end
+
 --- Full resolution: local db -> steam appdetails / storeItem -> igdb -> fallback.
 --- Returns a Part (table). ctx = { title=, route={bucket=,via=}, owned=?, storeItem=?,
 --- allowWeb=?, noNetwork=? }
@@ -335,6 +371,14 @@ function M.ensure(appid, ctx)
     if meta then source = "screenscraper" end
   end
   if meta then
+    meta = M.fill_gaps(meta, source, function()
+      -- The other web source, only for the fields this one left empty (ADR-0078): a user with one account still gets
+      -- what the other has, and one with both gets the union.
+      if ctx.noNetwork then return nil end
+      if source == "igdb" and ctx.allowScreenscraper then return screenscraper_fetch(appid, title, info), "screenscraper" end
+      if source == "screenscraper" and ctx.allowWeb then return igdb_fetch(appid, title, info), "igdb" end
+      return nil
+    end)
     metadata_db.set(appid, meta)
     fresh().touch(appid, "metadata", now_ms())
     return { status = "ok", data = meta, source = source, checkedAt = now_ms() }

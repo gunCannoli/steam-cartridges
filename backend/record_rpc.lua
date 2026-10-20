@@ -329,13 +329,6 @@ RPC.ClearAchievementSource = method("ClearAchievementSource", function(data)
   return { ok = true }
 end)
 
---- { query }: Search IGDB for game candidates
-RPC.IgdbSearch = method("IgdbSearch", function(data)
-  local query = need(data, "query")
-  local igdb = require("web_igdb")
-  return { candidates = igdb.search(query) }
-end)
-
 --- { appid, igdb_id, title }: Link a game to an IGDB game ID and fetch its full metadata
 RPC.IgdbLink = method("IgdbLink", function(data)
   local appid = need(data, "appid")
@@ -347,6 +340,29 @@ RPC.IgdbLink = method("IgdbLink", function(data)
   if not meta then
     return { error = err or "could not fetch IGDB metadata" }
   end
+  -- `preview`: what the id is, for the user to confirm before anything is saved (ADR-0079).
+  if data.preview then return { ok = true, preview = true, metadata = meta } end
+  -- A link is the user's choice: kept as their own edit, which no refresh replaces (a refresh looks the game up by
+  -- title again, so an unprotected link lasted a day; found 2026-10-19). Revert (ClearCustomMetadata) undoes it.
+  meta.custom_override = true
+  metadata_db.set(s_appid, meta, true)
+  fresh().touch(s_appid, "metadata", now_ms())
+  return { ok = true, metadata = meta }
+end)
+
+--- { appid, ss_id, title }: link a game to a ScreenScraper game and take its Game Info, saved as the user's own edit (as
+--- IgdbLink).
+RPC.ScreenscraperLink = method("ScreenscraperLink", function(data)
+  local appid = need(data, "appid")
+  if not is_shortcut(appid) then return { error = "not a shortcut" } end
+  local s_appid = tonumber(appid)
+  -- `preview`: what the id is, for the user to confirm; not kept as the session's media game either (ADR-0079).
+  local jeu, err = require("screenscraper_media").jeu_by_id(not data.preview and s_appid or nil, need(data, "ss_id"))
+  if not jeu then return { error = err == "no-credentials" and "Add your ScreenScraper account first (Metadata > Add service)." or "Could not read that ScreenScraper game." } end
+  local meta = require("metadata_service").screenscraper_to_metadata(jeu, s_appid, data.title or "")
+  if not meta then return { error = "Could not read that ScreenScraper game." } end
+  if data.preview then return { ok = true, preview = true, metadata = meta } end
+  meta.custom_override = true -- the user's choice, as IgdbLink: no refresh replaces it; Revert undoes it
   metadata_db.set(s_appid, meta, true)
   fresh().touch(s_appid, "metadata", now_ms())
   return { ok = true, metadata = meta }

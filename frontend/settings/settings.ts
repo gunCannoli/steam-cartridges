@@ -41,6 +41,11 @@ const VALIDATORS: { [K in SettingKey]: (raw: unknown) => Settings[K] } = {
         };
     },
     controllerOverrides: (raw) => (raw && typeof raw === 'object' ? (raw as Record<string, ControllerOverride>) : {}),
+    ignoredIssues: (raw) => {
+        const out: Record<string, boolean> = {};
+        if (raw && typeof raw === 'object') for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (v === true) out[k] = true;
+        return out;
+    },
 };
 
 const current: Settings = {
@@ -51,6 +56,7 @@ const current: Settings = {
     autoRoutingMode: true,
     services: DEFAULT_SERVICES,
     controllerOverrides: {},
+    ignoredIssues: {},
     activityShowAddedToLibrary: true,
     activityShowFirstPlayed: true,
     activityShowAchievements: true,

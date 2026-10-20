@@ -247,6 +247,16 @@ local function score_candidate(cand, clean_lower, hints)
     score = score + 30
   end
 
+  -- Of entries with the same name, the one with real data: IGDB keeps re-releases and per-platform copies with no
+  -- companies or summary ("Teenage Mutant Ninja Turtles: Tournament Fighters": a 2022 SNES entry without developers
+  -- won over the 1993 one, both "--n" variants; seen 2026-10-19).
+  if type(cand.involved_companies) == "table" then
+    for _, c in ipairs(cand.involved_companies) do
+      if type(c) == "table" and c.developer then score = score + 40 break end
+    end
+  end
+  if type(cand.summary) == "string" and #cand.summary > 0 then score = score + 15 end
+
   -- Canonical slug preference (e.g. "chrono-trigger" vs "chrono-trigger--3")
   if cand.slug and type(cand.slug) == "string" then
     if not cand.slug:find("%-%-") then
@@ -548,50 +558,6 @@ function igdb.fetch_game_metadata(appid, raw_title, shortcut_info)
   logger:info("Matched IGDB game: '" .. tostring(game.name) .. "' (ID: " .. tostring(game.id) .. ", slug: " .. tostring(game.slug) .. ", category: " .. tostring(game.category) .. ", score: " .. tostring(best_score) .. ")")
 
   return igdb.to_consolidated_metadata(appid, raw_title, game)
-end
-
---- Search IGDB by term for candidate games (for manual link picker).
----@param term string
----@param limit? number
----@return table
-function igdb.search(term, limit)
-  if not term or #term == 0 then return {} end
-  limit = limit or 15
-  local clean = clean_title(term)
-  if #clean == 0 then clean = term end
-  local fields = "fields id, name, slug, first_release_date, platforms.name, platforms.abbreviation, summary, cover.url; "
-  local query = fields .. 'search "' .. escape_query(clean) .. '"; limit ' .. tostring(limit) .. ';'
-  local res = query_igdb(query)
-  if not res or type(res) ~= "table" then return {} end
-  local out = {}
-  for _, g in ipairs(res) do
-    local year = nil
-    if g.first_release_date then
-      year = os.date("!*t", g.first_release_date).year
-    end
-    local plats = {}
-    if type(g.platforms) == "table" then
-      for _, p in ipairs(g.platforms) do
-        if p.abbreviation then plats[#plats + 1] = p.abbreviation
-        elseif p.name then plats[#plats + 1] = p.name end
-      end
-    end
-    local cover_url = nil
-    if type(g.cover) == "table" and g.cover.url then
-      cover_url = g.cover.url
-      if cover_url:sub(1, 2) == "//" then cover_url = "https:" .. cover_url end
-    end
-    table.insert(out, {
-      id = g.id,
-      name = g.name,
-      slug = g.slug,
-      year = year,
-      platforms = plats,
-      summary = truncate_smart(g.summary or "", 160, 40),
-      cover = cover_url,
-    })
-  end
-  return out
 end
 
 --- Fetch full metadata for a specific IGDB game ID

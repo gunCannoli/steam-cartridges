@@ -189,6 +189,18 @@ function M.reset(shortcut_appid)
   return { ok = true, unlocks = {} }
 end
 
+--- Forget a shortcut's entry (prune_removed.lua), unless it holds unlocks: those are the player's progress, kept in case
+--- the game comes back. Shared schemas are left alone. Returns true when the entry was removed.
+function M.forget(shortcut_appid)
+  local s = load()
+  local sc_key = tostring(math.floor(tonumber(shortcut_appid) or 0))
+  local sc = s.shortcuts[sc_key]
+  if not sc or (type(sc.unlocks) == "table" and next(sc.unlocks) ~= nil) then return false end
+  s.shortcuts[sc_key] = nil
+  save()
+  return true
+end
+
 --- Every shortcut key (a string) the store holds an entry for, in no order. Disk only (ADR-0045).
 function M.shortcut_keys()
   local keys = {}

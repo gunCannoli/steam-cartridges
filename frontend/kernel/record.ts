@@ -89,6 +89,8 @@ export interface GameMetadata {
     appid: number;
     title: string;
     igdb_id?: number;
+    /** The ScreenScraper game the record came from (screenscraper_to_metadata, ScreenscraperLink). */
+    ss_id?: number;
     matched_title?: string;
     short_description?: string;
     summary?: string;

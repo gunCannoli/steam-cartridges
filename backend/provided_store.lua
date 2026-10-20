@@ -74,4 +74,11 @@ function M.keys()
   return out
 end
 
+
+--- Forget a shortcut (prune_removed.lua: the shortcut left the library long ago).
+function M.delete(appid)
+  load().games[key(appid)] = nil
+  return pcall(save)
+end
+
 return M

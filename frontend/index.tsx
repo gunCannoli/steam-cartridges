@@ -1,4 +1,5 @@
 import { definePlugin, IconsModule } from "@steambrew/client";
+import { screenSize, showDialog } from "./steam/modal";
 import { logger } from "./logger";
 import {
     createCapturesSurface,
@@ -467,7 +468,7 @@ async function init() {
                 if (id !== undefined) metadata.rebadge(id);
             },
         },
-        steamStore: { setMapping: steamStore.setMapping },
+        dialog: { open: (element, title, onClose, from) => showDialog(element, { title, ...screenSize(from), onClose, parent: from }) },
         editor: gameEditor,
     });
 

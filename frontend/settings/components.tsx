@@ -1,7 +1,7 @@
 // Shared building blocks of the settings panels (migration plan M8c). The spacing system and row kinds are the ones of
 // enhanced-notifications (its settings/rows.tsx), the reference; the rules are in docs/plugins.md § Settings panel layout.
 import { Children, useEffect, useState } from "react";
-import { DialogButton, Field, PanelSectionRow, SliderField, Toggle as SteamToggle } from "@steambrew/client";
+import { DialogButton, Field, PanelSectionRow, SliderField, Spinner, TextField, Toggle as SteamToggle } from "@steambrew/client";
 
 /** Steam's settings-card background (a Field's own), measured live: rgb(35, 38, 46). */
 export const CARD_BACKGROUND = "rgb(35, 38, 46)";
@@ -137,19 +137,27 @@ export function IconButton({ onClick, title, children }: { onClick: () => void; 
 /** A button sized to its label (popup actions, ButtonRow). */
 export const BUTTON_STYLE: React.CSSProperties = { padding: "0 16px", minWidth: 0, width: "auto" };
 
+/** Steam's own small spinner (a missing export draws nothing rather than breaking the panel). */
+export function LoadingSpinner() {
+    if (typeof Spinner !== "function" && typeof Spinner !== "object") return null;
+    return <Spinner style={{ width: 18, height: 18, flexShrink: 0 }} />;
+}
+
 /** The last row of a popup: a status message on the left, its buttons on the right. A message ending in "..." is
- *  progress, one starting with "✓" success, anything else an error. */
+ *  progress (with Steam's spinner beside it: the work runs in the background), one starting with "✓" success,
+ *  anything else an error. */
 export function ActionRow({ message, children }: { message?: string; children?: React.ReactNode }) {
-    const color = !message
-        ? undefined
-        : message.startsWith("✓")
-          ? "#a4d007"
-          : message.endsWith("...")
-            ? undefined
-            : "#eb4b4b";
+    const progress = !!message && message.endsWith("...");
+    const color = !message ? undefined : message.startsWith("✓") ? "#a4d007" : progress ? undefined : "#eb4b4b";
+    const label = message ? (
+        <span style={{ color, fontWeight: 400, display: "inline-flex", alignItems: "center", gap: CONTROL_GAP }}>
+            {progress && <LoadingSpinner />}
+            {message}
+        </span>
+    ) : undefined;
     return (
         <ItemRow>
-            <Field label={message ? <span style={{ color, fontWeight: 400 }}>{message}</span> : undefined} bottomSeparator="none">
+            <Field label={label} bottomSeparator="none">
                 {children && <div style={{ display: "flex", gap: CONTROL_GAP }}>{children}</div>}
             </Field>
         </ItemRow>
@@ -217,6 +225,59 @@ export function FullWidthRows({
                 </Field>
             </ItemRow>
         </>
+    );
+}
+
+/** One block drawn as a card (Steam's settings-card colour), for a popup whose blocks sit on a darker background. */
+export function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+    return (
+        <div style={{ background: CARD_BACKGROUND, borderRadius: "4px", border: "1px solid rgba(255, 255, 255, 0.08)", overflow: "hidden", ...style }}>
+            {children}
+        </div>
+    );
+}
+
+/** A layer over `children` while `on` (a highlight): Steam's rows paint their own background, so a tint under them
+ *  never shows; this one lies on top and lets every click through. */
+export function Overlay({ on, color, edge, children }: { on: boolean; color: string; edge?: string; children: React.ReactNode }) {
+    if (!on) return <>{children}</>;
+    return (
+        <div style={{ position: "relative" }}>
+            {children}
+            <div style={{ position: "absolute", inset: 0, background: color, boxShadow: edge ? `inset 3px 0 0 ${edge}` : undefined, pointerEvents: "none" }} />
+        </div>
+    );
+}
+
+/** A text field (guardrail 18.3): its label and description in Steam's own indent, then the field across the full row. */
+export function TextRows({
+    label,
+    description,
+    value,
+    onChange,
+    onKeyDown,
+    password,
+    disabled,
+}: {
+    label: string;
+    description?: string;
+    value: string;
+    onChange: (value: string) => void;
+    onKeyDown?: (e: React.KeyboardEvent) => void;
+    password?: boolean;
+    disabled?: boolean;
+}) {
+    // One Field with the control below its label, like a textarea; Steam puts the description under the control. The
+    // TextField's own 22 px tail is cancelled inside the Field, so the description follows the field closely and the
+    // row ends with Steam's own spacing (measured live 2026-10-19).
+    return (
+        <ItemRow>
+            <Field label={label} description={description} disabled={disabled} childrenLayout="below" childrenContainerWidth="max" bottomSeparator="none">
+                <div style={{ width: "100%", marginBottom: description ? -(STEAM_TRAILING - 16) : -STEAM_TRAILING }}>
+                    <TextField value={value} bIsPassword={password} disabled={disabled} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} />
+                </div>
+            </Field>
+        </ItemRow>
     );
 }
 
