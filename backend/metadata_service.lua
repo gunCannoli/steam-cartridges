@@ -16,6 +16,12 @@ local igdb             = require("web_igdb")
 
 local M = {}
 
+--- A line in the plugin log (plog.lua): which tier answered and why, so "it did not fetch" can be traced.
+local function note(msg)
+  local ok, plog = pcall(require, "plog")
+  if ok then plog.event("metadata", msg) end
+end
+
 --- Injectable for tests. nil = the real dependency.
 M.deps = {
   fresh = nil,            -- nil = fresh_policy (M7a): when a local record is stale
@@ -237,8 +243,20 @@ local function fallback_record(appid, title)
       full_controller = true,
     },
     custom_override = false,
+    fallback = true, -- no source knew the game: asked again as soon as one may be (is_fallback)
   }
 end
+
+--- A record no source filled in: the fallback written when nothing knew the game (marked `fallback`, or, for one saved
+--- before the mark, no source id and no text). Looked up again when a source is set up after the game was added.
+local function is_fallback(rec)
+  if type(rec) ~= "table" or rec.custom_override then return false end
+  if rec.fallback == true then return true end
+  return not rec.igdb_id and not rec.ss_id and not rec.store_source and not rec.steam_appid
+    and (rec.description or "") == "" and not (rec.developers and rec.developers[1])
+    and not (rec.publishers and rec.publishers[1]) and not (rec.genres and rec.genres[1])
+end
+M.is_fallback = is_fallback
 
 --- The Game Info fields a source may leave empty that another can fill (titles and player flags never mix).
 M.GAP_FIELDS = { "description", "developers", "publishers", "release_date", "genres", "franchises" }
@@ -346,6 +364,10 @@ function M.ensure(appid, ctx)
     -- as soon as the copy is known (the store comes first).
     local due = ctx.force or fresh().is_stale(appid, "metadata", { status = "ok", source = "local_db" }, now_ms())
       or (use_store and local_rec.store_source ~= pushed.source)
+      -- An empty fallback record is asked again whenever a source may be, at most every 30 min (the error TTL), not
+      -- after 24 h: adding IGDB or ScreenScraper must reach the games that were added before it.
+      or (is_fallback(local_rec) and (ctx.allowWeb or ctx.allowScreenscraper)
+        and fresh().is_stale(appid, "metadata", { status = "error" }, now_ms()))
     if not (due and can_fetch) then
       -- The view's paint (ADR-0060) shows the record now and flags it when a source would refresh it.
       local stale = (ctx.noNetwork and due and (ctx.allowWeb or ctx.allowScreenscraper)) and true or nil
@@ -356,6 +378,9 @@ function M.ensure(appid, ctx)
   end
 
   local info = shortcut_info(appid)
+  note(string.format("fetch for %s (%q): bucket=%s via=%s allowWeb=%s allowScreenscraper=%s force=%s store=%s",
+    tostring(appid), title, tostring(route.bucket), tostring(route.via), tostring(ctx.allowWeb),
+    tostring(ctx.allowScreenscraper), tostring(ctx.force), tostring(use_store)))
   -- IGDB first when the user has it (a plain ScreenScraper account is the easy one, so it fills
   -- in when IGDB is not configured or finds no match), then the fallback record (M5d).
   local meta, source
@@ -365,10 +390,16 @@ function M.ensure(appid, ctx)
   if not meta and ctx.allowWeb and not ctx.noNetwork then
     meta = igdb_fetch(appid, title, info)
     if meta then source = "igdb" end
+    note("igdb for " .. tostring(appid) .. ": " .. (meta and ("matched " .. tostring(meta.matched_title) .. " (id " .. tostring(meta.igdb_id) .. ")") or "no match"))
+  elseif not meta then
+    note("igdb skipped for " .. tostring(appid) .. ": allowWeb=" .. tostring(ctx.allowWeb) .. " noNetwork=" .. tostring(ctx.noNetwork))
   end
   if not meta and ctx.allowScreenscraper and not ctx.noNetwork then
     meta = screenscraper_fetch(appid, title, info)
     if meta then source = "screenscraper" end
+    note("screenscraper for " .. tostring(appid) .. ": " .. (meta and ("matched " .. tostring(meta.matched_title) .. " (id " .. tostring(meta.ss_id) .. ")") or "no match"))
+  elseif not meta then
+    note("screenscraper skipped for " .. tostring(appid) .. ": allowScreenscraper=" .. tostring(ctx.allowScreenscraper) .. " noNetwork=" .. tostring(ctx.noNetwork))
   end
   if meta then
     meta = M.fill_gaps(meta, source, function()
@@ -394,9 +425,11 @@ function M.ensure(appid, ctx)
   -- chance of real data; ask again once it is free.
   local net = require("net")
   if (ctx.allowWeb and net.is_paused("igdb")) or (ctx.allowScreenscraper and net.is_paused("screenscraper")) then
+    note("source paused for " .. tostring(appid) .. ": not saving the fallback, will ask again")
     return { status = "pending", message = "paused", checkedAt = now_ms() }
   end
 
+  note("no source had " .. tostring(appid) .. " (" .. title .. "): saving the empty fallback record")
   local fallback = fallback_record(appid, title)
   metadata_db.set(appid, fallback)
   fresh().touch(appid, "metadata", now_ms())

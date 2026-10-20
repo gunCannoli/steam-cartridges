@@ -584,4 +584,23 @@ function igdb.query(apicalypse_query)
   return query_igdb(apicalypse_query)
 end
 
+--- Sign in to Twitch with the saved Client ID and Secret, without asking IGDB anything (Settings: "is the account
+--- connected?"). Always asks Twitch again, so a just-saved value is what is tested.
+---@return boolean ok
+---@return string message
+function igdb.check()
+  local creds = config.get_twitch_credentials()
+  if not creds then return false, "No Twitch Client ID and Secret are saved." end
+  cached_token, token_expires_at = nil, 0
+  local url = "https://id.twitch.tv/oauth2/token?client_id=" .. creds.client_id ..
+              "&client_secret=" .. creds.client_secret .. "&grant_type=client_credentials"
+  local res, err = http_post(url, { ["Accept"] = "application/json" }, "", 15)
+  if not res then return false, "Twitch could not be reached (" .. tostring(err) .. ")." end
+  if res.status == 200 and get_access_token() then return true, "Twitch accepted the Client ID and Secret." end
+  if res.status == 400 or res.status == 401 or res.status == 403 then
+    return false, "Twitch refused the Client ID or Secret (HTTP " .. tostring(res.status) .. "). Check both values."
+  end
+  return false, "Twitch answered HTTP " .. tostring(res.status) .. "."
+end
+
 return igdb

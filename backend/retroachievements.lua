@@ -65,6 +65,12 @@ function M.emulator_dirs()
   return dirs
 end
 
+--- A line in the plugin log (plog.lua), tagged "retroachievements": why a game got, or did not get, its set.
+local function note(msg)
+  local ok, plog = pcall(require, "plog")
+  if ok then plog.event("retroachievements", msg) end
+end
+
 local function count_keys(tbl)
   local c = 0
   for _ in pairs(tbl or {}) do c = c + 1 end
@@ -753,11 +759,13 @@ function M.get_game_id_by_md5(md5)
   })
 
   if not ok or not res or res.status ~= 200 or not res.body then
+    note(string.format("gameid lookup for md5 %s failed: %s", md5, ok and (res and ("HTTP " .. tostring(res.status)) or "no response") or ("error " .. tostring(res))))
     return nil, "http request failed"
   end
 
   local decode_ok, data = pcall(json.decode, res.body)
   if not decode_ok or type(data) ~= "table" then
+    note("gameid lookup returned something that is not JSON: " .. tostring(res.body):sub(1, 200))
     return nil, "invalid gameid response"
   end
   if not data.Success or not data.GameID or data.GameID == 0 then
@@ -1082,6 +1090,10 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
     end
   end
 
+  if #k == 0 or #u == 0 then
+    note(string.format("fetch for GameID %d without full credentials: user=%s api_key=%s (the profile request will be skipped or refused)", gid, #u > 0 and "yes" or "NO", #k > 0 and "yes" or "NO"))
+  end
+
   local is_hardcore = (hardcore ~= false)
   local h_val = is_hardcore and 1 or 0
 
@@ -1335,6 +1347,7 @@ function M.get_or_fetch(shortcut_appid, hardcore)
   -- 2. Resolve shortcut from shortcuts.vdf
   local paths, p_err = steam_paths.resolve()
   if not paths or not paths.shortcuts then
+    note("shortcut " .. s_appid .. ": cannot resolve Steam's shortcuts path: " .. tostring(p_err))
     return nil, "cannot resolve steam shortcuts path"
   end
 
@@ -1348,20 +1361,27 @@ function M.get_or_fetch(shortcut_appid, hardcore)
   end
 
   if not sc then
+    note("shortcut " .. s_appid .. " not found in shortcuts.vdf")
     return nil, "shortcut not found in shortcuts.vdf"
   end
 
   -- 3. Read Emulator credentials (using shortcut exe as hint)
   local creds = M.get_credentials(sc.exe)
+  note(string.format("shortcut %d (%q): exe=%s launch=%s; credentials: user=%s token=%s api_key=%s via %s",
+    s_appid, tostring(sc.name or sc.appname or ""), tostring(sc.exe), tostring(sc.launch_options),
+    creds and creds.username and "yes" or "NO", creds and creds.token and "yes" or "NO",
+    creds and creds.api_key and "yes" or "NO", tostring(creds and creds.emulator or "none")))
 
   -- 4. Extract ROM path
   local rom_path = M.extract_rom_path(sc.exe, sc.launch_options)
   if not rom_path then
+    note("shortcut " .. s_appid .. ": no ROM path found in the exe or launch options (title matching is not used when a ROM is expected)")
     return nil, "cannot extract rom path from shortcut"
   end
 
   -- 5. Compute ROM MD5
   local md5, md5_err = M.compute_rom_md5(rom_path)
+  note(string.format("shortcut %d: rom=%s md5=%s%s", s_appid, tostring(rom_path), tostring(md5), md5 and "" or (" (" .. tostring(md5_err) .. ")")))
 
   -- 6. Query GameID from RetroAchievements
   local game_id = nil
@@ -1371,7 +1391,9 @@ function M.get_or_fetch(shortcut_appid, hardcore)
   if has_md5 then
     local known, known_id = ra_cache.game_for(md5)
     known_miss = known and not known_id
-    game_id = M.get_game_id_by_md5(md5)
+    local why
+    game_id, why = M.get_game_id_by_md5(md5)
+    note(string.format("shortcut %d: gameid for md5 %s = %s%s", s_appid, md5, tostring(game_id), game_id and "" or (" (" .. tostring(why) .. ")")))
   end
 
   local schema, unlocks = nil, nil
@@ -1402,12 +1424,14 @@ function M.get_or_fetch(shortcut_appid, hardcore)
     local title = sc.name or sc.appname or ""
     game_id = M.find_game_id_by_title(title, sc.exe, sc.launch_options, s_appid)
     if not game_id then
+      note("shortcut " .. s_appid .. ": no title match on RetroAchievements for " .. title)
       return nil, "cannot find game on RetroAchievements"
     end
     schema, unlocks = M.fetch_game_data(game_id, creds.username, creds.token, is_hardcore, creds.api_key)
   end
 
   if not schema or (schema.total or 0) == 0 then
+    note("shortcut " .. s_appid .. ": GameID " .. tostring(game_id) .. " gave no achievements (see the request lines above)")
     return nil, "cannot fetch game data"
   end
 
@@ -1645,6 +1669,30 @@ function M.get_emulator_status()
     env_fallback = env_fallback,
     env_username = env_username,
   }
+end
+
+--- Is the user + Web API key pair accepted? API_GetUserProfile with the saved account. Returns ok, message.
+---@return boolean ok
+---@return string message
+function M.check()
+  local creds = require("web_config").get_retroachievements_credentials()
+  if not creds or not creds.api_key then return false, "No RetroAchievements Web API key is saved." end
+  if not creds.username then return false, "No RetroAchievements username is saved." end
+  local url = string.format("https://retroachievements.org/API/API_GetUserProfile.php?y=%s&u=%s",
+    utils.url_encode(creds.api_key), utils.url_encode(creds.username))
+  local res, err = net.get(url, { source = "retroachievements", user_agent = "steam-cartridges/1.0",
+    headers = { ["Accept"] = "application/json" }, timeout = 15 })
+  if not res then return false, "RetroAchievements could not be reached (" .. tostring(err) .. ")." end
+  if res.status == 200 then
+    local ok, data = pcall(json.decode, res.body or "")
+    if ok and type(data) == "table" and (data.User or data.ULID or data.TotalPoints) then
+      return true, "RetroAchievements accepted the account (" .. tostring(data.User or creds.username) .. ")."
+    end
+    return false, "RetroAchievements answered, but not with a profile: check the username."
+  end
+  if res.status == 401 or res.status == 403 then return false, "RetroAchievements refused the Web API key (HTTP " .. tostring(res.status) .. ")." end
+  if res.status == 404 then return false, "RetroAchievements does not know that username." end
+  return false, "RetroAchievements answered HTTP " .. tostring(res.status) .. "."
 end
 
 return M

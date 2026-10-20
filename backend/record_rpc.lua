@@ -337,6 +337,7 @@ RPC.IgdbLink = method("IgdbLink", function(data)
   local s_appid = tonumber(appid)
   local igdb = require("web_igdb")
   local meta, err = igdb.fetch_by_id(s_appid, igdb_id, data.title)
+  pcall(function() require("plog").event("metadata", "IgdbLink " .. tostring(s_appid) .. " id " .. tostring(igdb_id) .. (data.preview and " (preview)" or "") .. ": " .. (meta and "ok" or tostring(err))) end)
   if not meta then
     return { error = err or "could not fetch IGDB metadata" }
   end
@@ -358,6 +359,7 @@ RPC.ScreenscraperLink = method("ScreenscraperLink", function(data)
   local s_appid = tonumber(appid)
   -- `preview`: what the id is, for the user to confirm; not kept as the session's media game either (ADR-0079).
   local jeu, err = require("screenscraper_media").jeu_by_id(not data.preview and s_appid or nil, need(data, "ss_id"))
+  pcall(function() require("plog").event("metadata", "ScreenscraperLink " .. tostring(s_appid) .. " id " .. tostring(data.ss_id) .. (data.preview and " (preview)" or "") .. ": " .. (jeu and "ok" or tostring(err))) end)
   if not jeu then return { error = err == "no-credentials" and "Add your ScreenScraper account first (Metadata > Add service)." or "Could not read that ScreenScraper game." } end
   local meta = require("metadata_service").screenscraper_to_metadata(jeu, s_appid, data.title or "")
   if not meta then return { error = "Could not read that ScreenScraper game." } end

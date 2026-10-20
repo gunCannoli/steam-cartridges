@@ -111,4 +111,29 @@ RPC.GetDiagnostics = method("GetDiagnostics", function(_)
   }
 end)
 
+--- Settings: "is the account I just saved connected?" { service = "igdb" | "screenscraper" | "steamgriddb" |
+--- "retroachievements" } -> { ok, message }. One small request to that service with the saved values; the line it
+--- leaves in the plugin log (net.lua) says what came back.
+RPC.TestServiceConnection = method("TestServiceConnection", function(data)
+  local service = tostring(data.service or "")
+  local ok, success, message
+  if service == "igdb" then
+    ok, success, message = pcall(function() return require("web_igdb").check() end)
+  elseif service == "screenscraper" then
+    ok, success, message = pcall(function() return require("screenscraper_media").check() end)
+  elseif service == "steamgriddb" then
+    ok, success, message = pcall(function() return require("web_sgdb").check(require("web_config").get_api_key()) end)
+  elseif service == "retroachievements" then
+    ok, success, message = pcall(function() return require("retroachievements").check() end)
+  else
+    return { ok = false, message = "Unknown service." }
+  end
+  if not ok then
+    logger:error("TestServiceConnection " .. service .. " failed: " .. tostring(success))
+    return { ok = false, message = "The check failed: " .. tostring(success) }
+  end
+  pcall(function() require("plog").event("settings", service .. " connection check: " .. tostring(success) .. " - " .. tostring(message)) end)
+  return { ok = success == true, message = message }
+end)
+
 return RPC

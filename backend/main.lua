@@ -16,6 +16,9 @@ if jit and jit.off then
   jit.off()
 end
 
+-- The plugin's own log file (plog.lua): installed before any other module, so each `require("logger")` below gets the tee.
+require("plog").install()
+
 local logger      = require("logger")
 local millennium  = require("millennium")
 local steam_paths = require("steam_paths")
@@ -35,6 +38,7 @@ local PROVIDED_RPC = require("provided_rpc")
 -- Millennium exposes globals to the frontend as callable methods.
 GetLibraryStats = RPC.GetLibraryStats
 GetDiagnostics  = RPC.GetDiagnostics
+TestServiceConnection = RPC.TestServiceConnection
 
 -- Web metadata + artwork handlers keep their raw payload_json signatures.
 GetStatus            = WEB_RPC.GetStatus
@@ -99,6 +103,17 @@ local function on_load()
   local ok_cwd, cwd = pcall(function() return require("fs").current_path() end)
   logger:info("self-check: cwd=" .. tostring(ok_cwd and cwd or "unavailable")
     .. ", data_dir=" .. tostring(data_dir.path()))
+
+  -- What a bug report needs first: where things are and which services are set up (yes/no, never a value).
+  local plog = require("plog")
+  local function yn(v) return v and "yes" or "no" end
+  local ok_v, mver = pcall(function() return millennium.version() end)
+  plog.event("startup", string.format("millennium=%s steam=%s data_dir=%s log=%s", tostring(ok_v and mver or "unknown"),
+    tostring(paths and paths.root), data_dir.path(), plog.path()))
+  plog.event("startup", string.format("credentials: igdb=%s screenscraper=%s steamgriddb=%s retroachievements=%s; shortcuts=%s",
+    yn(config.get_twitch_credentials()), yn(config.get_screenscraper_credentials()), yn(config.get_api_key()),
+    yn(config.get_retroachievements_credentials()),
+    tostring(paths and paths.shortcuts and #(require("shortcuts").parse(paths.shortcuts) or {}) or "unknown")))
 
   -- A migration failure logs and continues.
   local ok_m, err_m = pcall(migrate.run)

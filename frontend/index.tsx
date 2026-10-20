@@ -19,6 +19,7 @@ import { createIngest } from "./app/ingest";
 import { createNativeLinksSurface, wrapNavigators } from "./surfaces/native-links";
 import { createArtworkSurface } from "./surfaces/artwork";
 import { createCommunitySurface } from "./surfaces/community";
+import { createPropertiesSurface } from "./surfaces/properties";
 import {
     initSettings,
     onSettingChange,
@@ -45,6 +46,7 @@ import { loadStoreItem } from "./sensors/store-item";
 import { createFeatureSwitches, type FeatureId } from "./safety/features";
 import { beginBoot, watchBoot } from "./safety/boot";
 import { lookupStored, toShortcutId, type ShortcutId } from "./kernel/appid";
+import { isFallbackMetadata, type GameMetadata } from "./kernel/record";
 import { createExtensionRegistry, type SteamCartridgesAPI } from "./kernel/extensions";
 import { createImageBin } from "./kernel/image-bin";
 import { createMediaBin } from "./kernel/media-bin";
@@ -66,6 +68,7 @@ import {
 } from "./surfaces/game-info";
 import { createController } from "./app/controller";
 import { setPanelContext } from "./settings/context";
+import { CartridgeBody } from "./settings/game-editor/game-form";
 import { createGameEditor } from "./app/game-editor";
 import { createSteamStore } from "./app/steam-store";
 import {
@@ -284,6 +287,10 @@ const gameEditor = createGameEditor({
 const libraryStats = createLibraryStats({ backend });
 
 const fetchedInSession = new Set<ShortcutId>();
+// A new or removed service makes every game worth asking again, whatever the session already fetched.
+onSettingChange((key) => {
+    if (key === "services") fetchedInSession.clear();
+});
 /** The background job (app/ingest.ts, plan M7b): only new shortcuts at start-up; "sync now" from the panel. */
 const ingest = createIngest({
     backend,
@@ -304,7 +311,9 @@ const ingest = createIngest({
     needsFetch: (appid) => {
         if (fetchedInSession.has(appid)) return false;
         const r = records.store.get(appid);
-        const hasMeta = !!r?.metadata?.data;
+        // A fallback (empty) record counts as missing once a web source can look the game up (set up after it was added).
+        const webSource = setting("services").igdbEnabled !== false || setting("services").screenscraperEnabled !== false;
+        const hasMeta = !!r?.metadata?.data && !(webSource && isFallbackMetadata(r.metadata.data as GameMetadata));
         const hasAch =
             ((r?.achievements?.data as any)?.schema?.total ?? 0) > 0 ||
             r?.achievements?.source === "none";
@@ -570,6 +579,8 @@ async function init() {
             bus,
         }),
     );
+    // A Cartridge page in a shortcut's Properties dialog: the game's editable data, in the dialog (surfaces/properties, ADR-0080).
+    runner.register(createPropertiesSurface({ ...surfaceDeps, body: CartridgeBody }));
     // Custom artwork slots and logo position for mapped games (surfaces/artwork, plan M3.9).
     runner.register(
         createArtworkSurface({ ...surfaceDeps, images, bus }),

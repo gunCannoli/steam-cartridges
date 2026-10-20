@@ -30,16 +30,29 @@ export function ItemRow({ children, trailing }: { children: React.ReactNode; tra
     );
 }
 
+/** Whatever a theme does to the panel's container (Millennium's custom CSS can make it a grid of narrow columns, a
+ *  flex row, or a different width), the section is one full-width column: one child for the container to place,
+ *  spanning every grid column, allowed to shrink. */
+export const COLUMN_STYLE: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    boxSizing: "border-box",
+    width: "100%",
+    minWidth: 0,
+    gridColumn: "1 / -1",
+    flex: "1 1 100%",
+};
+
 /** The blocks of one section, `BLOCK_GAP` apart. Pass each block as one child (a fragment of rows). Padding, not margin: margins would collapse into Steam's own trailing margin. */
 export function Blocks({ children }: { children: React.ReactNode }) {
     return (
-        <>
+        <div style={COLUMN_STYLE}>
             {Children.toArray(children).map((block, i) => (
-                <div key={i} style={{ paddingTop: i === 0 ? 0 : BLOCK_GAP }}>
+                <div key={i} style={{ paddingTop: i === 0 ? 0 : BLOCK_GAP, minWidth: 0 }}>
                     {block}
                 </div>
             ))}
-        </>
+        </div>
     );
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "steam-cartridges",
-  "version": "0.3.0-beta",
+  "version": "0.4.0-beta",
   "private": true,
   "description": "Makes non-Steam games feel native: Steam's own activity page from your captures, plus optional metadata and artwork.",
   "scripts": {

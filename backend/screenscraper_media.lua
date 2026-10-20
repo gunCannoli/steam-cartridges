@@ -528,4 +528,28 @@ function M.download(url)
   return res.body, ext, w, h
 end
 
+--- Is the account accepted? ssuserInfos.php with the saved account (never logged: the URL carries it).
+---@return boolean ok
+---@return string message
+function M.check()
+  local creds = config.get_screenscraper_credentials()
+  if not creds then return false, "No ScreenScraper username and password are saved." end
+  local url = string.format(
+    "https://api.screenscraper.fr/api2/ssuserInfos.php?devid=%s&devpassword=%s&softname=steam-cartridges&output=json&ssid=%s&sspassword=%s",
+    utils.url_encode(creds.dev_user ~= "" and creds.dev_user or creds.user),
+    utils.url_encode(creds.dev_pw ~= "" and creds.dev_pw or creds.pass),
+    utils.url_encode(creds.user), utils.url_encode(creds.pass))
+  local res, err = net.get(url, { source = "screenscraper", user_agent = "steam-cartridges/1.0", timeout = 15 })
+  if not res then return false, "ScreenScraper could not be reached (" .. tostring(err) .. ")." end
+  local body = type(res.body) == "string" and res.body or ""
+  if res.status == 200 and body:find("ssuser", 1, true) then return true, "ScreenScraper accepted the account." end
+  if res.status == 401 or body:lower():find("erreur de login", 1, true) or body:lower():find("login error", 1, true) then
+    return false, "ScreenScraper refused the username or password."
+  end
+  if res.status == 429 or res.status == 430 or res.status == 431 then
+    return false, "ScreenScraper is limiting requests right now (HTTP " .. tostring(res.status) .. "); the account may still be fine. Try again later."
+  end
+  return false, "ScreenScraper answered HTTP " .. tostring(res.status) .. "."
+end
+
 return M

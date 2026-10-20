@@ -7,6 +7,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.4.0-beta] - 2026-10-20
+
+### Added
+
+- **Dusklight (Twilight Princess PC port) achievements**: a shortcut that launches `Dusklight.exe` gets the game's 50
+  achievements, unlocked from its own `achievements.json` (`%APPDATA%\TwilitRealm\Dusklight`, the older `Dusk` folder, or
+  `data` beside the exe). Unlock times are when the plugin first sees them; reset clears the file's unlocked flags. Counters
+  show as unlocked only.
+- **A log file for bug reports**: `millennium/config/steam-cartridges/steam-cartridges.log` inside your Steam folder
+  (512 KB, one older copy as `.log.1`). It holds what the plugin did: the services set up (yes/no, never a value), one
+  line per web request (source, status, time, the start of an error body), why a game's Game Info came from IGDB,
+  ScreenScraper or the empty fallback, and why RetroAchievements found or missed a game (ROM, hash, GameID, credentials
+  present). Passwords, keys, tokens and your Windows user name are removed before anything is written, so the file can be
+  shared as it is.
+- **Adding an account says whether it connected.** After you add IGDB, ScreenScraper, SteamGridDB or RetroAchievements
+  the plugin signs in once to check it. A refused account is not kept and the popup says why; a connected one stays open
+  and tells you the library is being fetched in the background (it takes a few minutes).
+- **A Cartridge page in a game's Properties window.** Right-click a non-Steam game > Properties > **Cartridge** shows the
+  game's data to edit right there (Game Info, controller support, players, achievements, and the Steam, IGDB and
+  ScreenScraper links), the same form as the Game Data editor, in one column.
+- **The log times every achievements save** (one `[store]` line with its size and milliseconds), so a slow store would show up in a bug report.
+
+### Fixed
+
+- **Games added before IGDB or ScreenScraper was set up now get their Game Info when you add it.** They had been saved
+  with an empty record that counted as done, so the new account only worked for games added afterwards (or after
+  removing and re-adding the game). Empty records are looked up again as soon as a source is available.
+- **The fetch progress bar is at the top of the settings panel**, where a theme that resizes or re-lays out the panel
+  can no longer push it out of sight.
+- **The log hides every saved account name, key and secret wherever it appears**, plus your Steam account id (also on the very first line of a session) and email
+  addresses.
+- **The settings panel keeps its layout under custom CSS.** A theme that turns the panel into a grid of narrow columns
+  (a "Centred Library Manager" style) split each section's cards into separate columns; every section is now one
+  full-width column whatever the container does.
+
 ## [0.3.0-beta] - 2026-10-19
 
 ### Added

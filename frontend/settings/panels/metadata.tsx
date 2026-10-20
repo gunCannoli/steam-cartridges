@@ -21,6 +21,7 @@ import {
     ItemRow,
     SettingsModal,
 } from "../components";
+import { saveAndCheck } from "../service-check";
 
 // ===========================================================================
 // 1. {Metadata} Services Section
@@ -132,6 +133,16 @@ export function MetadataSection() {
         }
     };
 
+    /** Closes the Add popup and forgets what was typed (a connected account keeps its popup open until this). */
+    const closeAddModal = () => {
+        setShowAddModal(false);
+        setIsSaving(false);
+        setStatusMsg("");
+        setSsPass("");
+        setIgdbSecret("");
+        setSgdbKey("");
+    };
+
     const handleRegisterService = async () => {
         setIsSaving(true);
         setStatusMsg("Saving...");
@@ -154,25 +165,18 @@ export function MetadataSection() {
                 setIsSaving(false);
                 return;
             }
-            const res = await backend.saveServiceCredentials({
+            setStatusMsg("Checking the account...");
+            const res = await saveAndCheck("screenscraper", "ScreenScraper", {
                 screenscraper_user: ssUser.trim(),
                 screenscraper_pass: ssPass.trim(),
             });
-            if (res.success) {
+            if (res.ok) {
                 setServices({ ...services, screenscraperEnabled: true });
                 ctx.ingest.trigger(250);
-                refresh();
-                setStatusMsg("✓ ScreenScraper added");
-                setTimeout(() => {
-                    setShowAddModal(false);
-                    setIsSaving(false);
-                    setStatusMsg("");
-                    setSsPass("");
-                }, 1200);
-            } else {
-                setStatusMsg("Failed to save credentials.");
-                setIsSaving(false);
             }
+            refresh();
+            setStatusMsg(res.message);
+            if (!res.ok) setIsSaving(false);
             return;
         }
 
@@ -182,25 +186,18 @@ export function MetadataSection() {
                 setIsSaving(false);
                 return;
             }
-            const res = await backend.saveServiceCredentials({
+            setStatusMsg("Checking the account...");
+            const res = await saveAndCheck("igdb", "IGDB", {
                 twitch_client_id: igdbId.trim(),
                 twitch_client_secret: igdbSecret.trim(),
             });
-            if (res.success) {
+            if (res.ok) {
                 setServices({ ...services, igdbEnabled: true });
                 ctx.ingest.trigger(250);
-                refresh();
-                setStatusMsg("✓ IGDB added");
-                setTimeout(() => {
-                    setShowAddModal(false);
-                    setIsSaving(false);
-                    setStatusMsg("");
-                    setIgdbSecret("");
-                }, 1200);
-            } else {
-                setStatusMsg("Failed to save credentials.");
-                setIsSaving(false);
             }
+            refresh();
+            setStatusMsg(res.message);
+            if (!res.ok) setIsSaving(false);
             return;
         }
 
@@ -210,23 +207,15 @@ export function MetadataSection() {
                 setIsSaving(false);
                 return;
             }
-            const res = await backend.saveServiceCredentials({
-                steamgriddb_api: sgdbKey.trim(),
-            });
-            if (res.success) {
+            setStatusMsg("Checking the account...");
+            const res = await saveAndCheck("steamgriddb", "SteamGridDB", { steamgriddb_api: sgdbKey.trim() });
+            if (res.ok) {
                 setServices({ ...services, steamgriddbEnabled: true });
-                refresh();
-                setStatusMsg("✓ SteamGridDB added");
-                setTimeout(() => {
-                    setShowAddModal(false);
-                    setIsSaving(false);
-                    setStatusMsg("");
-                    setSgdbKey("");
-                }, 1200);
-            } else {
-                setStatusMsg("Failed to save credentials.");
-                setIsSaving(false);
+                ctx.ingest.trigger(250);
             }
+            refresh();
+            setStatusMsg(res.message);
+            if (!res.ok) setIsSaving(false);
             return;
         }
     };
@@ -258,7 +247,7 @@ export function MetadataSection() {
             </Blocks>
 
             {/* Add Service popup: the same rows and spacing as the panel. */}
-            <SettingsModal title="Add Metadata Service" isOpen={showAddModal} onClose={() => setShowAddModal(false)}>
+            <SettingsModal title="Add Metadata Service" isOpen={showAddModal} onClose={closeAddModal}>
                 <PanelSection>
                     <Blocks>
                         <FullWidthRows label="Service" description={SERVICE_DESCRIPTIONS[selectedService]}>
@@ -305,11 +294,13 @@ export function MetadataSection() {
                             </>
                         )}
                         <ActionRow message={statusMsg}>
-                            <DialogButton disabled={isSaving} onClick={handleRegisterService} style={BUTTON_STYLE}>
-                                Add
-                            </DialogButton>
-                            <DialogButton onClick={() => setShowAddModal(false)} style={BUTTON_STYLE}>
-                                Cancel
+                            {!statusMsg.startsWith("✓") && (
+                                <DialogButton disabled={isSaving} onClick={handleRegisterService} style={BUTTON_STYLE}>
+                                    Add
+                                </DialogButton>
+                            )}
+                            <DialogButton onClick={closeAddModal} style={BUTTON_STYLE}>
+                                {statusMsg.startsWith("✓") ? "Close" : "Cancel"}
                             </DialogButton>
                         </ActionRow>
                     </Blocks>

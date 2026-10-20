@@ -21,6 +21,8 @@
 ---   unlocks     { format = FORMATS key, files = fun(port) -> { paths } }
 ---   trophy_pack fun(port) -> path to the dump's trophy00.trp, or nil (icons; trophy_pack_icons)
 ---
+--- A game without grades (Dusklight): trophy ids may be strings, `points` gives each one the same value, and
+--- title_id, grade, dlc, hidden and global_pct may be missing.
 --- A game: { key, title, title_id, auto_platinum = true|nil, trophies = { { id, grade (P/G/S/B), dlc, hidden,
 --- global_pct, name, description }, ... } }. `auto_platinum`: the platinum (grade P) is added once every other
 --- trophy outside the DLC is unlocked, as a PlayStation does.
@@ -30,7 +32,7 @@
 local M = {}
 
 --- The game files. Order matters only when two definitions claim the same exe and folder.
-M.FAMILIES = { "native_ports_bloodborne" }
+M.FAMILIES = { "native_ports_bloodborne", "native_ports_dusklight" }
 
 --- Injectable for tests. nil = the real dependency.
 M.deps = {
@@ -199,6 +201,25 @@ M.FORMATS = {
       return "", n
     end,
   },
+  --- One JSON object, `"<key>": { "unlocked": bool, ... }` per achievement (Dusklight), no unlock time: an unlock
+  --- is stamped when first seen. Clearing flips `unlocked` to false and leaves the rest of the file as it was.
+  key_flags_json = {
+    parse = function(text)
+      local out = {}
+      local ok, data = pcall(require("json").decode, tostring(text or ""))
+      if not (ok and type(data) == "table") then return out end
+      local now = os.time()
+      for key, entry in pairs(data) do
+        if type(entry) == "table" and entry.unlocked == true then out[tostring(key)] = now end
+      end
+      return out
+    end,
+    clear = function(text)
+      local n = 0
+      local out = tostring(text or ""):gsub('("unlocked"%s*:%s*)true', function(head) n = n + 1 return head .. "false" end)
+      return out, n
+    end,
+  },
 }
 
 --- The port's unlock files: { { path, format } } (each may not exist yet).
@@ -275,7 +296,7 @@ function M.schema(port, icons, title)
       description = t.description,
       -- No `icon_locked`: nothing reads it, and a data: URL there doubled the schema's size.
       icon = icon,
-      points = M.POINTS[t.grade],
+      points = game.points or M.POINTS[t.grade],
       global_pct = t.global_pct,
       ttype = t.grade,
       hidden = t.hidden == true,

@@ -115,6 +115,19 @@ export interface GameMetadata {
     badge_category_ids?: number[];
 }
 
+/**
+ * The empty record written when no source knew the game (backend `fallback_record`): the title and nothing else. A
+ * game saved like this before IGDB or ScreenScraper was set up must be looked up again once one is. Records saved
+ * before the backend marked them are recognised by having no source id and no text.
+ */
+export function isFallbackMetadata(m: GameMetadata | null | undefined): boolean {
+    if (!m || m.custom_override) return false;
+    if ((m as { fallback?: boolean }).fallback === true) return true;
+    const blank = (v?: unknown[] | string) => !v || v.length === 0;
+    return !m.igdb_id && !m.ss_id && !m.steam_appid && !m.source && !(m as { store_source?: string }).store_source &&
+        blank(m.description) && blank(m.short_description) && blank(m.developers) && blank(m.publishers) && blank(m.genres);
+}
+
 /** One achievement of a schema (moved from rpc.ts in M3.5, plan § 7.0 D12). */
 export interface AchievementSchemaItem {
     id: string;

@@ -184,4 +184,16 @@ function sgdb.fetch_icon_url(game_id, key)
   return nil
 end
 
+--- Is the key accepted? A one-word search, nothing saved. Returns ok, message.
+---@param key string|nil
+function sgdb.check(key)
+  if not key or key == "" then return false, "No SteamGridDB API key is saved." end
+  local res, err = net.get("https://www.steamgriddb.com/api/v2/search/autocomplete/zelda",
+    { source = "sgdb", headers = { ["Authorization"] = "Bearer " .. key, ["Accept"] = "application/json" }, timeout = 15 })
+  if not res then return false, "SteamGridDB could not be reached (" .. tostring(err) .. ")." end
+  if res.status == 200 then return true, "SteamGridDB accepted the API key." end
+  if res.status == 401 or res.status == 403 then return false, "SteamGridDB refused the API key (HTTP " .. tostring(res.status) .. ")." end
+  return false, "SteamGridDB answered HTTP " .. tostring(res.status) .. "."
+end
+
 return sgdb

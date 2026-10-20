@@ -35,10 +35,27 @@ local function load()
   return state
 end
 
+--- Milliseconds, for the store's timing lines in the plugin log (Millennium's datetime.now() is ms; os.clock() is the fallback).
+local function now_ms()
+  local ok, dt = pcall(require, "datetime")
+  if ok and type(dt) == "table" and type(dt.now) == "function" then
+    local ms = dt.now()
+    if type(ms) == "number" then return ms end
+  end
+  return os.clock() * 1000
+end
+
+local saves, save_ms, save_bytes = 0, 0, 0
+
+--- What the store has cost since the backend started: how many whole-file saves, their total time and bytes.
+function M.stats() return { saves = saves, ms = save_ms, bytes = save_bytes } end
+
 local function save()
   local p = path()
   local tmp = p .. ".tmp"
+  local t0 = now_ms()
   local body = json.encode(load())
+  local t1 = now_ms()
   local ok, err = utils.write_file(tmp, body)
   if not ok then error("could not write " .. tmp .. ": " .. tostring(err)) end
   pcall(os.remove, p)
@@ -48,6 +65,13 @@ local function save()
     pcall(os.remove, tmp)
     if not ok2 then error("could not save " .. p .. ": " .. tostring(rerr or err2)) end
   end
+  -- One line per whole-file save: this rewrites every game's schema and unlocks each time (plan: the store split).
+  local t2 = now_ms()
+  saves, save_ms, save_bytes = saves + 1, save_ms + (t2 - t0), save_bytes + #body
+  pcall(function()
+    require("plog").event("store", string.format("achievements.json saved: %d KB in %d ms (encode %d, write %d); save #%d this session",
+      math.floor(#body / 1024), math.floor(t2 - t0), math.floor(t1 - t0), math.floor(t2 - t1), saves))
+  end)
 end
 
 function M._reset() state = nil end

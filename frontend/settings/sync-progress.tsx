@@ -29,10 +29,11 @@ export function SyncProgressBar() {
     return (
         <div
             style={{
+                // Top of the panel, in flow: still seen when a theme resizes or re-lays out the panel.
                 position: "sticky",
-                bottom: 0,
-                left: 0,
-                right: 0,
+                top: 0,
+                boxSizing: "border-box",
+                width: "100%",
                 background:
                     progress.phase === "complete"
                         ? "rgba(16, 34, 24, 0.96)"
@@ -47,9 +48,9 @@ export function SyncProgressBar() {
                 display: "flex",
                 flexDirection: "column",
                 gap: "5px",
-                marginTop: "16px",
+                marginBottom: "16px",
                 borderRadius: "4px",
-                boxShadow: "0 -4px 16px rgba(0, 0, 0, 0.4)",
+                boxShadow: "0 4px 16px rgba(0, 0, 0, 0.4)",
             }}
         >
             <div

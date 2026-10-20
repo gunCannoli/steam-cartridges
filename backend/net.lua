@@ -86,6 +86,21 @@ local function record(source, res)
   end
 end
 
+--- One line per finished request in the plugin log (plog.lua; credentials in the URL are scrubbed there): what was
+--- asked, what came back, how long it took, and the start of the body when it was not a success.
+local function trace(source, verb, url, res, err, started)
+  local ok, plog = pcall(require, "plog")
+  if not ok then return end
+  local status = res and tonumber(res.status)
+  local line = string.format("%s %s %s -> %s in %dms", source, verb, tostring(url),
+    status and tostring(status) or ("no response (" .. tostring(err) .. ")"), math.floor((now() - started) * 1000))
+  if res and type(res.body) == "string" then
+    line = line .. ", " .. #res.body .. " bytes"
+    if status and (status < 200 or status >= 300) then line = line .. ": " .. res.body:sub(1, 300) end
+  end
+  plog.event("net", line)
+end
+
 local function source_of(opts)
   return (opts and opts.source) or "other"
 end
@@ -103,14 +118,17 @@ end
 ---@param opts? { source: string, headers?: table, timeout?: number }
 function M.get(url, opts)
   local source = source_of(opts)
-  if M.is_paused(source) then return nil, "paused" end
+  if M.is_paused(source) then trace(source, "GET", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
+  local started = now()
   local ok, res = pcall(http_module().get, url, without_source(opts))
   if not ok then
     record(source, nil)
+    trace(source, "GET", url, nil, res, started)
     return nil, tostring(res)
   end
   record(source, res)
+  trace(source, "GET", url, res, nil, started)
   return res
 end
 
@@ -122,7 +140,8 @@ end
 ---@param opts? { source: string, headers?: table, timeout?: number }
 function M.post(url, body, opts)
   local source = source_of(opts)
-  if M.is_paused(source) then return nil, "paused" end
+  if M.is_paused(source) then trace(source, "POST", url, nil, "paused", now()) return nil, "paused" end
+  local started = now()
   local http = http_module()
   local o = without_source(opts)
   local headers, timeout = o.headers or {}, o.timeout or 20
@@ -147,12 +166,14 @@ function M.post(url, body, opts)
     if ok and type(res) == "table" and res.status then
       if (res.status >= 200 and res.status < 300) or res.status == 400 or res.status == 401 then
         record(source, res)
+        trace(source, "POST", url, res, nil, started)
         return res
       end
       first_err = first_err or res
     end
   end
   record(source, first_err)
+  trace(source, "POST", url, first_err, "no usable response", started)
   return first_err
 end
 
@@ -163,15 +184,18 @@ end
 ---@param opts? { source: string, user_agent?: string, max_bytes?: number }
 function M.get_binary(url, opts)
   local source = source_of(opts)
-  if M.is_paused(source) then return nil, "paused" end
+  if M.is_paused(source) then trace(source, "GET(bin)", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
+  local started = now()
   local binary = M.deps.binary or require("bin_http")
   local ok, res, err = pcall(binary.get, url, without_source(opts))
   if not ok or not res then
     record(source, nil)
+    trace(source, "GET(bin)", url, nil, ok and err or res, started)
     return nil, ok and tostring(err) or tostring(res)
   end
   record(source, res)
+  trace(source, "GET(bin)", url, res, nil, started)
   return res
 end
 

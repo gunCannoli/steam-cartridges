@@ -173,6 +173,7 @@ function config.save_credentials(map)
   -- must merge the legacy .env again (it may hold the only ScreenScraper account, so GetStatus said none after a save).
   cached_env = nil
   cached_key = nil -- the SteamGridDB key may have changed (re-read on next use)
+  pcall(function() require("plog").forget_known() end) -- the log scrubs the saved values: pick up the new ones
   return ok ~= false
 end
 

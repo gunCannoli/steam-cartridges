@@ -16,6 +16,7 @@ import {
     ItemRow,
     SettingsModal,
 } from "../components";
+import { saveAndCheck } from "../service-check";
 
 // ===========================================================================
 // 2. {Achievements} Sources Section
@@ -122,6 +123,14 @@ export function AchievementsSection() {
         }
     };
 
+    /** Closes the Add popup; a connected account keeps its popup open (with what happens next) until this. */
+    const closeAddModal = () => {
+        setShowAddModal(false);
+        setIsSavingRa(false);
+        setRaMsg("");
+        setRaToken("");
+    };
+
     const handleRegisterSource = async () => {
         setIsSavingRa(true);
         setRaMsg("Saving...");
@@ -160,25 +169,18 @@ export function AchievementsSection() {
                 setIsSavingRa(false);
                 return;
             }
-            const res = await backend.saveServiceCredentials({
+            setRaMsg("Checking the account...");
+            const res = await saveAndCheck("retroachievements", "RetroAchievements", {
                 retroachievements_user: raUser.trim(),
                 retroachievements_api: raToken.trim(),
             });
-            if (res.success) {
+            if (res.ok) {
                 setServices({ ...services, retroachievementsEnabled: true });
                 ctx.ingest.trigger(250);
-                refreshRetro();
-                setRaMsg("✓ RetroAchievements added");
-                setTimeout(() => {
-                    setShowAddModal(false);
-                    setIsSavingRa(false);
-                    setRaMsg("");
-                    setRaToken("");
-                }, 1200);
-            } else {
-                setRaMsg("Failed to save credentials.");
-                setIsSavingRa(false);
             }
+            refreshRetro();
+            setRaMsg(res.message);
+            if (!res.ok) setIsSavingRa(false);
             return;
         }
     };
@@ -240,11 +242,13 @@ export function AchievementsSection() {
                             </>
                         )}
                         <ActionRow message={raMsg}>
-                            <DialogButton disabled={isSavingRa} onClick={handleRegisterSource} style={BUTTON_STYLE}>
-                                Add
-                            </DialogButton>
-                            <DialogButton onClick={() => setShowAddModal(false)} style={BUTTON_STYLE}>
-                                Cancel
+                            {!raMsg.startsWith("✓") && (
+                                <DialogButton disabled={isSavingRa} onClick={handleRegisterSource} style={BUTTON_STYLE}>
+                                    Add
+                                </DialogButton>
+                            )}
+                            <DialogButton onClick={closeAddModal} style={BUTTON_STYLE}>
+                                {raMsg.startsWith("✓") ? "Close" : "Cancel"}
                             </DialogButton>
                         </ActionRow>
                     </Blocks>

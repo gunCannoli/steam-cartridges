@@ -7,6 +7,7 @@ import { CommunitySection } from "./panels/community";
 import { RulesSection } from "./panels/rules";
 import { RevisionSection } from "./panels/audit";
 import { SyncProgressBar } from "./sync-progress";
+import { COLUMN_STYLE } from "./components";
 
 class ExtensionErrorBoundary extends Component<{ id: string; children: ReactNode }, { hasError: boolean; error?: Error }> {
     constructor(props: any) {
@@ -51,7 +52,8 @@ export function SettingsPanel() {
     const postPanels = extPanels.filter((p) => (p.order ?? 50) >= 40);
 
     return (
-        <div style={{ paddingBottom: "70px", position: "relative" }}>
+        <div style={{ ...COLUMN_STYLE, paddingBottom: "70px", position: "relative" }}>
+            <SyncProgressBar />
             <MetadataSection />
             <AchievementsSection />
             {prePanels.map((p) => (
@@ -68,7 +70,6 @@ export function SettingsPanel() {
             ))}
             <RulesSection />
             <RevisionSection />
-            <SyncProgressBar />
         </div>
     );
 }

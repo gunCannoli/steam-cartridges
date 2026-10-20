@@ -240,6 +240,10 @@ export const backend = {
     getStatus(): Promise<ProviderStatus> {
         return call<ProviderStatus>("GetStatus");
     },
+    /** Settings: one small request to the service with the saved account; `message` says why when it is refused. */
+    testService(service: "igdb" | "screenscraper" | "steamgriddb" | "retroachievements") {
+        return call<{ ok?: boolean; message?: string; error?: string }>("TestServiceConnection", { service });
+    },
     saveServiceCredentials(credentials: Record<string, string>) {
         return call<{ success: boolean; error?: string }>("SaveServiceCredentials", credentials);
     },

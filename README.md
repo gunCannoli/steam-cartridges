@@ -91,6 +91,16 @@ For your screenshots and recordings as "{Username} captured" cards in the Activi
 - **Your data stays local:** the plugin stores its records (Game Info, matches, credentials) in
   `millennium/config/steam-cartridges` inside your Steam folder; nothing is sent anywhere except the lookups above.
 
+## Reporting a problem
+
+Send the log file: `<your Steam folder>\millennium\config\steam-cartridges\steam-cartridges.log`.
+It lists what the plugin did and what each service (IGDB, ScreenScraper, RetroAchievements, SteamGridDB) answered.
+Passwords, keys, tokens and your Windows user name are removed before anything is written.
+
+## Support
+
+If this plugin is useful to you, you can support its development on [Ko-fi](https://ko-fi.com/cannoligun).
+
 ## About
 
 Makes non-Steam games feel native: Steam's own app page from your captures, plus optional metadata, artwork and
