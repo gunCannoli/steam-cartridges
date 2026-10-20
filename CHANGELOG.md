@@ -7,37 +7,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
-### Changed
+## [0.3.0-beta] - 2026-10-19
 
-- **Manual Edit is full screen and shows what each game is missing**: the games on the left, with **Only games with
-  issues** and a count per game; the missing Game Info, controller support or achievements of a game are tinted red.
-  Fix them there, link the right RetroAchievements, Steam or IGDB entry, mark a game as having **No achievements**, or
-  **Ignore issues** to take it off the list. **Fix issues** in Library Analytics opens the first one.
+### Added
 
-- **Link a game to ScreenScraper** from Manual Edit: enter its id (or its page address), check the game it finds
-  (title, platforms, year, developers) and save its Game Info (best for console and arcade games). IGDB is linked by
-  its id the same way.
+- **Link a game to IGDB or ScreenScraper by its id** in Manual Edit: **Search** shows the game the id belongs to (title,
+  platforms, year, developers), **Save** keeps its Game Info as your own edit. ScreenScraper also takes the game page's
+  address and is best for console and arcade games.
 - **Game Info from both web sources**: when IGDB leaves a field empty (developers, publishers, description, release
   date, genres), ScreenScraper fills it, and the other way round, so one account is enough and two give the most.
-- **Removed games are forgotten**: a game removed from your library loses its stored data after a week (your own
-  edits and achievement unlocks are kept, in case you add it back).
-- **Loading indicators in Manual Edit**: a search, a link, a save or Fetch now shows Steam's spinner and what is
-  running ("Searching ScreenScraper...") in the card you used, until it is done; opening Manual Edit and choosing a
-  game show it too while their data loads.
-- **A game you link to IGDB or ScreenScraper stays linked**: the link is kept as your own edit (Revert undoes it); before,
-  the next refresh could match the title to another game.
+- **Loading indicators in Manual Edit**: Steam's spinner and what is running ("Searching ScreenScraper...") while it
+  reads your library, loads a game, searches or saves, in the card you used.
+- **Removed games are forgotten**: a game removed from your library loses its stored data after a week (your own edits
+  and achievement unlocks are kept, in case you add it back).
 
-### Fixed
+### Changed
 
-- **The wrong IGDB entry for some games** (re-releases with no data won over the original); entries with developers
-  and a summary now win.
-- **Manual Edit's issues**: a fixed game leaves the "with issues" list, a missing publisher is no longer an issue, a
-  game removed from the library leaves the list while the window is open, and "No achievements" is only offered to a
-  game without any.
+- **Manual Edit opens in its own window, as big as the screen**: your games on the left, with **Only games with
+  issues** and a count per game; the game on the right, with its missing Game Info, controller support or achievements
+  tinted red. Fix them there, mark a game as having **No achievements** (**Retry achievement detection** undoes it), or
+  **Ignore issues** to take it off the list. **Fix issues** in Library Analytics opens the first one.
+- **A missing publisher is no longer an issue**: fan games and homebrew often have none.
 
 ### Removed
 
 - The **Review** popup of Library Analytics: everything it did is in Manual Edit.
+
+### Fixed
+
+- **The wrong IGDB entry for some games**: re-releases with no data won over the original; entries with developers and
+  a summary now win.
+- **A game you linked by hand could be matched again by title** at the next refresh; a link is now kept as your own
+  edit (Revert undoes it).
+- **Manual Edit's list**: a fixed game leaves the "with issues" list, a game removed from the library leaves the list
+  while the window is open, and **No achievements** is only offered to a game without any.
 
 ## [0.2.0-beta] - 2026-10-19
 
@@ -50,7 +53,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   trophies) are hidden in Steam until you unlock them, as on a Steam game.
 - **Full Controller Support for console games**: a game IGDB or ScreenScraper lists on a console, a handheld or arcade
   (PlayStation, Xbox, Nintendo, Sega, ...) gets the Full Controller Support badge, unless you chose otherwise for it.
-
 - **A ready-to-use download** on the Releases page: no build needed.
 - **[Achievements.md](Achievements.md)**: what each achievements source needs to link a game.
 
