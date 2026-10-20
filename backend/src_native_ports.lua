@@ -47,9 +47,13 @@ end
 
 function M.supports(entry) return M.builtin(entry) ~= nil end
 
---- The pack a shortcut uses as the last source: only when no built-in port matches it.
+--- The pack a shortcut uses as the last source: the one the user gave it, else one its exe matches when no built-in
+--- port does.
 function M.pack_port(entry)
-  if type(entry) ~= "table" or M.builtin(entry) then return nil end
+  if type(entry) ~= "table" then return nil end
+  local oka, given = pcall(packs().assigned_def, entry)
+  if oka and given then return pack_port_of(given, entry) end
+  if M.builtin(entry) then return nil end
   local ok, pack = pcall(function() return (packs().best(entry.exe)) end)
   if ok and pack then return pack_port_of(pack, entry) end
   return nil

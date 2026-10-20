@@ -2,10 +2,12 @@
 
 An achievement pack gives a non-Steam game achievements from one short file you write or download. It is for PC ports
 and fan projects that keep their own achievement file (a native port of a console game, a decompilation, a remake) and
-that no other source knows. You need no update of Steam Cartridges: drop the file in a folder, press **Reload**.
+that no other source knows. You need no update of Steam Cartridges: drop the file in a folder. If the file names the
+program your shortcut starts, the game uses it; for any other game, pick the pack in **Manual Edit**.
 
 - [Packs included with the plugin](#packs-included-with-the-plugin)
 - [The folder](#the-folder)
+- [Giving a game a pack by hand](#giving-a-game-a-pack-by-hand)
 - [Writing a pack](#writing-a-pack)
 - [Where the achievements file is: `files`](#where-the-achievements-file-is-files)
 - [Icons](#icons)
@@ -34,10 +36,18 @@ examples to start your own from.
 <Steam>\millennium\config\steam-cartridges\packs\
 ```
 
-Every `.json` file there is read as a pack, besides the included ones. The folder survives updates of the plugin. In
-Steam's Millennium settings, **Steam Cartridges → Achievement packs** lists the packs (the included ones marked
-**Included**), shows your folder, imports a file into it (**Import a pack...**)
-and reads it again (**Reload**). Reload looks up the games your packs match at once: no restart.
+Every `.json` file there is read as a pack, besides the included ones. The folder survives updates of the plugin.
+Packs are read when Steam starts, and again each time the **Achievement pack** list shows (below). A file that is not a valid pack
+is skipped, and the plugin's log (`steam-cartridges.log` in `millennium\config\steam-cartridges`) says why in plain
+words (`files[0] is not a full path`, `achievements[3] has no name`).
+
+## Giving a game a pack by hand
+
+A pack is used by itself for the shortcuts whose program it names in `exe`. For a game it does not name, or one with no
+achievements yet: open **Manual Edit** (or the game's **Properties → Cartridge**), and in the **Achievements** block pick
+the pack in **Achievement pack**, then press **Use pack**. The list shows every pack, the included ones and yours. The game
+keeps that pack whatever program it starts; **Stop using this pack** goes back to finding its achievements by itself.
+The dropdown shows for a game without achievements, and for a game that already uses a pack.
 
 ## Writing a pack
 
@@ -115,7 +125,8 @@ No field is needed. Each achievement takes the first icon it finds:
    failed badge is tried again later. The pack only lists names: no RetroAchievements art is in the pack or the plugin.
 5. Otherwise the game's own icon, or a trophy badge.
 
-Icons are PNG only, up to 512 KB each, shrunk to Steam's achievement icon size. Press **Reload** after adding some.
+Icons are PNG only, up to 512 KB each, shrunk to Steam's achievement icon size. After adding some, press **Fetch now** in
+the game's Manual Edit page (or restart Steam).
 
 ## The platinum
 
@@ -131,16 +142,17 @@ Enhanced Notifications shows its own "all achievements" celebration for every ga
   the pack is used instead. An included pack must be more complete than the built-in one, so a tie keeps the built-in.
 - **Your pack with an included pack's `id`** replaces the included one.
 - **Several packs for one game:** the one with the most achievements, then the one with the most details (descriptions,
-  rarity, secret flags, a platinum, RetroAchievements badges), then yours before an included one. A more complete pack takes over after **Reload**, and your unlocks move to it.
+  rarity, secret flags, a platinum, RetroAchievements badges), then yours before an included one. A more complete pack
+  takes over the next time the game is looked up, and your unlocks move to it.
+- **A pack you picked by hand** (Manual Edit) is the game's pack, whatever its program and whatever other packs match.
 - **A game you marked "No achievements"** (Manual Edit) stays that way. Its Cartridge page says a pack matches; press
-  **Retry achievement detection** there to use it.
+  **Retry achievement detection**, or pick the pack, to use it.
 
 ## Checking a pack
 
-- **Settings → Achievement packs** lists each pack with the games it is used by. A file that is not a valid pack is listed
-  with the problem in plain words (`files[0] is not a full path`, `achievements[3] has no name`).
 - **The game's Properties → Cartridge** (or Manual Edit) shows the pack the game uses and each of its files: `found, 3
-  unlocked`, `not created yet`, or `can't read this file`.
+  unlocked`, `not created yet`, or `can't read this file`. A pack missing from the **Achievement pack** list is not valid:
+  the plugin's log says why.
 - **Reset achievements** (Enhanced Notifications) can also clear the game's own file: only what unlocked something is
   removed or turned off, after a backup copy.
 

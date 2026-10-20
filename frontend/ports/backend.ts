@@ -21,7 +21,7 @@ export interface AchievementResetSource {
 /** A list from the backend: an empty one may arrive as `{}` (K1); read it with kernel/lists asList. */
 type WireList<T> = T[] | Record<string, never>;
 
-/** An achievement pack as the backend lists it (packs_rpc.lua, ADR-0081). */
+/** An achievement pack as the backend lists it (packs_rpc.lua, ADR-0081, ADR-0083). */
 export interface AchievementPackInfo {
     id: string;
     file: string;
@@ -41,21 +41,16 @@ export interface AchievementPacksState {
     /** Where the packs that ship with the plugin are. */
     bundled_folder?: string;
     packs?: WireList<AchievementPackInfo>;
-    /** Files in the folder that are not packs, and why. */
+    /** Files in the folders that are not packs, and why. */
     problems?: WireList<{ name: string; file: string; errors: WireList<string> }>;
-    /** After a reload or import: the shortcuts to refresh now, and those marked "No achievements" (left alone). */
-    matched?: WireList<number>;
-    marked_none?: WireList<number>;
     error?: string;
-    errors?: WireList<string>;
-    /** Import: a pack with this id is already there (call again with replace). */
-    exists?: boolean;
-    id?: string;
 }
 
 /** Which pack a shortcut uses and what it reads (the Cartridge card). */
 export interface AchievementPackExplain {
     pack?: string;
+    /** The user gave the game this pack in the Game Data editor (not matched by its exe). */
+    assigned?: boolean;
     others?: WireList<{ id: string; why: string }>;
     files?: WireList<{ path: string; state: "found" | "missing" | "unreadable"; unlocks: number }>;
     marked_none?: boolean;
@@ -346,8 +341,8 @@ export const backend = {
             steam_appid: info.steamAppid,
         });
     },
-    setAchievementSource(appid: number, source: "ra" | "steam" | "none", target?: string | number) {
-        return call<{ ok?: boolean; error?: string; source?: string; title?: string; total?: number; game_id?: number; steam_appid?: number }>(
+    setAchievementSource(appid: number, source: "ra" | "steam" | "none" | "pack", target?: string | number) {
+        return call<{ ok?: boolean; error?: string; source?: string; title?: string; total?: number; game_id?: number; steam_appid?: number; pack?: string }>(
             "SetAchievementSource",
             { appid, source, target },
         );
@@ -355,17 +350,9 @@ export const backend = {
     clearAchievementSource(appid: number) {
         return call<{ ok?: boolean; error?: string }>("ClearAchievementSource", { appid });
     },
-    /** The achievement packs in the user's folder (ADR-0081). */
+    /** The achievement packs, shipped and the user's, read from their folders again (ADR-0081, ADR-0083). */
     achievementPacksList() {
         return call<AchievementPacksState>("AchievementPacksList", {});
-    },
-    /** Reads the packs folder again; `matched` lists the shortcuts to refresh. */
-    achievementPacksReload() {
-        return call<AchievementPacksState>("AchievementPacksReload", {});
-    },
-    /** Copies a pack file into the folder after checking it; `replace` overwrites a pack with the same id. */
-    achievementPacksImport(path: string, replace = false) {
-        return call<AchievementPacksState>("AchievementPacksImport", { path, replace });
     },
     achievementPacksExplain(appid: number) {
         return call<AchievementPackExplain>("AchievementPacksExplain", { appid });

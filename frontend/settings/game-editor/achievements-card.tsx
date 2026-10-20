@@ -1,10 +1,11 @@
 // Game Data editor: the game's achievements (ADR-0076): where they come from, a RetroAchievements link by URL or id,
-// "No achievements" (stop looking) and "Look again". Moved here from the removed Review popup.
+// "No achievements" (stop looking) and "Look again". Moved here from the removed Review popup. A game without
+// achievements can be given an achievement pack from a dropdown (ADR-0083).
 import { useEffect, useState } from "react";
-import { Field } from "@steambrew/client";
+import { DialogButton, Dropdown, Field } from "@steambrew/client";
 import { asList } from "../../kernel/lists";
-import { backend, type AchievementPackExplain } from "../../ports/backend";
-import { ActionRow, ButtonRow, Card, ItemRow, TextRows } from "../components";
+import { backend, type AchievementPackExplain, type AchievementPackInfo } from "../../ports/backend";
+import { ActionRow, BUTTON_STYLE, ButtonRow, Card, FullWidthRows, ItemRow, TextRows } from "../components";
 import type { AchievementState } from "./library-issues";
 import { tint, type RunAction } from "./styles";
 import { Missing } from "./missing";
@@ -65,7 +66,11 @@ function PackLines({ appid, ask, marked }: { appid: number; ask: boolean; marked
         <>
             {info.pack && (
                 <ItemRow>
-                    <Field label={`Achievement pack: ${info.pack}`} description="Reads the game's achievements from:" bottomSeparator="none" />
+                    <Field
+                        label={`Achievement pack: ${info.pack}`}
+                        description={`${info.assigned ? "Chosen by you. " : ""}Reads the game's achievements from:`}
+                        bottomSeparator="none"
+                    />
                 </ItemRow>
             )}
             {files.map((f) => (
@@ -82,6 +87,82 @@ function PackLines({ appid, ask, marked }: { appid: number; ask: boolean; marked
                     <Field label={`Also matches: ${o.id}`} description={`Not used: ${o.why}.`} bottomSeparator="none" />
                 </ItemRow>
             ))}
+        </>
+    );
+}
+
+/** The packs to give a game without achievements, or one that uses a pack (to change it or go back to automatic).
+ *  The list is read when the game opens, so a pack file added while Steam runs is offered. */
+function PackPicker({ appid, busy, run }: { appid: number; busy: boolean; run: RunAction }) {
+    const [packs, setPacks] = useState<AchievementPackInfo[] | null>(null);
+    const [current, setCurrent] = useState<AchievementPackExplain | null>(null);
+    const [chosen, setChosen] = useState<string>("");
+    useEffect(() => {
+        let live = true;
+        setPacks(null);
+        setCurrent(null);
+        Promise.all([backend.achievementPacksList(), backend.achievementPacksExplain(appid)])
+            .then(([list, explain]) => {
+                if (!live) return;
+                const all = asList<AchievementPackInfo>(list.packs);
+                setPacks(all);
+                setCurrent(explain);
+                setChosen(explain.pack ?? all[0]?.id ?? "");
+            })
+            .catch(() => {});
+        return () => {
+            live = false;
+        };
+    }, [appid]);
+    if (!packs || packs.length === 0) return null;
+    const options = packs.map((p) => ({
+        data: p.id,
+        label: `${p.id} (${p.count} achievement${p.count === 1 ? "" : "s"})`,
+    }));
+    return (
+        <>
+            <FullWidthRows label="Achievement pack" description="Give this game the achievements of a pack, whatever program it starts">
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                        <Dropdown
+                            rgOptions={options}
+                            selectedOption={chosen}
+                            contextMenuPositionOptions={{ bMatchWidth: true }}
+                            onChange={(o) => setChosen(String(o.data))}
+                        />
+                    </div>
+                    <DialogButton
+                        disabled={busy || !chosen || (current?.assigned === true && current.pack === chosen)}
+                        style={BUTTON_STYLE}
+                        onClick={() =>
+                            run(async () => {
+                                const res = await backend.setAchievementSource(appid, "pack", chosen);
+                                if (!res.ok) return { error: res.error ?? "Could not use this pack." };
+                                setCurrent({ ...(current ?? {}), pack: chosen, assigned: true });
+                                return {};
+                            }, `Using the achievement pack ${chosen}.`, "Reading the pack...", "achievements")
+                        }
+                    >
+                        Use pack
+                    </DialogButton>
+                </div>
+            </FullWidthRows>
+            {current?.assigned && (
+                <ButtonRow
+                    label="Stop using this pack"
+                    description="Go back to finding the game's achievements by itself"
+                    buttonLabel="Stop using"
+                    disabled={busy}
+                    onClick={() =>
+                        run(async () => {
+                            const res = await backend.clearAchievementSource(appid);
+                            if (!res.ok) return { error: res.error ?? "Could not clear." };
+                            setCurrent({ ...current, assigned: false, pack: undefined });
+                            return {};
+                        }, "Achievement detection will run again for this game.", "Clearing...", "achievements")
+                    }
+                />
+            )}
         </>
     );
 }
@@ -115,10 +196,12 @@ export function AchievementsCard({
                 </ItemRow>
             </Missing>
             <PackLines
+                key={`${state?.source}:${state?.total}`}
                 appid={appid}
                 ask={!found || marked || state?.source === "pack" || state?.source === "native_port"}
                 marked={marked}
             />
+            {(!found || marked || state?.source === "pack") && <PackPicker appid={appid} busy={busy} run={run} />}
             <TextRows label="RetroAchievements game" description="Its URL (retroachievements.org/game/1234) or id" value={ra} onChange={setRa} />
             <ButtonRow
                 label="Link RetroAchievements"

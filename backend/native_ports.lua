@@ -203,12 +203,12 @@ end
 --- The port of the definition a stored schema names (`schema.native_port`), for this shortcut, or nil. An
 --- achievement pack's id starts with "pack_" (achievement_packs.lua); a built-in's is matched by its markers.
 --- The observer and the reset use it, so they read and clear what the game actually uses, never a first match.
-function M.port_by_id(def_id, exe, launch_options)
+function M.port_by_id(def_id, exe, launch_options, appid)
   if type(def_id) ~= "string" then return nil end
   if def_id:match("^pack_") then
     local packs = require("achievement_packs")
     local def = packs.by_id(def_id)
-    if not def or not packs.matches(def, exe) then return nil end
+    if not def or not (packs.matches(def, exe) or (appid and packs.assigned(appid) == def.pack.id)) then return nil end
     local _, dir = M.program(exe)
     return port_of(def, dir)
   end

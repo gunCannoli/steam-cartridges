@@ -11,17 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Added
 
-- **Achievement packs come with the plugin, ready to use**: the Dusklight and Bloodborne packs now work as soon as the
-  plugin is installed, with nothing to copy. Dusklight gets its 50 achievements with RetroAchievements badges as icons
-  (with a RetroAchievements key). Settings → Achievement packs marks them **Included**. Your own packs still go in
-  `millennium/config/steam-cartridges/packs`; a pack of yours with an included pack's `id` replaces it, so to change one,
-  copy it there and edit the copy.
+- **Achievement packs come with the plugin, ready to use**: the Dusklight and Bloodborne packs work as soon as the plugin
+  is installed, with nothing to copy. Dusklight gets its 50 achievements with RetroAchievements badges as icons (with a
+  RetroAchievements key). Your own packs still go in `millennium/config/steam-cartridges/packs`; a pack of yours with an
+  included pack's `id` replaces it, so to change one, copy it there and edit the copy.
+- **Pick a pack for a game in Manual Edit**: a game without achievements (or one that uses a pack) has an **Achievement
+  pack** dropdown in its Achievements block, listing every pack. **Use pack** gives the game that pack whatever program it
+  starts; **Stop using this pack** goes back to automatic. A pack file added while Steam runs shows in the list.
 
 ### Changed
 
-- The example packs moved from `examples/achievement-packs` into the plugin (`backend/packs`). An included pack replaces a
-  built-in game only when it is more complete, so Bloodborne keeps its built-in support (which also follows the
-  launcher's settings and player profiles). RetroAchievements badges now count as a detail when packs are compared.
+- Packs are simpler: a pack whose `exe` names the program a shortcut starts is used for it, and that is all.
+- The example packs moved from `examples/achievement-packs` into the plugin. An included pack replaces a built-in game
+  only when it is more complete, so Bloodborne keeps its built-in support (which also follows the launcher's settings and
+  player profiles). RetroAchievements badges now count as a detail when packs are compared.
+
+### Removed
+
+- The **Achievement packs** section of the settings, with its Import and Reload buttons. Packs are read when Steam starts
+  and each time the Achievement pack dropdown shows; a file that is not a valid pack is named, with why, in the plugin's log.
 
 ## [0.5.2-beta] - 2026-10-20
 

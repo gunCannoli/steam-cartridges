@@ -269,8 +269,9 @@ RPC.PruneMediaCache = method("PruneMediaCache", function(data)
 end)
 
 --- { appid, source, target }: manually link or override achievement source.
---- source: "ra" | "steam" | "none"
---- target: RA game id or url, Steam appid or url, or nil
+--- source: "ra" | "steam" | "none" | "pack"
+--- target: RA game id or url, Steam appid or url, an achievement pack's id, or nil
+--- Any choice but "pack" drops a pack the user gave the game (achievement_packs.assign).
 RPC.SetAchievementSource = method("SetAchievementSource", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
@@ -279,8 +280,22 @@ RPC.SetAchievementSource = method("SetAchievementSource", function(data)
   local s_appid = tonumber(appid)
 
   local store = require("achievements_store")
+  local packs = require("achievement_packs")
+  if source ~= "pack" then packs.assign(s_appid, nil) end
 
-  if source == "none" then
+  if source == "pack" then
+    packs.reload()
+    local def = type(target) == "string" and packs.by_id(target) or nil
+    if not def then return { error = "no achievement pack named " .. tostring(target) } end
+    packs.assign(s_appid, def.pack.id)
+    store.sync(s_appid, nil, {}, nil)
+    local part = require("ach_service").ensure(s_appid, {})
+    fresh().touch(s_appid, "achievements", now_ms())
+    if not part or part.status ~= "ok" then
+      return { error = "the pack " .. def.pack.id .. " gave no achievements: " .. tostring(part and part.message or "unknown") }
+    end
+    return { ok = true, source = "pack", pack = def.pack.id, total = def.pack.count }
+  elseif source == "none" then
     store.sync(s_appid, "none", {}, "none")
     fresh().touch(s_appid, "achievements", now_ms())
     return { ok = true, source = "none" }
@@ -324,6 +339,7 @@ RPC.ClearAchievementSource = method("ClearAchievementSource", function(data)
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
   local s_appid = tonumber(appid)
   local store = require("achievements_store")
+  require("achievement_packs").assign(s_appid, nil)
   store.sync(s_appid, nil, {}, nil)
   fresh().touch(s_appid, "achievements", now_ms())
   return { ok = true }

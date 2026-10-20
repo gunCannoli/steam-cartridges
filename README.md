@@ -21,7 +21,7 @@ own components, on the desktop **and** in Big Picture.
   toasts and progress bars. What each source needs: [Achievements.md](Achievements.md).
 - **Achievement packs:** give any other game achievements with one short file: the program, where the game writes its
   achievements, and the list. No plugin update needed; the plugin reads the game's file whatever its layout. Some packs
-  come included and work as they are (Dusklight). How: [Achievement-Packs.md](Achievement-Packs.md).
+  come included and work as they are (Dusklight), and Manual Edit can give any game a pack. How: [Achievement-Packs.md](Achievement-Packs.md).
 - **Community tab content:** trailers, artwork and game manuals (with a ScreenScraper account) as cards in the
   Community section.
 - **Nothing is rebuilt:** the plugin restores the sections Steam hides from shortcuts and feeds Steam's own stores, so

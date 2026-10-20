@@ -90,10 +90,8 @@ ProvideGame         = PROVIDED_RPC.ProvideGame
 ForgetProvidedGame  = PROVIDED_RPC.ForgetProvidedGame
 ProvideAchievements = PROVIDED_RPC.ProvideAchievements
 
--- Achievement packs (ADR-0081): the settings block and the Cartridge card.
+-- Achievement packs (ADR-0081, ADR-0083): the Game Data editor's achievements block.
 AchievementPacksList    = PACKS_RPC.AchievementPacksList
-AchievementPacksReload  = PACKS_RPC.AchievementPacksReload
-AchievementPacksImport  = PACKS_RPC.AchievementPacksImport
 AchievementPacksExplain = PACKS_RPC.AchievementPacksExplain
 
 local function on_load()

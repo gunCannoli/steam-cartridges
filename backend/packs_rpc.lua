@@ -1,14 +1,12 @@
---- steam-cartridges - achievement packs for the frontend (ADR-0081): the settings block and the Cartridge card.
+--- steam-cartridges - achievement packs for the Game Data editor's achievements block (ADR-0081, ADR-0083).
 ---
----   AchievementPacksList     {}                  -> { folder, bundled_folder, packs = [ pack ], problems = [ { name, errors } ] }
----   AchievementPacksReload   {}                  -> the same, plus matched = [appid], marked_none = [appid]
----   AchievementPacksImport   { path, replace? }  -> as Reload, or { error, errors } / { exists = true, id }
----   AchievementPacksExplain  { appid }           -> { pack = id | nil, others = [ { id, why } ], marked_none,
----                                                     files = [ { path, state = "found"|"missing"|"unreadable", unlocks } ] }
---- pack = { id, name, file, count, bundled?, replaces_bundled?, games = [appid], not_chosen = [ { appid, chosen } ] }:
---- `bundled` ships with the plugin; `replaces_bundled` is the user's pack with a shipped pack's id.
---- `matched` is every shortcut whose pack changed or may have (all the shortcuts a pack is chosen for): the frontend
---- refreshes their achievements at once (a forced ingest), so a new pack, an edit or new icons show without a restart.
+---   AchievementPacksList     {}         -> { folder, bundled_folder, packs = [ pack ], problems = [ { name, errors } ] }
+---   AchievementPacksExplain  { appid }  -> { pack = id | nil, assigned, others = [ { id, why } ], marked_none,
+---                                            files = [ { path, state = "found"|"missing"|"unreadable", unlocks } ] }
+--- pack = { id, file, count, bundled?, replaces_bundled?, games = [appid], not_chosen = [ { appid, chosen } ] }:
+--- `bundled` ships with the plugin; `replaces_bundled` is the user's pack with a shipped pack's id. List reads both
+--- folders again, so a pack file added while Steam runs shows in the editor's list. A pack is given to a game with
+--- SetAchievementSource { source = "pack" } (record_rpc).
 
 local core     = require("rpc")
 local packs    = require("achievement_packs")
@@ -73,6 +71,7 @@ local function usage()
 end
 
 function M.list()
+  packs.reload()
   local all, problems = packs.all()
   local by_pack = usage()
   local out = list({})
@@ -86,66 +85,6 @@ function M.list()
   return { folder = packs.dir(), bundled_folder = packs.bundled_dir(), packs = out, problems = probs }
 end
 
-function M.reload()
-  packs.reload()
-  local res = M.list()
-  local matched, none, seen = list({}), list({}), {}
-  local function add(appid)
-    if seen[appid] then return end
-    seen[appid] = true
-    if marked_none(appid) then none[#none + 1] = appid else matched[#matched + 1] = appid end
-  end
-  for _, p in ipairs(res.packs) do
-    for _, appid in ipairs(p.games) do add(appid) end
-  end
-  -- A game that a pack answered before (its stored part's source): its pack may be gone or replaced, so it is looked
-  -- up again too (a built-in port or another source takes over).
-  for _, e in ipairs(entries()) do
-    local appid = type(e) == "table" and unsigned(e.appid) or 0
-    local st = appid > 0 and store().get_state(appid) or nil
-    if st and st.source == "pack" then add(appid) end
-  end
-  res.matched, res.marked_none = matched, none
-  return res
-end
-
-local function read_file(path)
-  local f = io.open(path, "rb")
-  if not f then return nil end
-  local text = f:read("*a")
-  f:close()
-  return text
-end
-
---- Copies a pack the user picked (Steam's file dialog) into the packs folder as <id>.json, after checking it. A pack
---- with a shipped pack's id goes in without asking: it replaces the shipped one, whose file is never touched.
-function M.import(data)
-  local path = type(data.path) == "string" and data.path or ""
-  if path == "" then return { error = "no file chosen" } end
-  local text = read_file(path)
-  if not text then return { error = "the file cannot be read" } end
-  if #text > packs.MAX_BYTES then return { error = "the file is larger than 1 MB" } end
-  local ok, pack = pcall(require("json").decode, text)
-  if not ok or type(pack) ~= "table" then return { error = "the file is not valid JSON" } end
-  local errs = packs.check(pack)
-  if #errs > 0 then return { error = errs[1], errors = list(errs) } end
-  local existing = packs.by_id(pack.id)
-  if existing and existing.pack.bundled then existing = nil end
-  if existing and data.replace ~= true then return { exists = true, id = pack.id } end
-  local dir = packs.dir()
-  pcall(function()
-    local fs = require("fs")
-    if not fs.is_directory(dir) then fs.create_directories(dir) end
-  end)
-  local target = dir .. "/" .. pack.id .. ".json"
-  local okw, werr = require("utils").write_file(target, text)
-  if not okw then return { error = "could not write " .. target .. ": " .. tostring(werr) } end
-  -- A replaced pack stored under another file name would now be a duplicate id: remove that file.
-  if existing and ports.norm(existing.pack.file):lower() ~= ports.norm(target):lower() then os.remove(existing.pack.file) end
-  pcall(function() require("logger"):info("Achievement pack imported: " .. pack.id .. " (" .. #pack.achievements .. " achievements)") end)
-  return M.reload()
-end
-
 --- What a shortcut's packs do: the one it uses, the others and why, and the chosen pack's files.
 function M.explain(data)
   local appid = unsigned(data.appid)
@@ -155,17 +94,25 @@ function M.explain(data)
   else
     entry = require("registry").shortcut(appid)
   end
-  local out = { pack = nil, others = list({}), files = list({}), marked_none = marked_none(appid) }
+  local out = { pack = nil, assigned = false, others = list({}), files = list({}), marked_none = marked_none(appid) }
   if type(entry) ~= "table" or not entry.exe then return out end
   local builtin = src.builtin(entry)
   local matching = packs.matching(entry.exe)
-  if #matching == 0 then return out end
-  local chosen = packs.best(entry.exe, builtin and builtin.def)
+  local given = packs.assigned_def(entry)
+  local chosen
+  if given then
+    chosen, out.assigned = given, true
+  else
+    if #matching == 0 then return out end
+    chosen = packs.best(entry.exe, builtin and builtin.def)
+  end
   out.pack = chosen and chosen.pack.id or nil
   for _, def in ipairs(matching) do
     if def ~= chosen then
       local why
-      if not chosen and builtin and def.pack.bundled and def.pack.count == #(builtin.def.game and builtin.def.game.trophies or {})
+      if given then
+        why = "you chose " .. given.pack.id .. " for this game"
+      elseif not chosen and builtin and def.pack.bundled and def.pack.count == #(builtin.def.game and builtin.def.game.trophies or {})
           and def.pack.details == packs.details(builtin.def) then
         why = "an included pack, only as complete as the built-in " .. tostring(builtin.def.name) .. " port, which stays"
       elseif not chosen and builtin then
@@ -194,8 +141,6 @@ function M.explain(data)
 end
 
 M.AchievementPacksList = method("AchievementPacksList", function() return M.list() end)
-M.AchievementPacksReload = method("AchievementPacksReload", function() return M.reload() end)
-M.AchievementPacksImport = method("AchievementPacksImport", M.import)
 M.AchievementPacksExplain = method("AchievementPacksExplain", M.explain)
 
 return M

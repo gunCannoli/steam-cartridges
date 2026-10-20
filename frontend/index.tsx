@@ -1,6 +1,5 @@
 import { definePlugin, IconsModule } from "@steambrew/client";
 import { screenSize, showDialog } from "./steam/modal";
-import { canPickFiles, pickJsonFile } from "./steam/file-dialog";
 import { logger } from "./logger";
 import {
     createCapturesSurface,
@@ -479,7 +478,6 @@ async function init() {
             },
         },
         dialog: { open: (element, title, onClose, from) => showDialog(element, { title, ...screenSize(from), onClose, parent: from }) },
-        files: { canPick: canPickFiles, pickJson: (title, from) => pickJsonFile(title, from) },
         editor: gameEditor,
     });
 

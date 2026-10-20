@@ -16,6 +16,8 @@
 --- is at least as complete (src_native_ports, ach_service). A pack is data, never code: nothing here loads Lua.
 ---
 --- Shipped packs are read first; a user's pack with the same id replaces the shipped one, so a user can edit a copy.
+--- A pack is used for the shortcuts whose exe it names, and for any shortcut the user gave it in the Game Data editor
+--- (`assign`, kept in <data dir>/pack_choices.json), whatever that shortcut starts.
 --- A shipped pack replaces a built-in port only when it is more complete: on a tie the built-in port keeps the rules a
 --- pack cannot express (Bloodborne's launcher settings).
 
@@ -27,6 +29,7 @@ local M = {}
 M.deps = {
   dir = nil,     -- the user's packs folder; nil = <data dir>/packs
   bundled = nil, -- the packs that ship with the plugin; nil = the `packs` folder beside this file
+  choices = nil, -- { load() -> { [appid] = pack id }, save(t) } ; nil = <data dir>/pack_choices.json
   icons = nil, -- trophy_pack_icons-like module: { icon_url(png, size), trp_entries(path), from_trp(path, ids) }
   ra = nil,    -- ra_badges-like module: { valid(name), available(name), fetch(names) -> { [name] = data URL } }
 }
@@ -333,7 +336,7 @@ function M.all()
 end
 
 --- Read the folder again on the next use.
-function M.reload() loaded, problems, sig = nil, nil, nil end
+function M.reload() loaded, problems, sig, choices = nil, nil, nil, nil end
 
 --- A pack by its definition id ("pack_<id>") or its own id.
 function M.by_id(id)
@@ -351,6 +354,58 @@ function M.signature()
   table.sort(parts)
   sig = table.concat(parts, ",")
   return sig
+end
+
+-- ------------------------------------------------------------------------------------------------ choices
+
+local choices = nil
+
+local function unsigned_key(appid)
+  local n = tonumber(appid)
+  if not n then return nil end
+  if n < 0 then n = n + 4294967296 end
+  return tostring(math.floor(n))
+end
+
+local function choices_io()
+  if M.deps.choices then return M.deps.choices end
+  local path = require("data_dir").file("pack_choices.json")
+  return {
+    load = function()
+      local f = io.open(path, "rb")
+      if not f then return {} end
+      local text = f:read("*a")
+      f:close()
+      local ok, t = pcall(require("json").decode, text)
+      return (ok and type(t) == "table") and t or {}
+    end,
+    save = function(t) require("utils").write_file(path, require("json").encode(t)) end,
+  }
+end
+
+--- The pack id the user gave a shortcut in the Game Data editor, or nil.
+function M.assigned(appid)
+  local key = unsigned_key(appid)
+  if not key then return nil end
+  if not choices then choices = choices_io().load() end
+  local id = choices[key]
+  return type(id) == "string" and id or nil
+end
+
+--- Gives a shortcut a pack (`id`), or back to matching by exe (nil).
+function M.assign(appid, id)
+  local key = unsigned_key(appid)
+  if not key then return end
+  if not choices then choices = choices_io().load() end
+  if choices[key] == id then return end
+  choices[key] = id
+  choices_io().save(choices)
+end
+
+--- The pack the user gave a shortcut entry, while its file is still there.
+function M.assigned_def(entry)
+  local id = type(entry) == "table" and M.assigned(entry.appid) or nil
+  return id and M.by_id(id) or nil
 end
 
 -- ------------------------------------------------------------------------------------------------ matching

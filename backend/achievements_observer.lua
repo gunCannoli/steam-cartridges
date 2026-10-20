@@ -207,7 +207,7 @@ end
 --- nil for any other schema. By id, never a first match: two packs may match one exe (ADR-0081).
 function M.native_port(schema, sc_match)
   if not (schema and schema.native_port and sc_match) then return nil end
-  return require("native_ports").port_by_id(schema.native_port, sc_match.exe, sc_match.launch_options)
+  return require("native_ports").port_by_id(schema.native_port, sc_match.exe, sc_match.launch_options, sc_match.appid)
 end
 
 --- The newest RetroArch log in `dir`: with log_to_file_timestamp on, RetroArch writes one
