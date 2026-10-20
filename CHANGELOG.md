@@ -7,6 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.5.3-beta] - 2026-10-20
+
+### Added
+
+- **Achievement packs come with the plugin, ready to use**: the Dusklight and Bloodborne packs now work as soon as the
+  plugin is installed, with nothing to copy. Dusklight gets its 50 achievements with RetroAchievements badges as icons
+  (with a RetroAchievements key). Settings → Achievement packs marks them **Included**. Your own packs still go in
+  `millennium/config/steam-cartridges/packs`; a pack of yours with an included pack's `id` replaces it, so to change one,
+  copy it there and edit the copy.
+
+### Changed
+
+- The example packs moved from `examples/achievement-packs` into the plugin (`backend/packs`). An included pack replaces a
+  built-in game only when it is more complete, so Bloodborne keeps its built-in support (which also follows the
+  launcher's settings and player profiles). RetroAchievements badges now count as a detail when packs are compared.
+
 ## [0.5.2-beta] - 2026-10-20
 
 ### Changed

@@ -20,8 +20,8 @@ own components, on the desktop **and** in Big Picture.
   trophies, the Bloodborne PC (with icons from your own dump) and Dusklight ports' achievements, and the emulator logs it recognises. They show in Steam's own achievements page, with Steam's own unlock
   toasts and progress bars. What each source needs: [Achievements.md](Achievements.md).
 - **Achievement packs:** give any other game achievements with one short file: the program, where the game writes its
-  achievements, and the list. No plugin update needed; the plugin reads the game's file whatever its layout. How:
-  [Achievement-Packs.md](Achievement-Packs.md).
+  achievements, and the list. No plugin update needed; the plugin reads the game's file whatever its layout. Some packs
+  come included and work as they are (Dusklight). How: [Achievement-Packs.md](Achievement-Packs.md).
 - **Community tab content:** trailers, artwork and game manuals (with a ScreenScraper account) as cards in the
   Community section.
 - **Nothing is rebuilt:** the plugin restores the sections Steam hides from shortcuts and feeds Steam's own stores, so

@@ -4,6 +4,7 @@ An achievement pack gives a non-Steam game achievements from one short file you 
 and fan projects that keep their own achievement file (a native port of a console game, a decompilation, a remake) and
 that no other source knows. You need no update of Steam Cartridges: drop the file in a folder, press **Reload**.
 
+- [Packs included with the plugin](#packs-included-with-the-plugin)
 - [The folder](#the-folder)
 - [Writing a pack](#writing-a-pack)
 - [Where the achievements file is: `files`](#where-the-achievements-file-is-files)
@@ -13,14 +14,29 @@ that no other source knows. You need no update of Steam Cartridges: drop the fil
 - [Checking a pack](#checking-a-pack)
 - [Finding where a game writes its achievements](#finding-where-a-game-writes-its-achievements)
 
+## Packs included with the plugin
+
+Some packs come with Steam Cartridges and work as soon as it is installed: nothing to copy. Add the game as a non-Steam
+shortcut and its achievements show.
+
+| Pack | Game | Gives |
+| --- | --- | --- |
+| `dusklight` | Dusklight | Its 50 achievements, with RetroAchievements badges as icons when you have a RetroAchievements key. |
+| `bloodborne` | Bloodborne PC ports | Its trophies with rarity, secret trophies and the platinum. The built-in Bloodborne support stays in use (it also follows the launcher's settings and player profiles); this pack is a starting point to copy and edit. |
+
+They are in the plugin's own `backend\packs` folder, which an update replaces: never edit them there. To change one, copy it
+into your folder (below) and edit the copy, keeping its `id`: your pack replaces the included one. Both are also good
+examples to start your own from.
+
 ## The folder
 
 ```
 <Steam>\millennium\config\steam-cartridges\packs\
 ```
 
-Every `.json` file there is read as a pack. The folder survives updates of the plugin. In Steam's Millennium settings,
-**Steam Cartridges → Achievement packs** lists your packs, shows the folder, imports a file into it (**Import a pack...**)
+Every `.json` file there is read as a pack, besides the included ones. The folder survives updates of the plugin. In
+Steam's Millennium settings, **Steam Cartridges → Achievement packs** lists the packs (the included ones marked
+**Included**), shows your folder, imports a file into it (**Import a pack...**)
 and reads it again (**Reload**). Reload looks up the games your packs match at once: no restart.
 
 ## Writing a pack
@@ -64,7 +80,8 @@ itself. It reads JSON files, INI files, and logs and text files with one unlock 
 `hero_of_twilight=1`, `Runtime: trophy 5 unlocked`, `Achievement unlocked: Hero Mode`). A line that only reports
 progress but names an achievement after a word like "achievement" can be misread as an unlock.
 
-Full examples (Dusklight, Bloodborne) are in [examples/achievement-packs](examples/achievement-packs).
+Full examples: the [included packs](backend/packs) (Dusklight names its achievements by key, Bloodborne numbers them and
+has secret trophies, rarity and the platinum).
 
 ## Where the achievements file is: `files`
 
@@ -82,7 +99,8 @@ an unlock in any of them counts. A file that does not exist yet is fine; most ga
 No field is needed. Each achievement takes the first icon it finds:
 
 1. **Your own icons:** PNG files named by the achievement's position, in a folder named after the pack's id:
-   `packs\dusklight\0.png`, `1.png`, ... A folder with only some of them is fine.
+   `packs\dusklight\0.png`, `1.png`, ... A folder with only some of them is fine. This works for an
+   included pack too, and comes before any icons it ships with.
 2. **The `icons` line**, when the game ships its own icons: `"icons": "{game}/assets/achievements"` (PNG files; files
    named by a number go to that position, otherwise they are taken in name order), or a PS4 trophy file
    (`"icons": "D:/PS4/CUSA01623/sce_sys/trophy/trophy00.trp"`).
@@ -110,9 +128,10 @@ Enhanced Notifications shows its own "all achievements" celebration for every ga
 - **A pack is the last source:** if Steam, RetroAchievements, an emulator's trophies or another plugin already give the
   game achievements, the pack is not used.
 - **A pack can update a built-in port** (Bloodborne PC, Dusklight): when it is at least as complete as the built-in list,
-  the pack is used instead.
+  the pack is used instead. An included pack must be more complete than the built-in one, so a tie keeps the built-in.
+- **Your pack with an included pack's `id`** replaces the included one.
 - **Several packs for one game:** the one with the most achievements, then the one with the most details (descriptions,
-  rarity, secret flags, a platinum). A more complete pack takes over after **Reload**, and your unlocks move to it.
+  rarity, secret flags, a platinum, RetroAchievements badges), then yours before an included one. A more complete pack takes over after **Reload**, and your unlocks move to it.
 - **A game you marked "No achievements"** (Manual Edit) stays that way. Its Cartridge page says a pack matches; press
   **Retry achievement detection** there to use it.
 

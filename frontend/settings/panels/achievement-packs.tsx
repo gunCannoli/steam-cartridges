@@ -1,5 +1,5 @@
-// Settings: Achievement packs (ADR-0081). The packs in the user's folder, which games use them, the files that are not
-// packs and why; Import (Steam's file dialog) and Reload. A change refreshes the games the packs match at once (a forced
+// Settings: Achievement packs (ADR-0081). The packs that ship with the plugin and those in the user's folder, which
+// games use them, the files that are not packs and why; Import (Steam's file dialog) and Reload. A change refreshes the games the packs match at once (a forced
 // ingest of those games), so nothing waits for a restart.
 import { useEffect, useState } from "react";
 import { DialogButton, Field, PanelSection } from "@steambrew/client";
@@ -85,8 +85,8 @@ export function AchievementPacksSection() {
             <Blocks>
                 <ItemRow>
                     <Field
-                        label="Your packs"
-                        description="A pack gives a game achievements from one short file, for ports and fan projects no other source knows. Put pack files (.json) in the folder below, or import one."
+                        label="Packs"
+                        description="A pack gives a game achievements from one short file, for ports and fan projects no other source knows. Packs marked Included come with Steam Cartridges and work as they are; add your own (.json) to the folder below, or import one. A pack of yours with an included pack's name replaces it."
                         bottomSeparator="none"
                     />
                 </ItemRow>
@@ -98,9 +98,10 @@ export function AchievementPacksSection() {
                         : skipped.length > 0
                           ? `Not used: ${skipped[0]?.chosen ?? "another pack"} is more complete`
                           : "No shortcut starts this game";
+                    const origin = p.bundled ? "Included · " : p.replaces_bundled ? "Yours, replaces the included pack · " : "";
                     return (
                         <ItemRow key={p.id}>
-                            <Field label={p.id} description={`${plural(p.count, "achievement")} · ${used}`} />
+                            <Field label={p.id} description={`${origin}${plural(p.count, "achievement")} · ${used}`} />
                         </ItemRow>
                     );
                 })}
@@ -119,7 +120,7 @@ export function AchievementPacksSection() {
                 )}
                 {state?.folder && (
                     <ItemRow>
-                        <Field label="Folder" description={state.folder} />
+                        <Field label="Your packs folder" description={state.folder} />
                     </ItemRow>
                 )}
                 {ctx.files.canPick() && (

@@ -1,5 +1,6 @@
 --- steam-cartridges - achievement packs: a game's achievements from a short JSON file the user drops in a folder
---- (ADR-0081). Any `*.json` in <data dir>/packs with these fields is a pack:
+--- (ADR-0081). Any `*.json` in <data dir>/packs (the user's) or <plugin>/backend/packs (the packs that ship with the
+--- plugin, ready to use) with these fields is a pack:
 ---
 ---   id            the pack's name (a-z, 0-9, - and _, up to 64); names the icon folder <data dir>/packs/<id>/
 ---   exe           the program(s) the Steam shortcut starts ("Dusklight.exe"; "Folder/game.exe" for a common name)
@@ -13,6 +14,10 @@
 --- builds its schema as for a built-in port. How its files are laid out is detected (unlock_detect.lua). Packs are
 --- the last achievement source, except against a built-in port for the same shortcut, which a pack replaces when it
 --- is at least as complete (src_native_ports, ach_service). A pack is data, never code: nothing here loads Lua.
+---
+--- Shipped packs are read first; a user's pack with the same id replaces the shipped one, so a user can edit a copy.
+--- A shipped pack replaces a built-in port only when it is more complete: on a tie the built-in port keeps the rules a
+--- pack cannot express (Bloodborne's launcher settings).
 
 local ports = require("native_ports")
 
@@ -20,7 +25,8 @@ local M = {}
 
 --- Injectable for tests. nil = the real dependency.
 M.deps = {
-  dir = nil,   -- the packs folder; nil = <data dir>/packs
+  dir = nil,     -- the user's packs folder; nil = <data dir>/packs
+  bundled = nil, -- the packs that ship with the plugin; nil = the `packs` folder beside this file
   icons = nil, -- trophy_pack_icons-like module: { icon_url(png, size), trp_entries(path), from_trp(path, ids) }
   ra = nil,    -- ra_badges-like module: { valid(name), available(name), fetch(names) -> { [name] = data URL } }
 }
@@ -35,12 +41,27 @@ local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, 
 local io_ = ports.io
 local norm, parent = ports.norm, ports.parent
 
+--- This file's folder, from its chunk name, else the first package.path entry (the plugin's backend, logged at startup).
+local backend_dir
+function backend_dir()
+  local ok, info = pcall(debug.getinfo, backend_dir, "S")
+  local dir = ok and info and tostring(info.source or ""):match("^@(.*)[/\\][^/\\]*$")
+  if not dir then dir = tostring(package.path or ""):match("^([^;]-)[/\\]%?%.lua") end
+  return dir and norm(dir) or "."
+end
+
 local function icons_mod() return M.deps.icons or require("trophy_pack_icons") end
 local function ra_mod() return M.deps.ra or require("ra_badges") end
 
 function M.dir()
   if M.deps.dir then return M.deps.dir end
   return norm(require("data_dir").file("packs"))
+end
+
+--- The folder of the packs that ship with the plugin (read-only: an update replaces it).
+function M.bundled_dir()
+  if M.deps.bundled then return M.deps.bundled end
+  return backend_dir() .. "/packs"
 end
 
 -- ------------------------------------------------------------------------------------------------ paths
@@ -188,6 +209,7 @@ function M.details(def)
     if t.global_pct then n = n + 1 end
     if t.hidden then n = n + 1 end
     if t.grade == "P" then n = n + 1 end
+    if t.ra_icon then n = n + 1 end
   end
   return n
 end
@@ -200,8 +222,9 @@ local function exe_entries(pack)
   return out
 end
 
---- A checked pack as a native ports definition. `file` and `text` are its file and contents.
-function M.compile(pack, file, text)
+--- A checked pack as a native ports definition. `file` and `text` are its file and contents; `bundled` when it ships
+--- with the plugin.
+function M.compile(pack, file, text, bundled)
   local trophies, detect, plat = {}, {}, false
   for i, a in ipairs(pack.achievements) do
     local id = a.id ~= nil and tostring(a.id) or tostring(i - 1)
@@ -231,7 +254,7 @@ function M.compile(pack, file, text)
     },
     detect_list = detect,
     icons_line = pack.icons,
-    pack = { id = pack.id, file = file, revision = M.revision(text or ""), count = #trophies },
+    pack = { id = pack.id, file = file, revision = M.revision(text or ""), count = #trophies, bundled = bundled == true },
   }
   def.pack.details = M.details(def)
   return def
@@ -241,11 +264,10 @@ end
 
 local loaded, problems, sig = nil, nil, nil
 
-local function load()
-  if loaded then return end
-  loaded, problems = {}, {}
+--- Reads one folder's packs into `out` and `problems`.
+local function load_dir(dir, bundled, out, problems)
   local json = require("json")
-  local files = io_.list_files(M.dir(), ".json")
+  local files = io_.list_files(dir, ".json")
   table.sort(files, function(a, b) return a:lower() < b:lower() end)
   local by_id = {}
   for _, file in ipairs(files) do
@@ -267,10 +289,10 @@ local function load()
           errs = { "has the id \"" .. pack.id .. "\" of " .. by_id[pack.id] .. "; each pack needs its own id" }
         end
         if #errs == 0 then
-          local okd, def = pcall(M.compile, pack, file, text)
+          local okd, def = pcall(M.compile, pack, file, text, bundled)
           if okd then
             by_id[pack.id] = name
-            loaded[#loaded + 1] = def
+            out[#out + 1] = def
           else
             errs = { "could not be read: " .. tostring(def) }
           end
@@ -278,13 +300,33 @@ local function load()
       end
     end
     if errs and #errs > 0 then
-      problems[#problems + 1] = { file = file, name = name, errors = errs }
+      problems[#problems + 1] = { file = file, name = name, errors = errs, bundled = bundled or nil }
       pcall(function() require("logger"):warn("Achievement pack " .. name .. " skipped: " .. errs[1]) end)
     end
   end
 end
 
---- Every loaded pack (compiled definitions), and the files that are not packs: { file, name, errors }.
+local function load()
+  if loaded then return end
+  loaded, problems = {}, {}
+  local shipped, own = {}, {}
+  local user_dir, bundled_dir = M.dir(), M.bundled_dir()
+  if bundled_dir:lower() ~= user_dir:lower() then load_dir(bundled_dir, true, shipped, problems) end
+  load_dir(user_dir, false, own, problems)
+  -- A user's pack replaces the shipped pack with its id.
+  local mine = {}
+  for _, def in ipairs(own) do mine[def.pack.id] = def end
+  for _, def in ipairs(shipped) do
+    if mine[def.pack.id] then
+      mine[def.pack.id].pack.replaces_bundled = true
+    else
+      loaded[#loaded + 1] = def
+    end
+  end
+  for _, def in ipairs(own) do loaded[#loaded + 1] = def end
+end
+
+--- Every loaded pack (compiled definitions), and the files that are not packs: { file, name, errors, bundled? }.
 function M.all()
   load()
   return loaded, problems
@@ -336,6 +378,7 @@ end
 local function better(a, b)
   if a.pack.count ~= b.pack.count then return a.pack.count > b.pack.count end
   if a.pack.details ~= b.pack.details then return a.pack.details > b.pack.details end
+  if a.pack.bundled ~= b.pack.bundled then return not a.pack.bundled end
   return tostring(a.pack.file):lower() < tostring(b.pack.file):lower()
 end
 
@@ -350,14 +393,17 @@ function M.matching(cmd)
 end
 
 --- The pack a shortcut uses, or nil, and the other matching packs. With `builtin` (a built-in port's definition for
---- the same shortcut), the pack must be at least as complete to replace it (a tie goes to the pack, D11).
+--- the same shortcut), the pack must be at least as complete to replace it (a tie goes to the user's pack, D11; a
+--- shipped pack must be more complete, so the built-in port keeps a tie).
 function M.best(cmd, builtin)
   local list = M.matching(cmd)
   local top = list[1]
   if not top then return nil, {} end
   if builtin then
     local count = #(builtin.game and builtin.game.trophies or {})
-    if top.pack.count < count or (top.pack.count == count and top.pack.details < M.details(builtin)) then
+    local details = M.details(builtin)
+    if top.pack.count < count or (top.pack.count == count and (top.pack.details < details
+        or (top.pack.bundled and top.pack.details == details))) then
       return nil, list
     end
   end
@@ -409,11 +455,12 @@ end
 function M.icon_plan(def, exe_dir)
   local count = def.pack.count
   local plan = {}
-  -- 1. <packs>/<id>/<n>.png
-  local own = M.dir() .. "/" .. def.pack.id
-  for _, p in ipairs(io_.list_files(own, ".png")) do
-    local n = tonumber(p:match("([^/]*)%.[pP][nN][gG]$"))
-    if n and n >= 0 and n < count and n % 1 == 0 then plan[n] = { png = p } end
+  -- 1. <packs>/<id>/<n>.png: the user's folder, then the shipped one
+  for _, root in ipairs({ M.dir(), M.bundled_dir() }) do
+    for _, p in ipairs(io_.list_files(root .. "/" .. def.pack.id, ".png")) do
+      local n = tonumber(p:match("([^/]*)%.[pP][nN][gG]$"))
+      if n and n >= 0 and n < count and n % 1 == 0 and not plan[n] then plan[n] = { png = p } end
+    end
   end
   -- 2. the `icons` line: a .trp, or a folder (numbered names by number, the rest in name order)
   if def.icons_line then

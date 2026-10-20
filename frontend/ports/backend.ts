@@ -26,6 +26,10 @@ export interface AchievementPackInfo {
     id: string;
     file: string;
     count: number;
+    /** Ships with the plugin (backend/packs), ready to use. */
+    bundled?: boolean;
+    /** The user's pack with a shipped pack's id: it replaces that one. */
+    replaces_bundled?: boolean;
     /** Shortcuts this pack is chosen for. */
     games: WireList<number>;
     /** Shortcuts it matches where another pack, or a built-in port, is used instead. */
@@ -34,6 +38,8 @@ export interface AchievementPackInfo {
 
 export interface AchievementPacksState {
     folder?: string;
+    /** Where the packs that ship with the plugin are. */
+    bundled_folder?: string;
     packs?: WireList<AchievementPackInfo>;
     /** Files in the folder that are not packs, and why. */
     problems?: WireList<{ name: string; file: string; errors: WireList<string> }>;

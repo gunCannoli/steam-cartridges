@@ -143,8 +143,8 @@ Any other port, or an updated list for these, is an [achievement pack](#achievem
 A pack is a short JSON file you put in `<Steam>\millennium\config\steam-cartridges\packs\`: the program the shortcut
 starts, where the game writes its achievements, and the list. Steam Cartridges reads the game's file by itself, whatever its
 layout. Packs are used only when no other source gives the game achievements, except that a pack as complete as a
-built-in port (Bloodborne, Dusklight) replaces it. How to write one: [Achievement-Packs.md](Achievement-Packs.md);
-examples: [examples/achievement-packs](examples/achievement-packs).
+built-in port (Bloodborne, Dusklight) replaces it. Some packs come with the plugin, ready to use (Dusklight, Bloodborne:
+[backend/packs](backend/packs)). How to write one: [Achievement-Packs.md](Achievement-Packs.md).
 
 ## RPCS3 (PlayStation 3)
 

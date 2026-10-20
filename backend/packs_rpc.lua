@@ -1,11 +1,12 @@
 --- steam-cartridges - achievement packs for the frontend (ADR-0081): the settings block and the Cartridge card.
 ---
----   AchievementPacksList     {}                  -> { folder, packs = [ pack ], problems = [ { name, errors } ] }
+---   AchievementPacksList     {}                  -> { folder, bundled_folder, packs = [ pack ], problems = [ { name, errors } ] }
 ---   AchievementPacksReload   {}                  -> the same, plus matched = [appid], marked_none = [appid]
 ---   AchievementPacksImport   { path, replace? }  -> as Reload, or { error, errors } / { exists = true, id }
 ---   AchievementPacksExplain  { appid }           -> { pack = id | nil, others = [ { id, why } ], marked_none,
 ---                                                     files = [ { path, state = "found"|"missing"|"unreadable", unlocks } ] }
---- pack = { id, name, file, count, games = [appid], not_chosen = [ { appid, chosen } ] }.
+--- pack = { id, name, file, count, bundled?, replaces_bundled?, games = [appid], not_chosen = [ { appid, chosen } ] }:
+--- `bundled` ships with the plugin; `replaces_bundled` is the user's pack with a shipped pack's id.
 --- `matched` is every shortcut whose pack changed or may have (all the shortcuts a pack is chosen for): the frontend
 --- refreshes their achievements at once (a forced ingest), so a new pack, an edit or new icons show without a restart.
 
@@ -77,11 +78,12 @@ function M.list()
   local out = list({})
   for _, def in ipairs(all) do
     local u = by_pack[def.pack.id] or { games = list({}), not_chosen = list({}) }
-    out[#out + 1] = { id = def.pack.id, file = def.pack.file, count = def.pack.count, games = u.games, not_chosen = u.not_chosen }
+    out[#out + 1] = { id = def.pack.id, file = def.pack.file, count = def.pack.count, games = u.games, not_chosen = u.not_chosen,
+      bundled = def.pack.bundled or nil, replaces_bundled = def.pack.replaces_bundled or nil }
   end
   local probs = list({})
-  for _, p in ipairs(problems) do probs[#probs + 1] = { name = p.name, file = p.file, errors = list(p.errors) } end
-  return { folder = packs.dir(), packs = out, problems = probs }
+  for _, p in ipairs(problems) do probs[#probs + 1] = { name = p.name, file = p.file, errors = list(p.errors), bundled = p.bundled } end
+  return { folder = packs.dir(), bundled_folder = packs.bundled_dir(), packs = out, problems = probs }
 end
 
 function M.reload()
@@ -115,7 +117,8 @@ local function read_file(path)
   return text
 end
 
---- Copies a pack the user picked (Steam's file dialog) into the packs folder as <id>.json, after checking it.
+--- Copies a pack the user picked (Steam's file dialog) into the packs folder as <id>.json, after checking it. A pack
+--- with a shipped pack's id goes in without asking: it replaces the shipped one, whose file is never touched.
 function M.import(data)
   local path = type(data.path) == "string" and data.path or ""
   if path == "" then return { error = "no file chosen" } end
@@ -127,6 +130,7 @@ function M.import(data)
   local errs = packs.check(pack)
   if #errs > 0 then return { error = errs[1], errors = list(errs) } end
   local existing = packs.by_id(pack.id)
+  if existing and existing.pack.bundled then existing = nil end
   if existing and data.replace ~= true then return { exists = true, id = pack.id } end
   local dir = packs.dir()
   pcall(function()
@@ -161,7 +165,10 @@ function M.explain(data)
   for _, def in ipairs(matching) do
     if def ~= chosen then
       local why
-      if not chosen and builtin then
+      if not chosen and builtin and def.pack.bundled and def.pack.count == #(builtin.def.game and builtin.def.game.trophies or {})
+          and def.pack.details == packs.details(builtin.def) then
+        why = "an included pack, only as complete as the built-in " .. tostring(builtin.def.name) .. " port, which stays"
+      elseif not chosen and builtin then
         why = "the built-in " .. tostring(builtin.def.name) .. " port is more complete"
       else
         why = "less complete than " .. tostring(chosen and chosen.pack.id or "the chosen pack")
