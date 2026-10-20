@@ -7,6 +7,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.5.0-beta] - 2026-10-20
+
+### Added
+
+- **Achievement packs**: give a non-Steam game achievements with one short JSON file in
+  `millennium/config/steam-cartridges/packs` inside your Steam folder: the program the shortcut starts, where the game
+  writes its achievements, and the list (names, descriptions; secret, rarity and platinum if you want them). No plugin
+  update is needed for a new port. The plugin finds the achievements in the game's file whatever its layout (JSON, INI,
+  logs). Packs are used only when no other source gives the game achievements, except that a pack as complete as a
+  built-in port (Bloodborne, Dusklight) replaces it, so a pack can update one. Icons: numbered PNGs in a folder named after
+  the pack, the game's own icon folder, or your PS4 dump found beside the game. Settings → **Achievement packs** lists your
+  packs and their problems, imports a file and reloads the folder, looking the games up again at once; the game's
+  Cartridge page shows which pack it uses and whether its files are found. How to write one:
+  [ACHIEVEMENT-PACKS.md](ACHIEVEMENT-PACKS.md), with two examples.
+
+### Fixed
+
+- **Achievements without an icon show a picture**: the game's own icon, or a trophy badge, in the achievements list, the
+  unlock toast and the Activity feed, instead of an empty square (Dusklight's achievements have no icons).
+- **Two native ports' games no longer share one achievement list**: Bloodborne and Dusklight were stored under the same
+  key, so with both in the library one could show the other's list. Each is now stored under its own key; a game stored
+  the old way is built again once, its unlocks kept.
+- **An emulated game is never linked to a Steam game by its title alone**: "God of War" in PCSX2 is the PS2 game, not
+  Steam's 2018 one. Besides the emulator programs already known, this now covers PPSSPP's Windows build
+  (`PPSSPPWindows64`), `mame64`, ePSXe, PCSX, Lime3DS, the Switch forks, bsnes, higan, Cxbx, Stella, Yabause and Kronos,
+  and any shortcut whose command line or launch options name a ROM or disc image, whatever starts it (a frontend, or a
+  script such as EmuDeck's launchers). A link made earlier stays until you change it in the Game Data editor.
+
 ## [0.4.0-beta] - 2026-10-20
 
 ### Added

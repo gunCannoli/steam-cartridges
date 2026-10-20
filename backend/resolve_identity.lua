@@ -28,7 +28,7 @@ M.deps = {
 function M.launches_emulator(appid)
   local ok, result = pcall(function()
     local entry = require("registry").shortcut(appid)
-    return entry ~= nil and emulators.is_emulator(entry.exe)
+    return entry ~= nil and emulators.is_emulator(entry.exe, entry.launch_options)
   end)
   return ok and result == true
 end

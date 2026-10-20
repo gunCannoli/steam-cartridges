@@ -34,6 +34,7 @@ local STORE_RPC = require("steam_store_rpc")
 local ACH_RPC   = require("achievements_rpc")
 local RECORD_RPC = require("record_rpc")
 local PROVIDED_RPC = require("provided_rpc")
+local PACKS_RPC = require("packs_rpc")
 
 -- Millennium exposes globals to the frontend as callable methods.
 GetLibraryStats = RPC.GetLibraryStats
@@ -88,6 +89,12 @@ PruneMediaCache = RECORD_RPC.PruneMediaCache
 ProvideGame         = PROVIDED_RPC.ProvideGame
 ForgetProvidedGame  = PROVIDED_RPC.ForgetProvidedGame
 ProvideAchievements = PROVIDED_RPC.ProvideAchievements
+
+-- Achievement packs (ADR-0081): the settings block and the Cartridge card.
+AchievementPacksList    = PACKS_RPC.AchievementPacksList
+AchievementPacksReload  = PACKS_RPC.AchievementPacksReload
+AchievementPacksImport  = PACKS_RPC.AchievementPacksImport
+AchievementPacksExplain = PACKS_RPC.AchievementPacksExplain
 
 local function on_load()
   -- Resolve paths eagerly so a misconfigured install shows up in the log at

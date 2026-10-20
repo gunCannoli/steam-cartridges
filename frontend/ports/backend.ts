@@ -18,6 +18,44 @@ export interface AchievementResetSource {
     url?: string;
 }
 
+/** A list from the backend: an empty one may arrive as `{}` (K1); read it with kernel/lists asList. */
+type WireList<T> = T[] | Record<string, never>;
+
+/** An achievement pack as the backend lists it (packs_rpc.lua, ADR-0081). */
+export interface AchievementPackInfo {
+    id: string;
+    file: string;
+    count: number;
+    /** Shortcuts this pack is chosen for. */
+    games: WireList<number>;
+    /** Shortcuts it matches where another pack, or a built-in port, is used instead. */
+    not_chosen: WireList<{ appid: number; chosen?: string }>;
+}
+
+export interface AchievementPacksState {
+    folder?: string;
+    packs?: WireList<AchievementPackInfo>;
+    /** Files in the folder that are not packs, and why. */
+    problems?: WireList<{ name: string; file: string; errors: WireList<string> }>;
+    /** After a reload or import: the shortcuts to refresh now, and those marked "No achievements" (left alone). */
+    matched?: WireList<number>;
+    marked_none?: WireList<number>;
+    error?: string;
+    errors?: WireList<string>;
+    /** Import: a pack with this id is already there (call again with replace). */
+    exists?: boolean;
+    id?: string;
+}
+
+/** Which pack a shortcut uses and what it reads (the Cartridge card). */
+export interface AchievementPackExplain {
+    pack?: string;
+    others?: WireList<{ id: string; why: string }>;
+    files?: WireList<{ path: string; state: "found" | "missing" | "unreadable"; unlocks: number }>;
+    marked_none?: boolean;
+    error?: string;
+}
+
 /** What a reset did to one source. */
 export interface ResetSourceResult {
     id: string;
@@ -310,6 +348,21 @@ export const backend = {
     },
     clearAchievementSource(appid: number) {
         return call<{ ok?: boolean; error?: string }>("ClearAchievementSource", { appid });
+    },
+    /** The achievement packs in the user's folder (ADR-0081). */
+    achievementPacksList() {
+        return call<AchievementPacksState>("AchievementPacksList", {});
+    },
+    /** Reads the packs folder again; `matched` lists the shortcuts to refresh. */
+    achievementPacksReload() {
+        return call<AchievementPacksState>("AchievementPacksReload", {});
+    },
+    /** Copies a pack file into the folder after checking it; `replace` overwrites a pack with the same id. */
+    achievementPacksImport(path: string, replace = false) {
+        return call<AchievementPacksState>("AchievementPacksImport", { path, replace });
+    },
+    achievementPacksExplain(appid: number) {
+        return call<AchievementPackExplain>("AchievementPacksExplain", { appid });
     },
     /** `preview`: return the game without saving it (the user confirms first, ADR-0079). */
     igdbLink(appid: number, igdb_id: number, title?: string, preview?: boolean) {

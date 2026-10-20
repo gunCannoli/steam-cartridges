@@ -7,6 +7,7 @@ import type { SurfaceDeps } from "../../kernel/surface";
 import type { SteamAppAchievements } from "../../steam/achievement-types";
 import { buildAchievementProgress, buildSteamAchievements, getAchievementsAction } from "./core";
 import { resolveSingleton } from "../../steam/modules";
+import { achievementIcon } from "../../steam/achievement-icon";
 
 /** Set by createAchievementsSurface (plan § 7.0 D6); open defaults until then. */
 export const deps: SurfaceDeps = { isEnabled: () => true, reportError: () => {} };
@@ -363,7 +364,7 @@ export function updateShortcutState(
     }
     unlocksMap.set(rawId, unlocks);
 
-    const built = buildSteamAchievements(schema, unlocks);
+    const built = buildSteamAchievements(schema, unlocks, (icon) => achievementIcon(icon, rawId));
     if (built) {
         setShortcutAchievements(rawId, built);
     }

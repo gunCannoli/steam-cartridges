@@ -3,6 +3,7 @@ import { isShortcutAppId } from "../../kernel/appid";
 import type { AchievementSet } from "../../kernel/record";
 import { deps } from "./deps";
 import { achievementDays, type ActivityAchievementDay } from "./achievement-days";
+import { achievementIcon } from "../../steam/achievement-icon";
 import {
     activityEventBase,
     appActivityStore,
@@ -173,7 +174,7 @@ function achievementEvent(appid: number, day: ActivityAchievementDay, actor: unk
         strID: i.id,
         strName: i.name,
         strDescription: i.description,
-        strImage: i.icon,
+        strImage: achievementIcon(i.icon, appid),
         flAchieved: i.globalPct,
         rtUnlocked: i.unlockedAt,
         bAchieved: true,

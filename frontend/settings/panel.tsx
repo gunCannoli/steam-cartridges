@@ -2,6 +2,7 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { MetadataSection } from "./panels/metadata";
 import { AchievementsSection } from "./panels/achievements";
+import { AchievementPacksSection } from "./panels/achievement-packs";
 import { ActivitySection } from "./panels/activity";
 import { CommunitySection } from "./panels/community";
 import { RulesSection } from "./panels/rules";
@@ -56,6 +57,7 @@ export function SettingsPanel() {
             <SyncProgressBar />
             <MetadataSection />
             <AchievementsSection />
+            <AchievementPacksSection />
             {prePanels.map((p) => (
                 <ExtensionErrorBoundary key={p.id} id={p.id}>
                     {p.render()}

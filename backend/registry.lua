@@ -31,6 +31,9 @@ local function current_entries()
   return ok and list or {}
 end
 
+--- Every shortcuts.vdf entry ({ appid, name, exe, launch_options, ... }); {} without a readable file.
+function M.entries() return current_entries() end
+
 --- The shortcuts.vdf entry of one shortcut ({ appid, name, exe, launch_options, icon, ... }), or nil
 --- (no readable shortcuts.vdf, or no such shortcut). The one lookup every service uses (M10: it was
 --- four copies, in ach_service, art_service, resolve_identity and web_rpc).

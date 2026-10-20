@@ -2,6 +2,7 @@
 // NotificationStore.OnNotification. Moved from features/achievements/dispatcher.ts.
 import { logger } from "../../logger";
 import { steamRequire } from "../../steam/modules";
+import { achievementIcon } from "../../steam/achievement-icon";
 import { deps } from "./deps";
 
 interface AchievementProtoResolution {
@@ -105,7 +106,7 @@ export function dispatchAchievementToast(
         msg.set_appid(shortcutAppId);
         msg.set_name(item.name);
         msg.set_description(item.description);
-        msg.set_image_url(item.icon);
+        msg.set_image_url(achievementIcon(item.icon, shortcutAppId));
         msg.set_achieved(true);
         msg.set_rtime_unlocked(item.rtime_unlocked ?? Math.floor(Date.now() / 1000));
         msg.set_global_achieved_pct(item.global_pct ?? 0);

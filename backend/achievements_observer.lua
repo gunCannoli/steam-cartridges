@@ -203,10 +203,11 @@ function M.trophy_files(schema, sc_match, exe_dir)
   return out
 end
 
---- The port a native-port shortcut launches (native_ports.find), or nil for any other schema.
+--- The port whose schema the shortcut stores (a built-in port or an achievement pack, by the stored definition id), or
+--- nil for any other schema. By id, never a first match: two packs may match one exe (ADR-0081).
 function M.native_port(schema, sc_match)
   if not (schema and schema.native_port and sc_match) then return nil end
-  return require("native_ports").find(sc_match.exe, sc_match.launch_options)
+  return require("native_ports").port_by_id(schema.native_port, sc_match.exe, sc_match.launch_options)
 end
 
 --- The newest RetroArch log in `dir`: with log_to_file_timestamp on, RetroArch writes one

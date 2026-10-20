@@ -7,7 +7,7 @@ in one library), a non-Steam game normally looks like a second-class citizen: a 
 unavailable" box. Steam Cartridges gives every non-Steam game the same rich app page a Steam game has, using Steam's
 own components, on the desktop **and** in Big Picture.
 
-> **Beta.** Steam Cartridges is in public beta (0.1.0-beta). It is tested on my own library, not yours: expect rough
+> **Beta.** Steam Cartridges is in public beta. It is tested on my own library, not yours: expect rough
 > edges and please report what you find in an [issue](../../issues) with the Steam log lines (`logs/`) around it.
 
 ## Features
@@ -20,8 +20,11 @@ own components, on the desktop **and** in Big Picture.
 - **Artwork:** a Steam match brings the native portrait, hero, logo and wide art; games without one get artwork and a
   proper library icon from SteamGridDB.
 - **Achievements for non-Steam games:** RetroAchievements for ROMs (hashed locally, no extra tools), RPCS3 and shadPS4
-  trophies, the Bloodborne PC port's trophies (with their icons from your own dump), and the emulator logs it recognises. They show in Steam's own achievements page, with Steam's own unlock
+  trophies, the Bloodborne PC (with icons from your own dump) and Dusklight ports' achievements, and the emulator logs it recognises. They show in Steam's own achievements page, with Steam's own unlock
   toasts and progress bars. What each source needs: [Achievements.md](Achievements.md).
+- **Achievement packs:** give any other game achievements with one short file: the program, where the game writes its
+  achievements, and the list. No plugin update needed; the plugin reads the game's file whatever its layout. How:
+  [ACHIEVEMENT-PACKS.md](ACHIEVEMENT-PACKS.md).
 - **Community tab content:** trailers, artwork and game manuals (with a ScreenScraper account) as cards in the
   Community section.
 - **Nothing is rebuilt:** the plugin restores the sections Steam hides from shortcuts and feeds Steam's own stores, so

@@ -1,8 +1,9 @@
 // Game Data editor: the game's achievements (ADR-0076): where they come from, a RetroAchievements link by URL or id,
 // "No achievements" (stop looking) and "Look again". Moved here from the removed Review popup.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Field } from "@steambrew/client";
-import { backend } from "../../ports/backend";
+import { asList } from "../../kernel/lists";
+import { backend, type AchievementPackExplain } from "../../ports/backend";
 import { ActionRow, ButtonRow, Card, ItemRow, TextRows } from "../components";
 import type { AchievementState } from "./library-issues";
 import { tint, type RunAction } from "./styles";
@@ -12,6 +13,7 @@ const SOURCE_NAMES: Record<string, string> = {
     retroachievements: "RetroAchievements",
     steam: "Steam",
     native_port: "the port's trophies",
+    pack: "an achievement pack",
     rpcs3: "RPCS3",
     shadps4: "shadPS4",
     epic: "Epic Games",
@@ -23,6 +25,65 @@ function statusLine(state: AchievementState | undefined, waiting: boolean): stri
     if (state?.status === "ok" && state.total > 0) return `${state.total} achievements from ${SOURCE_NAMES[state.source ?? ""] ?? state.source ?? "a source"}.`;
     if (waiting) return "Achievement detection has not run for it yet.";
     return "No achievements found. Link the right game, or mark it as having none.";
+}
+
+const FILE_STATES: Record<string, string> = {
+    found: "found",
+    missing: "not created yet (the game writes it on its first unlock)",
+    unreadable: "can't read this file",
+};
+
+/** Which achievement pack the game uses, what it reads, and the packs not chosen (ADR-0081): how a pack's author
+ *  checks the paths. Nothing for a game no pack matches. */
+function PackLines({ appid, ask, marked }: { appid: number; ask: boolean; marked: boolean }) {
+    const [info, setInfo] = useState<AchievementPackExplain | null>(null);
+    useEffect(() => {
+        let live = true;
+        setInfo(null);
+        if (ask) backend.achievementPacksExplain(appid).then((r) => live && setInfo(r)).catch(() => {});
+        return () => {
+            live = false;
+        };
+    }, [appid, ask]);
+    if (!info) return null;
+    const others = asList<{ id: string; why: string }>(info.others);
+    const files = asList<{ path: string; state: string; unlocks: number }>(info.files);
+    if (!info.pack && others.length === 0) return null;
+    if (marked) {
+        const id = info.pack ?? others[0]?.id;
+        return (
+            <ItemRow>
+                <Field
+                    label="An achievement pack matches this game"
+                    description={`"${id}". Use Retry achievement detection below to let it give the game its achievements.`}
+                    bottomSeparator="none"
+                />
+            </ItemRow>
+        );
+    }
+    return (
+        <>
+            {info.pack && (
+                <ItemRow>
+                    <Field label={`Achievement pack: ${info.pack}`} description="Reads the game's achievements from:" bottomSeparator="none" />
+                </ItemRow>
+            )}
+            {files.map((f) => (
+                <ItemRow key={f.path}>
+                    <Field
+                        label={<span style={{ fontWeight: 400, wordBreak: "break-all" }}>{f.path}</span>}
+                        description={f.state === "found" ? `found, ${f.unlocks} unlocked` : FILE_STATES[f.state] ?? f.state}
+                        bottomSeparator="none"
+                    />
+                </ItemRow>
+            ))}
+            {others.map((o) => (
+                <ItemRow key={o.id}>
+                    <Field label={`Also matches: ${o.id}`} description={`Not used: ${o.why}.`} bottomSeparator="none" />
+                </ItemRow>
+            ))}
+        </>
+    );
 }
 
 export function AchievementsCard({
@@ -53,6 +114,11 @@ export function AchievementsCard({
                     <Field label="Achievements" description={statusLine(state, waiting)} bottomSeparator="none" />
                 </ItemRow>
             </Missing>
+            <PackLines
+                appid={appid}
+                ask={!found || marked || state?.source === "pack" || state?.source === "native_port"}
+                marked={marked}
+            />
             <TextRows label="RetroAchievements game" description="Its URL (retroachievements.org/game/1234) or id" value={ra} onChange={setRa} />
             <ButtonRow
                 label="Link RetroAchievements"

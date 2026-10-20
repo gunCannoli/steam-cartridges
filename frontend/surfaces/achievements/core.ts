@@ -3,11 +3,13 @@ import type { AchievementSchemaRecord, AchievementSchemaItem, AchievementUnlockR
 import type { SteamAchievementItem, SteamAppAchievements, AchievementProgress } from "../../steam/achievement-types";
 
 /**
- * Transforms backend schema and unlocks into Steam's native AppDetailsStore format.
+ * Transforms backend schema and unlocks into Steam's native AppDetailsStore format. `iconOf` turns an item's icon
+ * into the one Steam shows (store.ts passes steam/achievement-icon's fallback for an item without one).
  */
 export function buildSteamAchievements(
     schema: AchievementSchemaRecord | undefined,
     unlocks: Record<string, AchievementUnlockRecord> = {},
+    iconOf: (icon: string | undefined) => string = (icon) => icon ?? "",
 ): SteamAppAchievements | null {
     // asList: an empty list crosses the backend as `{}` (K1), which is not iterable.
     const items = schema ? asList<AchievementSchemaItem>(schema.achievements) : [];
@@ -29,7 +31,7 @@ export function buildSteamAchievements(
             strID: item.id,
             strName: item.name,
             strDescription: item.description,
-            strImage: item.icon,
+            strImage: iconOf(item.icon),
             bAchieved: isUnlocked,
             rtUnlocked: unlock?.unlocked_time ?? 0,
             bHidden: item.hidden === true,

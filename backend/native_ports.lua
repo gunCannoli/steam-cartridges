@@ -7,6 +7,8 @@
 ---
 --- Adding a port of a game already here: one more definition in that game's file. Adding a game: a new
 --- native_ports_<game>.lua and its name in FAMILIES. A new unlock file layout: one more entry in FORMATS.
+--- First ask whether an achievement pack can describe it (achievement_packs.lua, ADR-0081): a user's JSON file compiled
+--- into this same definition shape (id "pack_<id>", unlocks read by detection, format "detect"), with no release.
 ---
 --- A definition:
 ---   id          unique, stable ("bloodborne_awakenchan"): kept in the schema and the store
@@ -102,10 +104,31 @@ local function json_file(path)
   return (ok and type(data) == "table") and data or {}
 end
 
+--- Files (not folders) in `dir` whose name ends with `ext` (".json", ".png"; any case): full paths.
+local function list_files(dir, ext)
+  if M.deps.list_files then return M.deps.list_files(dir, ext) end
+  local ok_fs, fs = pcall(require, "fs")
+  if not ok_fs or not fs or not fs.is_directory or not fs.is_directory(dir) then return {} end
+  local ok, entries = pcall(fs.list, dir)
+  local out = {}
+  ext = tostring(ext or ""):lower()
+  for _, e in ipairs(ok and entries or {}) do
+    local p = norm(type(e) == "table" and (e.path or e.name) or e)
+    if not p:find("/", 1, true) then p = dir .. "/" .. p end
+    if p:lower():sub(-#ext) == ext and not fs.is_directory(p) then out[#out + 1] = p end
+  end
+  return out
+end
+
 local function port_of(def, root)
   return { def = def, root = root, read = read, exists = exists, getenv = getenv, list_dirs = list_dirs,
     expand = expand, json = json_file, parent = parent }
 end
+M.port_of = port_of
+
+--- File access shared with achievement_packs.lua (one set of test seams: M.deps).
+M.io = { read = read, exists = exists, getenv = getenv, list_dirs = list_dirs, list_files = list_files,
+  expand = expand }
 
 -- ------------------------------------------------------------------------------------------------ definitions
 
@@ -151,8 +174,8 @@ function M.for_program(base)
   return nil
 end
 
---- The port a shortcut launches: a `port` (see the top), or nil.
-function M.find(exe, _launch_options)
+--- The port a shortcut launches: a `port` (see the top), or nil. `only` limits the search to these definitions.
+function M.find(exe, _launch_options, only)
   local base, dir = M.program(exe)
   if dir == "" then return nil end
   local dirs = {}
@@ -161,7 +184,7 @@ function M.find(exe, _launch_options)
     dir = parent(dir)
     if not dir then break end
   end
-  for _, def in ipairs(M.definitions()) do
+  for _, def in ipairs(only or M.definitions()) do
     local runs = false
     for _, p in ipairs(def.programs or {}) do
       if p == base then runs = true break end
@@ -175,6 +198,22 @@ function M.find(exe, _launch_options)
     end
   end
   return nil
+end
+
+--- The port of the definition a stored schema names (`schema.native_port`), for this shortcut, or nil. An
+--- achievement pack's id starts with "pack_" (achievement_packs.lua); a built-in's is matched by its markers.
+--- The observer and the reset use it, so they read and clear what the game actually uses, never a first match.
+function M.port_by_id(def_id, exe, launch_options)
+  if type(def_id) ~= "string" then return nil end
+  if def_id:match("^pack_") then
+    local packs = require("achievement_packs")
+    local def = packs.by_id(def_id)
+    if not def or not packs.matches(def, exe) then return nil end
+    local _, dir = M.program(exe)
+    return port_of(def, dir)
+  end
+  local def = M.definition(def_id)
+  return def and M.find(exe, launch_options, { def }) or nil
 end
 
 -- ------------------------------------------------------------------------------------------------ unlocks
@@ -222,13 +261,23 @@ M.FORMATS = {
   },
 }
 
---- The port's unlock files: { { path, format } } (each may not exist yet).
+--- The port's unlock files: { { path, format } } (each may not exist yet). An achievement pack's format is
+--- "detect": its files are read by unlock_detect.lua, which finds the pack's ids in any layout (ADR-0081).
 function M.unlock_files(port)
   local u = port and port.def.unlocks
-  if not u or not M.FORMATS[u.format] then return {} end
+  local format = u and (u.detect and "detect" or u.format)
+  if not u or not (format == "detect" or M.FORMATS[format]) then return {} end
   local out = {}
-  for _, p in ipairs(u.files(port) or {}) do out[#out + 1] = { path = norm(p), format = u.format } end
+  for _, p in ipairs(u.files(port) or {}) do out[#out + 1] = { path = norm(p), format = format } end
   return out
+end
+
+--- One file's text with its unlocks cleared, and how many: the format's own clear, or detection for a pack.
+function M.clear(port, format, text)
+  if format == "detect" then return require("unlock_detect").clear(text, port.def.detect_list) end
+  local f = M.FORMATS[format or ""]
+  if not f then return nil, "unsupported file" end
+  return f.clear(text)
 end
 
 --- The ids a game knows, as a set of id strings.
@@ -257,10 +306,19 @@ end
 
 --- Unlocks read from one file's text: id string -> { unlocked_time }, only ids the game knows.
 function M.parse(port, format, text)
-  local f = M.FORMATS[format]
   local known = known_ids(port.def.game)
   local out = {}
-  for id, when in pairs(f and f.parse(text) or {}) do
+  local found
+  if format == "detect" then
+    -- No time in the file (0): the unlock is stamped when first seen, as key_flags_json does.
+    found = require("unlock_detect").read(text, port.def.detect_list)
+    local now = os.time()
+    for id, when in pairs(found) do found[id] = (when and when > 0) and when or now end
+  else
+    local f = M.FORMATS[format]
+    found = f and f.parse(text) or {}
+  end
+  for id, when in pairs(found) do
     if known[id] then out[id] = { unlocked_time = when } end
   end
   return out
@@ -281,8 +339,12 @@ end
 
 -- ------------------------------------------------------------------------------------------------ schema
 
---- The schema key in achievements.json: one per game, shared by its ports.
-function M.schema_key(port) return "native_port_" .. tostring(port.def.game.key) end
+--- The schema key in achievements.json: one per game, shared by its ports; an achievement pack's is its own id
+--- ("pack_<id>").
+function M.schema_key(port)
+  if port.def.pack then return port.def.id end
+  return "native_port_" .. tostring(port.def.game.key)
+end
 
 --- The achievement schema of the port's game; `icons` = { [trophy id number] = data URL } or nil.
 function M.schema(port, icons, title)
@@ -306,6 +368,8 @@ function M.schema(port, icons, title)
   return {
     native_port = port.def.id,
     schema_version = M.SCHEMA_VERSION,
+    -- An achievement pack's revision (a hash of its file): another one rebuilds the schema (src_native_ports).
+    pack_rev = port.def.pack and port.def.pack.revision or nil,
     title_id = game.title_id,
     native_appid = 0,
     title = title or game.title,

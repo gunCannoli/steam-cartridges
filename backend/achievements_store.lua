@@ -77,8 +77,12 @@ end
 function M._reset() state = nil end
 
 local function to_schema_key(id)
-  -- A source's own list: "ra_<game>", "ps3_<id>", "ps4_<id>", "epic_<namespace>", "xbox_<title id>" (ADR-0056); a number is a native appid.
-  if type(id) == "string" and (id:match("^ra_") or id:match("^ps3_") or id:match("^ps4_") or id:match("^epic_") or id:match("^xbox_") or id == "none") then
+  -- A source's own list: "ra_<game>", "ps3_<id>", "ps4_<id>", "epic_<namespace>", "xbox_<title id>" (ADR-0056), a
+  -- native port's "native_port_<game>" (ADR-0072) or an achievement pack's "pack_<id>" (ADR-0081); a number is a native
+  -- appid. Native port keys used to fall through to "0", so two ports' games shared (and overwrote) one schema; a game
+  -- stored that way finds no schema under its own key and is built again on its next refresh, unlocks kept.
+  if type(id) == "string" and (id:match("^ra_") or id:match("^ps3_") or id:match("^ps4_") or id:match("^epic_") or id:match("^xbox_")
+    or id:match("^native_port_") or id:match("^pack_") or id == "none") then
     return id
   end
   return tostring(math.floor(tonumber(id) or 0))

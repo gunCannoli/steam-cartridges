@@ -55,6 +55,8 @@ export interface PanelContext {
     /** Opens a dialog in its own window, as big as the screen (steam/modal.ts; ADR-0076): the settings window is narrow. */
     /** `from`: the window the user clicked in (its screen sizes the popup, and the popup opens over it). */
     dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window): void };
+    /** Steam's file dialog (steam/file-dialog.ts): achievement packs' Import (ADR-0081). */
+    files: { canPick(): boolean; pickJson(title: string, from?: Window): Promise<string | null> };
     editor: {
         load(appid: number): Promise<EditorSnapshot>;
         save(appid: number, draft: MetadataDraft): Promise<void>;
@@ -86,6 +88,7 @@ const INERT: PanelContext = {
     records: { achievementsOf: () => undefined },
     controller: { load: async () => {}, inferredFor: () => undefined, refresh: () => {} },
     dialog: { open: () => {} },
+    files: { canPick: () => false, pickJson: async () => null },
     editor: {
         load: async (appid) => ({ appid, title: String(appid), metadata: { appid, title: String(appid) }, hasMetadata: false, custom: false, link: null, rejected: [] }),
         save: async () => {},

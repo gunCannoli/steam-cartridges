@@ -11,6 +11,9 @@
 ---   rpcs3             a PS3 trophy directory is found from the launch command
 ---   shadps4           a PS4 trophy directory is found from the launch command
 ---   retroachievements a ROM path is found from the launch command
+---   pack              an achievement pack matches the shortcut (achievement_packs.lua, ADR-0081): the last resort.
+---                     A pack can also answer at native_port's place, replacing a built-in port that it is at least
+---                     as complete as (D11); the part's source is then "pack" too.
 ---
 --- K2: a PC game with no ROM path is never sent to RetroAchievements, and a shortcut no source
 --- supports is `unsupported` and silent (no log line, no request).
@@ -27,6 +30,9 @@ M.deps = {
   ps4 = nil,   -- fun(appid) -> res, err          ; nil = ps4_trophies.get_or_fetch
   native_port = nil, -- fun(entry, stored) -> answer, err ; nil = src_native_ports.fetch
   native_port_supports = nil, -- fun(entry) -> boolean ; nil = src_native_ports.supports
+  pack = nil,          -- fun(entry, stored) -> answer, err ; nil = src_native_ports.fetch_pack
+  pack_supports = nil, -- fun(entry) -> boolean ; nil = src_native_ports.pack_supports
+  pack_signature = nil, -- fun() -> string ; nil = achievement_packs.signature
   ra = nil,    -- fun(appid, hardcore) -> res, err ; nil = retroachievements.get_or_fetch
   ps3_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps3_trophies.find_trophy_dir
   ps4_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps4_trophies.find_trophy_dir
@@ -56,6 +62,19 @@ local function provided_set(appid)
   return { schema = st.schema, unlocks = st.unlocks or {}, source = st.source }
 end
 
+--- Persists what src_native_ports answered (a rebuilt schema with every unlock, or only the added unlocks) and
+--- names the part's source: "native_port", or "pack" when an achievement pack answered.
+local function persist_port(appid, res, err)
+  if not res then return nil, err end
+  local source = res.source or "native_port"
+  if res.rebuilt then
+    store.save_schema_and_sync(appid, res.key, res.schema, res.unlocks, source)
+  else
+    for id, info in pairs(res.added or {}) do store.unlock(appid, id, info.unlocked_time) end
+  end
+  return { schema = res.schema, unlocks = res.unlocks, answered_by = source }
+end
+
 local SOURCES = {
   {
     name = "provided",
@@ -77,14 +96,7 @@ local SOURCES = {
       return entry ~= nil and dep("native_port_supports", "src_native_ports", "supports")(entry) == true
     end,
     fetch = function(appid, _, entry)
-      local res, err = dep("native_port", "src_native_ports", "fetch")(entry, store.get_state(appid))
-      if not res then return nil, err end
-      if res.rebuilt then
-        store.save_schema_and_sync(appid, res.key, res.schema, res.unlocks, "native_port")
-      else
-        for id, info in pairs(res.added or {}) do store.unlock(appid, id, info.unlocked_time) end
-      end
-      return { schema = res.schema, unlocks = res.unlocks }
+      return persist_port(appid, dep("native_port", "src_native_ports", "fetch")(entry, store.get_state(appid)))
     end,
   },
   {
@@ -108,6 +120,15 @@ local SOURCES = {
     end,
     fetch = function(appid, ctx) return dep("ra", "retroachievements", "get_or_fetch")(appid, ctx.hardcore) end,
   },
+  {
+    name = "pack",
+    supports = function(_, entry)
+      return entry ~= nil and dep("pack_supports", "src_native_ports", "pack_supports")(entry) == true
+    end,
+    fetch = function(appid, _, entry)
+      return persist_port(appid, dep("pack", "src_native_ports", "fetch_pack")(entry, store.get_state(appid)))
+    end,
+  },
 }
 
 --- Resolve, returning the part and the raw source result (the old RPC's response shape).
@@ -130,7 +151,7 @@ function M._resolve(appid, ctx)
       if okF and type(res) == "table" and res.schema then
         return {
           status = "ok",
-          source = (source.name == "provided" and res.source) or source.name,
+          source = (source.name == "provided" and res.source) or res.answered_by or source.name,
           data = { schema = res.schema, unlocks = res.unlocks or {} },
           checkedAt = now_ms(),
         }, res
@@ -144,17 +165,21 @@ function M._resolve(appid, ctx)
 end
 
 local signature = nil
---- What this build can answer: the source names and every native port definition id. A remembered "unsupported"
---- found with another signature is asked again (record_rpc, fresh_policy.remembered).
+--- What this build can answer: the source names, every native port definition id and the achievement packs (id and
+--- revision). A remembered "unsupported" found with another signature is asked again (record_rpc,
+--- fresh_policy.remembered). Only the build's part is cached: packs can be added or edited without a restart.
 function M.signature()
-  if signature then return signature end
-  local names = {}
-  for _, source in ipairs(SOURCES) do names[#names + 1] = source.name end
-  local ok, defs = pcall(function() return require("native_ports").definitions() end)
-  local ids = {}
-  for _, def in ipairs(ok and defs or {}) do ids[#ids + 1] = tostring(def.id) end
-  table.sort(ids)
-  signature = table.concat(names, ",") .. "|" .. table.concat(ids, ",")
+  if not signature then
+    local names = {}
+    for _, source in ipairs(SOURCES) do names[#names + 1] = source.name end
+    local ok, defs = pcall(function() return require("native_ports").definitions() end)
+    local ids = {}
+    for _, def in ipairs(ok and defs or {}) do ids[#ids + 1] = tostring(def.id) end
+    table.sort(ids)
+    signature = table.concat(names, ",") .. "|" .. table.concat(ids, ",")
+  end
+  local ok, packs = pcall(M.deps.pack_signature or function() return require("achievement_packs").signature() end)
+  if ok and type(packs) == "string" and packs ~= "" then return signature .. "|" .. packs end
   return signature
 end
 
