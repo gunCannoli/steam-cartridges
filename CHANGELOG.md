@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.0-beta] - 2026-10-20
+
+### Changed
+
+- The achievement packs guide is now called `Achievement-Packs.md` (it was all capitals), like the other guide.
+
 ## [0.6.0-beta] - 2026-10-20
 
 ### Added
@@ -30,7 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   the pack, the game's own icon folder, or your PS4 dump found beside the game. Settings → **Achievement packs** lists your
   packs and their problems, imports a file and reloads the folder, looking the games up again at once; the game's
   Cartridge page shows which pack it uses and whether its files are found. How to write one:
-  [ACHIEVEMENT-PACKS.md](ACHIEVEMENT-PACKS.md), with two examples.
+  [Achievement-Packs.md](Achievement-Packs.md), with two examples.
 
 ### Fixed
 

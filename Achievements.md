@@ -28,7 +28,7 @@ simply has no achievements section, and nothing is requested for it.
 | 3 | RPCS3 | the shortcut points at a PS3 game with its trophy data | RPCS3 |
 | 4 | shadPS4 | the shortcut points at a PS4 game with its trophy data | shadPS4 |
 | 5 | RetroAchievements | the shortcut's command names a ROM file that exists | a RetroAchievements account |
-| 6 | Achievement packs | a pack in your packs folder matches the shortcut's program | a pack file ([ACHIEVEMENT-PACKS.md](ACHIEVEMENT-PACKS.md)) |
+| 6 | Achievement packs | a pack in your packs folder matches the shortcut's program | a pack file ([Achievement-Packs.md](Achievement-Packs.md)) |
 
 Unlocks reach Steam two ways: when you open the game's page (what the source has now), and **while you play**, when
 Steam Cartridges watches the source's files or the emulator's log and shows Steam's own unlock toast.
@@ -143,7 +143,7 @@ Any other port, or an updated list for these, is an [achievement pack](#achievem
 A pack is a short JSON file you put in `<Steam>\millennium\config\steam-cartridges\packs\`: the program the shortcut
 starts, where the game writes its achievements, and the list. Steam Cartridges reads the game's file by itself, whatever its
 layout. Packs are used only when no other source gives the game achievements, except that a pack as complete as a
-built-in port (Bloodborne, Dusklight) replaces it. How to write one: [ACHIEVEMENT-PACKS.md](ACHIEVEMENT-PACKS.md);
+built-in port (Bloodborne, Dusklight) replaces it. How to write one: [Achievement-Packs.md](Achievement-Packs.md);
 examples: [examples/achievement-packs](examples/achievement-packs).
 
 ## RPCS3 (PlayStation 3)

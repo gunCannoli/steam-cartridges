@@ -1,6 +1,6 @@
 # Example achievement packs
 
-Two packs written from the plugin's built-in ports, to copy or adapt (the format: [ACHIEVEMENT-PACKS.md](../../ACHIEVEMENT-PACKS.md)).
+Two packs written from the plugin's built-in ports, to copy or adapt (the format: [Achievement-Packs.md](../../Achievement-Packs.md)).
 To use one, copy it into `<Steam>\millennium\config\steam-cartridges\packs\` and press **Reload** in the settings.
 
 | File | Shows |
