@@ -4,8 +4,9 @@
 ---   id            the pack's name (a-z, 0-9, - and _, up to 64); names the icon folder <data dir>/packs/<id>/
 ---   exe           the program(s) the Steam shortcut starts ("Dusklight.exe"; "Folder/game.exe" for a common name)
 ---   files         where the game writes its achievements: paths with {game} (the exe's folder), %VARS%, ~, .., one *
----   achievements  { name, description, hidden?, rarity?, platinum?, id? } in the game's order; without `id`, an
----                 achievement's id is its position from 0
+---   achievements  { name, description, hidden?, rarity?, platinum?, id?, ra_icon? } in the game's order; without
+---                 `id`, an achievement's id is its position from 0; `ra_icon` is a RetroAchievements badge name
+---                 used as the icon while the player has a RetroAchievements key (ra_badges.lua, ADR-0082)
 ---   icons         optional: a folder of PNGs (name order) or a PS4 trophy00.trp, when the plugin cannot find them
 ---
 --- A pack is compiled into the native ports definition shape (native_ports.lua), so the engine reads, resets and
@@ -21,6 +22,7 @@ local M = {}
 M.deps = {
   dir = nil,   -- the packs folder; nil = <data dir>/packs
   icons = nil, -- trophy_pack_icons-like module: { icon_url(png, size), trp_entries(path), from_trp(path, ids) }
+  ra = nil,    -- ra_badges-like module: { valid(name), available(name), fetch(names) -> { [name] = data URL } }
 }
 
 M.MAX_BYTES = 1024 * 1024
@@ -28,12 +30,13 @@ M.MAX_ACHIEVEMENTS = 1000
 M.MAX_ICON_BYTES = 512 * 1024
 
 local FIELDS = { id = true, exe = true, files = true, achievements = true, icons = true }
-local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, rarity = true, platinum = true }
+local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, rarity = true, platinum = true, ra_icon = true }
 
 local io_ = ports.io
 local norm, parent = ports.norm, ports.parent
 
 local function icons_mod() return M.deps.icons or require("trophy_pack_icons") end
+local function ra_mod() return M.deps.ra or require("ra_badges") end
 
 function M.dir()
   if M.deps.dir then return M.deps.dir end
@@ -146,7 +149,10 @@ function M.check(pack)
         err(at .. " is not an object with name and description")
       else
         for k in pairs(a) do
-          if type(k) ~= "string" or not ACH_FIELDS[k] then err(at .. ": `" .. tostring(k) .. "` is not an achievement field (name, description, hidden, rarity, platinum, id)") end
+          if type(k) ~= "string" or not ACH_FIELDS[k] then err(at .. ": `" .. tostring(k) .. "` is not an achievement field (name, description, hidden, rarity, platinum, id, ra_icon)") end
+        end
+        if a.ra_icon ~= nil and not ra_mod().valid(a.ra_icon) then
+          err(at .. ": ra_icon must be a RetroAchievements badge name (letters and digits, up to " .. require("ra_badges").MAX_NAME .. ")")
         end
         if type(a.name) ~= "string" or a.name:match("^%s*$") then err(at .. " has no name") end
         if a.description ~= nil and type(a.description) ~= "string" then err(at .. ": description must be text") end
@@ -202,6 +208,7 @@ function M.compile(pack, file, text)
     trophies[#trophies + 1] = {
       id = id, name = a.name, description = a.description or "", hidden = a.hidden == true,
       global_pct = a.rarity, grade = a.platinum and "P" or nil, position = i - 1,
+      ra_icon = type(a.ra_icon) == "string" and a.ra_icon or nil,
     }
     detect[#detect + 1] = { id = id, name = a.name }
     if a.platinum then plat = true end
@@ -446,6 +453,11 @@ function M.icon_plan(def, exe_dir)
       for n = 0, count - 1 do plan[n] = plan[n] or { trp = trp } end
     end
   end
+  -- 4. a RetroAchievements badge (`ra_icon`), only with a key; counted only while it can be fetched or is cached
+  local ra = ra_mod()
+  for _, t in ipairs(def.game.trophies) do
+    if not plan[t.position] and t.ra_icon and ra.available(t.ra_icon) then plan[t.position] = { ra = t.ra_icon } end
+  end
   return plan
 end
 
@@ -460,10 +472,12 @@ end
 function M.icons(def, exe_dir)
   local mod = icons_mod()
   local plan = M.icon_plan(def, exe_dir)
-  local out, by_trp = {}, {}
+  local out, by_trp, badges = {}, {}, {}
   for _, t in ipairs(def.game.trophies) do
     local src = plan[t.position]
-    if src and src.png then
+    if src and src.ra then
+      badges[#badges + 1] = src.ra
+    elseif src and src.png then
       local png = io_.read(src.png)
       if png and #png <= M.MAX_ICON_BYTES then
         local ok, url = pcall(mod.icon_url, png, 64)
@@ -480,6 +494,15 @@ function M.icons(def, exe_dir)
     local ok, got = pcall(mod.from_trp, trp, positions)
     if ok and type(got) == "table" then
       for _, t in ipairs(list) do out[t.id] = got[t.position] end
+    end
+  end
+  if #badges > 0 then
+    local ok, got = pcall(ra_mod().fetch, badges)
+    if ok and type(got) == "table" then
+      for _, t in ipairs(def.game.trophies) do
+        local src = plan[t.position]
+        if src and src.ra and got[src.ra] then out[t.id] = got[src.ra] end
+      end
     end
   end
   return out

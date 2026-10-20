@@ -9,55 +9,305 @@
     "%APPDATA%/TwilitRealm/Dusk/achievements.json"
   ],
   "achievements": [
-    { "id": "hero_of_twilight", "name": "Hero of Twilight", "description": "Deliver the finishing blow to Ganondorf." },
-    { "id": "three_heart_clear", "name": "Hero Mode", "description": "Defeat Ganondorf with only 3 heart containers." },
-    { "id": "completionist", "name": "Completionist", "description": "Complete the game after collecting all equipment, heart containers, portals, bugs, poes, and hidden skills." },
-    { "id": "cave_of_ordeals", "name": "Conqueror of Ordeals", "description": "Clear all 50 floors of the Cave of Ordeals." },
-    { "id": "cave_of_ordeals_heartless", "name": "Indomitable", "description": "Clear all 50 floors of the Cave of Ordeals with only 3 heart containers." },
-    { "id": "speedrun_12h", "name": "Been There Done That", "description": "Defeat Ganondorf with a total save file play time under 12 hours." },
-    { "id": "speedrun_8h", "name": "Swift Blade", "description": "Defeat Ganondorf with a total save file play time under 6 hours." },
-    { "id": "no_deaths_clear", "name": "Deathless", "description": "Defeat Ganondorf with 0 deaths on your save file." },
-    { "id": "untouchable", "name": "Untouchable", "description": "Kill 25 enemies in a row without taking damage." },
-    { "id": "princess_of_bugs", "name": "The Princess of Bugs", "description": "Deliver all 24 golden bugs to Agitha." },
-    { "id": "all_poes", "name": "Poe Collector", "description": "Collect all 60 Poe Souls." },
-    { "id": "hylian_loach", "name": "Legendary Catch", "description": "Obtain the Hylian Loach in your fishing journal." },
-    { "id": "all_fish", "name": "Gone Fishin'", "description": "Obtain all 6 species of fish in your fishing journal." },
-    { "id": "a_big_heart", "name": "A Big Heart", "description": "Reach maximum health with all 20 heart containers." },
-    { "id": "all_bottles", "name": "Glassware Guardian", "description": "Obtain all 4 bottles." },
-    { "id": "all_hidden_skills", "name": "Master of Secrets", "description": "Learn all 7 Hidden Skills." },
-    { "id": "all_letters", "name": "We Deliver!", "description": "Collect all 16 postman letters." },
-    { "id": "plumm_max", "name": "Thank You Berry Much", "description": "Score 61,454 points in the Plumm minigame." },
-    { "id": "rollgoal_8", "name": "Rollgoal Novice", "description": "Complete the first 8 rollgoal stages." },
-    { "id": "rollgoal_all", "name": "Lost Your Marbles", "description": "Complete all rollgoal stages." },
-    { "id": "goat_30s", "name": "Ranch Hand", "description": "Herd all 20 goats into the pen in under 30 seconds." },
-    { "id": "goat_20s", "name": "Bane of Howard", "description": "Herd all 20 goats into the pen in under 20 seconds." },
-    { "id": "goat_18s", "name": "King of the Ranch", "description": "Herd all 20 goats into the pen in under 18 seconds." },
-    { "id": "snowboard_70s", "name": "Downhill Dash", "description": "Finish the snowboarding minigame in under 70 seconds." },
-    { "id": "canoe_perfect", "name": "River Raider", "description": "Achieve a perfect score in the canoe minigame." },
-    { "id": "star_2_under_40s", "name": "Rising Star", "description": "Complete the STAR Prize 2 minigame in under 40 seconds." },
-    { "id": "star_2_under_30s", "name": "Shooting Star", "description": "Complete the STAR Prize 2 minigame in under 30 seconds." },
-    { "id": "dark_hammer_one_hit", "name": "Mortal Edge", "description": "Defeat Darkhammer in a single hit." },
-    { "id": "bow_100m_hit", "name": "Long Shot", "description": "Hit an enemy from over 100 meters away with the bow." },
-    { "id": "rollstab_triple", "name": "Surgical Skewer", "description": "Kill 3 enemies with a single rollstab." },
-    { "id": "friendly_fire", "name": "Friendly Fire", "description": "Get hit by your own cannonball." },
-    { "id": "long_jump_attack", "name": "Long Jump Attack", "description": "Travel more than 15 meters in a single jump attack before landing." },
-    { "id": "email_me", "name": "Email Me", "description": "Read a letter during the Dark Beast Ganon fight." },
-    { "id": "heavy_hitter", "name": "Heavy Hitter", "description": "Wear the Iron Boots during the end credits." },
-    { "id": "fishing_rod_ganondorf", "name": "Here Fishy Fishy", "description": "Confuse Ganondorf with the fishing rod." },
-    { "id": "steal_from_trill", "name": "Petty Theft", "description": "Steal from Trill." },
-    { "id": "cucco_control", "name": "Cucco Whisperer", "description": "Take control of a cucco." },
-    { "id": "ganondorf_3hit", "name": "Autospin Annihilation", "description": "Finish off Ganondorf in the final duel after only 3 attacks." },
-    { "id": "back_in_time", "name": "Back in Time", "description": "Perform the Back in Time glitch to play on the title screen." },
-    { "id": "early_master_sword", "name": "Early Master Sword", "description": "Obtain the Master Sword before completing Midna's Desperate Hour." },
-    { "id": "earliest_master_sword", "name": "Earliest Master Sword", "description": "Obtain the Master Sword before meeting Midna." },
-    { "id": "speedrun_4h", "name": "Hero of Time", "description": "Defeat Ganondorf with a total save file play time under 4 hours." },
-    { "id": "no_fish_suit", "name": "No Fish Suit No Problem", "description": "Defeat Morpheel without equipping Zora Armor." },
-    { "id": "null_item", "name": "Null Item", "description": "Obtain the mysterious black rupee in the item wheel." },
-    { "id": "stallord_skip", "name": "Stallord Skip", "description": "Leave Stallord's arena through the exit without defeating Stallord." },
-    { "id": "lakebed_before_lanayru", "name": "White Midna Glitch", "description": "Clear the Lakebed Temple before clearing Lanayru's Twilight." },
-    { "id": "early_hidden_village", "name": "Quick Detour", "description": "Rescue the Hidden Village before clearing Goron Mines." },
-    { "id": "forest_temple_no_boomerang", "name": "Must Have Been The Wind", "description": "Complete the Forest Temple without obtaining the Gale Boomerang." },
-    { "id": "early_city", "name": "Early City", "description": "Obtain the Double Clawshots without obtaining the Dominion Rod." },
-    { "id": "early_kakariko", "name": "Gorge Skip", "description": "Collect the Kakariko warp portal without warping the gorge bridge." }
+    {
+      "id": "hero_of_twilight",
+      "name": "Hero of Twilight",
+      "description": "Deliver the finishing blow to Ganondorf.",
+      "ra_icon": "476109"
+    },
+    {
+      "id": "three_heart_clear",
+      "name": "Hero Mode",
+      "description": "Defeat Ganondorf with only 3 heart containers.",
+      "ra_icon": "476163"
+    },
+    {
+      "id": "completionist",
+      "name": "Completionist",
+      "description": "Complete the game after collecting all equipment, heart containers, portals, bugs, poes, and hidden skills.",
+      "ra_icon": "476155"
+    },
+    {
+      "id": "cave_of_ordeals",
+      "name": "Conqueror of Ordeals",
+      "description": "Clear all 50 floors of the Cave of Ordeals.",
+      "ra_icon": "476114"
+    },
+    {
+      "id": "cave_of_ordeals_heartless",
+      "name": "Indomitable",
+      "description": "Clear all 50 floors of the Cave of Ordeals with only 3 heart containers.",
+      "ra_icon": "476117"
+    },
+    {
+      "id": "speedrun_12h",
+      "name": "Been There Done That",
+      "description": "Defeat Ganondorf with a total save file play time under 12 hours.",
+      "ra_icon": "477358"
+    },
+    {
+      "id": "speedrun_8h",
+      "name": "Swift Blade",
+      "description": "Defeat Ganondorf with a total save file play time under 6 hours.",
+      "ra_icon": "476104"
+    },
+    {
+      "id": "no_deaths_clear",
+      "name": "Deathless",
+      "description": "Defeat Ganondorf with 0 deaths on your save file.",
+      "ra_icon": "476176"
+    },
+    {
+      "id": "untouchable",
+      "name": "Untouchable",
+      "description": "Kill 25 enemies in a row without taking damage.",
+      "ra_icon": "476185"
+    },
+    {
+      "id": "princess_of_bugs",
+      "name": "The Princess of Bugs",
+      "description": "Deliver all 24 golden bugs to Agitha.",
+      "ra_icon": "476119"
+    },
+    {
+      "id": "all_poes",
+      "name": "Poe Collector",
+      "description": "Collect all 60 Poe Souls.",
+      "ra_icon": "476120"
+    },
+    {
+      "id": "hylian_loach",
+      "name": "Legendary Catch",
+      "description": "Obtain the Hylian Loach in your fishing journal.",
+      "ra_icon": "476525"
+    },
+    {
+      "id": "all_fish",
+      "name": "Gone Fishin'",
+      "description": "Obtain all 6 species of fish in your fishing journal.",
+      "ra_icon": "476521"
+    },
+    {
+      "id": "a_big_heart",
+      "name": "A Big Heart",
+      "description": "Reach maximum health with all 20 heart containers.",
+      "ra_icon": "508153"
+    },
+    {
+      "id": "all_bottles",
+      "name": "Glassware Guardian",
+      "description": "Obtain all 4 bottles.",
+      "ra_icon": "476123"
+    },
+    {
+      "id": "all_hidden_skills",
+      "name": "Master of Secrets",
+      "description": "Learn all 7 Hidden Skills.",
+      "ra_icon": "476122"
+    },
+    {
+      "id": "all_letters",
+      "name": "We Deliver!",
+      "description": "Collect all 16 postman letters.",
+      "ra_icon": "476118"
+    },
+    {
+      "id": "plumm_max",
+      "name": "Thank You Berry Much",
+      "description": "Score 61,454 points in the Plumm minigame.",
+      "ra_icon": "476131"
+    },
+    {
+      "id": "rollgoal_8",
+      "name": "Rollgoal Novice",
+      "description": "Complete the first 8 rollgoal stages.",
+      "ra_icon": "476129"
+    },
+    {
+      "id": "rollgoal_all",
+      "name": "Lost Your Marbles",
+      "description": "Complete all rollgoal stages.",
+      "ra_icon": "476167"
+    },
+    {
+      "id": "goat_30s",
+      "name": "Ranch Hand",
+      "description": "Herd all 20 goats into the pen in under 30 seconds.",
+      "ra_icon": "477051"
+    },
+    {
+      "id": "goat_20s",
+      "name": "Bane of Howard",
+      "description": "Herd all 20 goats into the pen in under 20 seconds.",
+      "ra_icon": "477036"
+    },
+    {
+      "id": "goat_18s",
+      "name": "King of the Ranch",
+      "description": "Herd all 20 goats into the pen in under 18 seconds.",
+      "ra_icon": "476125"
+    },
+    {
+      "id": "snowboard_70s",
+      "name": "Downhill Dash",
+      "description": "Finish the snowboarding minigame in under 70 seconds.",
+      "ra_icon": "476132"
+    },
+    {
+      "id": "canoe_perfect",
+      "name": "River Raider",
+      "description": "Achieve a perfect score in the canoe minigame.",
+      "ra_icon": "476128"
+    },
+    {
+      "id": "star_2_under_40s",
+      "name": "Rising Star",
+      "description": "Complete the STAR Prize 2 minigame in under 40 seconds.",
+      "ra_icon": "476147"
+    },
+    {
+      "id": "star_2_under_30s",
+      "name": "Shooting Star",
+      "description": "Complete the STAR Prize 2 minigame in under 30 seconds.",
+      "ra_icon": "476144"
+    },
+    {
+      "id": "dark_hammer_one_hit",
+      "name": "Mortal Edge",
+      "description": "Defeat Darkhammer in a single hit.",
+      "ra_icon": "476194"
+    },
+    {
+      "id": "bow_100m_hit",
+      "name": "Long Shot",
+      "description": "Hit an enemy from over 100 meters away with the bow.",
+      "ra_icon": "476127"
+    },
+    {
+      "id": "rollstab_triple",
+      "name": "Surgical Skewer",
+      "description": "Kill 3 enemies with a single rollstab.",
+      "ra_icon": "476206"
+    },
+    {
+      "id": "friendly_fire",
+      "name": "Friendly Fire",
+      "description": "Get hit by your own cannonball.",
+      "ra_icon": "476121"
+    },
+    {
+      "id": "long_jump_attack",
+      "name": "Long Jump Attack",
+      "description": "Travel more than 15 meters in a single jump attack before landing.",
+      "ra_icon": "476171"
+    },
+    {
+      "id": "email_me",
+      "name": "Email Me",
+      "description": "Read a letter during the Dark Beast Ganon fight.",
+      "ra_icon": "476215"
+    },
+    {
+      "id": "heavy_hitter",
+      "name": "Heavy Hitter",
+      "description": "Wear the Iron Boots during the end credits.",
+      "ra_icon": "476186"
+    },
+    {
+      "id": "fishing_rod_ganondorf",
+      "name": "Here Fishy Fishy",
+      "description": "Confuse Ganondorf with the fishing rod.",
+      "ra_icon": "476116"
+    },
+    {
+      "id": "steal_from_trill",
+      "name": "Petty Theft",
+      "description": "Steal from Trill.",
+      "ra_icon": "476140"
+    },
+    {
+      "id": "cucco_control",
+      "name": "Cucco Whisperer",
+      "description": "Take control of a cucco.",
+      "ra_icon": "476136"
+    },
+    {
+      "id": "ganondorf_3hit",
+      "name": "Autospin Annihilation",
+      "description": "Finish off Ganondorf in the final duel after only 3 attacks.",
+      "ra_icon": "476175"
+    },
+    {
+      "id": "back_in_time",
+      "name": "Back in Time",
+      "description": "Perform the Back in Time glitch to play on the title screen.",
+      "ra_icon": "476093"
+    },
+    {
+      "id": "early_master_sword",
+      "name": "Early Master Sword",
+      "description": "Obtain the Master Sword before completing Midna's Desperate Hour.",
+      "ra_icon": "477338"
+    },
+    {
+      "id": "earliest_master_sword",
+      "name": "Earliest Master Sword",
+      "description": "Obtain the Master Sword before meeting Midna.",
+      "ra_icon": "476108"
+    },
+    {
+      "id": "speedrun_4h",
+      "name": "Hero of Time",
+      "description": "Defeat Ganondorf with a total save file play time under 4 hours.",
+      "ra_icon": "476214"
+    },
+    {
+      "id": "no_fish_suit",
+      "name": "No Fish Suit No Problem",
+      "description": "Defeat Morpheel without equipping Zora Armor.",
+      "ra_icon": "476189"
+    },
+    {
+      "id": "null_item",
+      "name": "Null Item",
+      "description": "Obtain the mysterious black rupee in the item wheel.",
+      "ra_icon": "476179"
+    },
+    {
+      "id": "stallord_skip",
+      "name": "Stallord Skip",
+      "description": "Leave Stallord's arena through the exit without defeating Stallord.",
+      "ra_icon": "476193"
+    },
+    {
+      "id": "lakebed_before_lanayru",
+      "name": "White Midna Glitch",
+      "description": "Clear the Lakebed Temple before clearing Lanayru's Twilight.",
+      "ra_icon": "476096"
+    },
+    {
+      "id": "early_hidden_village",
+      "name": "Quick Detour",
+      "description": "Rescue the Hidden Village before clearing Goron Mines.",
+      "ra_icon": "476098"
+    },
+    {
+      "id": "forest_temple_no_boomerang",
+      "name": "Must Have Been The Wind",
+      "description": "Complete the Forest Temple without obtaining the Gale Boomerang.",
+      "ra_icon": "476092"
+    },
+    {
+      "id": "early_city",
+      "name": "Early City",
+      "description": "Obtain the Double Clawshots without obtaining the Dominion Rod.",
+      "ra_icon": "476106"
+    },
+    {
+      "id": "early_kakariko",
+      "name": "Gorge Skip",
+      "description": "Collect the Kakariko warp portal without warping the gorge bridge.",
+      "ra_icon": "476165"
+    }
   ]
 }

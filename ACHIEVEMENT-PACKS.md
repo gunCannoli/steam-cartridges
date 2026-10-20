@@ -56,6 +56,7 @@ Each achievement may also have:
 | `hidden` | `true` for a secret achievement: Steam hides it until you unlock it. |
 | `rarity` | The percent of players who have it (`22.5`): Steam's "x% of players" line. |
 | `platinum` | `true` on the one achievement that unlocks itself when all the others are (below). |
+| `ra_icon` | A RetroAchievements badge name (`"476109"`) used as this achievement's icon, when you have a RetroAchievements key (see Icons). Letters and digits only. |
 | `id` | Only when the game's file names achievements by its own keys (`"hero_of_twilight"`). Without it, an achievement's id is **its position in the list, starting at 0**: the first is 0, the second 1. Games that number their achievements (`trophy 5 unlocked`) need no `id` at all. |
 
 A pack never says how the game's file is laid out: Steam Cartridges finds your achievements' ids and names in it by
@@ -88,7 +89,13 @@ No field is needed. Each achievement takes the first icon it finds:
 3. **Your PS4 game dump, found by itself:** for a PS4 port, Steam Cartridges looks for `sce_sys\trophy\trophy00.trp` in the
    game's folder, the folders inside it and the folders beside it, and uses the one with as many trophy icons as the pack
    has achievements.
-4. Otherwise the game's own icon, or a trophy badge.
+4. **A RetroAchievements badge**, when the achievement has an `ra_icon` and you have a RetroAchievements key (the
+   `retroachievements_api` line of the plugin's `.env`, the same one RetroAchievements support uses). Find the badge name
+   in the achievement's RetroAchievements page (the number in its image address,
+   `media.retroachievements.org/Badge/476109.png`). The plugin fetches the 64x64 badge itself, a few per page view, and
+   keeps it in `ra_badges` in its data folder (add the key to `.env`, then restart Steam); without a key, or if the download fails, the next source is used and a
+   failed badge is tried again later. The pack only lists names: no RetroAchievements art is in the pack or the plugin.
+5. Otherwise the game's own icon, or a trophy badge.
 
 Icons are PNG only, up to 512 KB each, shrunk to Steam's achievement icon size. Press **Reload** after adding some.
 

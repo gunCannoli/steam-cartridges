@@ -5,7 +5,7 @@ To use one, copy it into `<Steam>\millennium\config\steam-cartridges\packs\` and
 
 | File | Shows |
 | --- | --- |
-| `dusklight.json` | A game whose file names achievements by its own keys: every achievement has an `id`. Three places the file may be. |
+| `dusklight.json` | A game whose file names achievements by its own keys: every achievement has an `id`. Three places the file may be. Every achievement names its RetroAchievements badge (`ra_icon`, the badge name such as `476109`, not a URL), so with a RetroAchievements key it has real icons and ships no PNGs. |
 | `bloodborne.json` | A game that numbers its trophies: no `id`s (the position is the number), secret trophies, rarity and the platinum. One pack for both PC ports. |
 
 Both games already have built-in support; a pack as complete as the built-in one replaces it, so these also show how to
