@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.5.2-beta] - 2026-10-20
+
+### Changed
+
+- The README no longer carries a beta notice, and its notes now match how artwork works: art you set yourself in Steam
+  is never replaced.
+
 ## [0.5.1-beta] - 2026-10-20
 
 ### Added

@@ -7,9 +7,6 @@ in one library), a non-Steam game normally looks like a second-class citizen: a 
 unavailable" box. Steam Cartridges gives every non-Steam game the same rich app page a Steam game has, using Steam's
 own components, on the desktop **and** in Big Picture.
 
-> **Beta.** Steam Cartridges is in public beta. It is tested on my own library, not yours: expect rough
-> edges and please report what you find in an [issue](../../issues) with the Steam log lines (`logs/`) around it.
-
 ## Features
 
 - **Steam's own app page for any non-Steam game:** hero and capsule art, the Play bar with last played and play time,
@@ -86,11 +83,9 @@ For your screenshots and recordings as "{Username} captured" cards in the Activi
 
 ## Notes
 
-- **Your art is replaced for Steam Store matches:** a match sets the native portrait, hero, logo and wide art on the
-  shortcut, replacing art you set in those slots. **Clear** in the settings removes the match and only the art this
-  plugin wrote, and remembers the rejection.
 - **Requests are rare and polite:** web requests only happen for games in the Steam Store and Web Scraping buckets, at
-  most one per second, and downloaded media stays on disk (the "Keep downloaded media" setting).
+  most one per second (plus the achievement icons of a pack that names RetroAchievements badges, only if you have set up a
+  RetroAchievements key), and downloaded media stays on disk (the "Keep downloaded media" setting).
 - **Your data stays local:** the plugin stores its records (Game Info, matches, credentials) in
   `millennium/config/steam-cartridges` inside your Steam folder; nothing is sent anywhere except the lookups above.
 
