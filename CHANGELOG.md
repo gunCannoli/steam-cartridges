@@ -7,13 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
-## [0.7.0-beta] - 2026-10-20
-
-### Changed
-
-- The achievement packs guide is now called `Achievement-Packs.md` (it was all capitals), like the other guide.
-
-## [0.6.0-beta] - 2026-10-20
+## [0.5.1-beta] - 2026-10-20
 
 ### Added
 
@@ -22,6 +16,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   badge itself (a few per page view, kept in `ra_badges` in its data folder); without a key, or if the download fails,
   the game's icon is shown as before. Your own icons, the `icons` line and a PS4 dump still come first. The Dusklight
   example pack now names a badge for all 50 achievements.
+
+### Changed
+
+- The achievement packs guide is now called `Achievement-Packs.md` (it was all capitals), like the other guide.
 
 ## [0.5.0-beta] - 2026-10-20
 
