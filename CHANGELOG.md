@@ -7,6 +7,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.1-beta] - 2026-10-27
+
+### Added
+
+- **The Game Data editor filters by Analytics group**: the **Show** dropdown in Manual Edit lists every Library Analytics
+  row with its count (All games, Metadata match, Achievements match, Ignored by your rules, Games with issues) instead of
+  the **Only games with issues** toggle, so each group can be worked through where it is counted. **Fix issues** still
+  opens the editor on the games with issues.
+
+### Fixed
+
+- **The Library Setup count refreshes without reopening the panel**: changing the rules, or the background fetch they
+  start finishing, re-reads **Games to set up** at once. It used to stay stale until the settings panel was closed and
+  opened again.
+
 ## [0.6.0-beta] - 2026-10-27
 
 ### Added

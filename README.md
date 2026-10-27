@@ -78,7 +78,7 @@ captures Steam already has. The rest is in Steam's Millennium settings under **S
 - **Advanced rules** include or exclude games from a
   service (Steam Store Mirror, IGDB, ScreenScraper, SteamGridDB, RetroAchievements, Console Emulators) by **collection**,
   **game title** or a **regex pattern**. **Scan only these** leaves out every game it does not match.
-- **Manual Edit** (Library Analytics): every game full screen. **Only games with issues** lists the games missing
+- **Manual Edit** (Library Analytics): every game full screen. **Show** lists any Analytics group (metadata, achievements, ignored, issues), with counts, so you can work through each group; the games missing
   Game Info, controller support or achievements, with what they miss tinted red; fill it in, link the right Steam, IGDB
   ScreenScraper or RetroAchievements entry, mark a game as having **No achievements**, or **Ignore issues**. Your own Game Info for a
   game always wins.

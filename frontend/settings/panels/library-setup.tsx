@@ -7,6 +7,7 @@ import { PanelSection } from "@steambrew/client";
 import { Blocks, ButtonRow, StatRow } from "../components";
 import { usePanelContext } from "../context";
 import { onLibraryChanged } from "../library-events";
+import { onSettingChange } from "../settings";
 import { LibrarySetupWindow } from "../setup/setup-window";
 import { UPGRADE_SCALE, UpgradeOnboardingWindow } from "../setup/upgrade-window";
 import { waitingCounts, waitingTotal } from "../../domain/library-setup";
@@ -44,6 +45,17 @@ export function LibrarySetupSection({ onOnboarded }: { onOnboarded?: (onboarded:
     };
     useEffect(read, []); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => onLibraryChanged(read), []); // eslint-disable-line react-hooks/exhaustive-deps
+    // The waiting count only covers the games the rules put in scope, so a rule change re-reads it at once.
+    useEffect(() => onSettingChange((key) => key === "routingRules" && read()), []); // eslint-disable-line react-hooks/exhaustive-deps
+    // A rules change starts a background fetch: re-read when it completes, so the count needs no reopen.
+    useEffect(() => {
+        let was = ctx.ingest.progress().isSyncing;
+        return ctx.ingest.onProgress((p) => {
+            if (was && !p.isSyncing) read();
+            was = p.isSyncing;
+        });
+        // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
     // The state alone (one small call) is read again every few seconds: a window this panel did not open can change it.
     useEffect(() => {
         const t = setInterval(() => {

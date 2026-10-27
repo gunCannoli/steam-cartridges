@@ -1,33 +1,41 @@
-// Game Data editor: the left column (ADR-0076): a text filter, "Only games with issues", and every non-Steam shortcut
-// as a row with its issue count. A game that no longer matches the filter (fixed, renamed) leaves the list.
-import { DialogButton } from "@steambrew/client";
-import { ActionRow, BLOCK_GAP, Card, TextRows, ToggleRow } from "../components";
+// Game Data editor: the left column (ADR-0076): a text filter, one Library Analytics group, and every non-Steam
+// shortcut as a row with its issue count. A game that no longer matches the filter (fixed, renamed) leaves the list.
+import { DialogButton, Dropdown } from "@steambrew/client";
+import { ActionRow, BLOCK_GAP, Card, FullWidthRows, TextRows } from "../components";
 import type { LibraryIssues } from "./library-issues";
+import type { LibraryGroup } from "../../domain/game-issues";
 import { ISSUE_TINT_BORDER } from "./styles";
+
+/** One option per Library Analytics row, so a game is fixed where it is counted. */
+const GROUPS: { id: LibraryGroup; label: string }[] = [
+    { id: "all", label: "All games" },
+    { id: "metadata", label: "Metadata match" },
+    { id: "achievements", label: "Achievements match" },
+    { id: "ignored", label: "Ignored by your rules" },
+    { id: "issues", label: "Games with issues" },
+];
 
 export function GamePicker({
     library,
     filter,
     onFilter,
-    issuesOnly,
-    onIssuesOnly,
+    group,
+    onGroup,
     appid,
     onPick,
 }: {
     library: LibraryIssues;
     filter: string;
     onFilter: (text: string) => void;
-    issuesOnly: boolean;
-    onIssuesOnly: (on: boolean) => void;
+    group: LibraryGroup;
+    onGroup: (group: LibraryGroup) => void;
     appid: number | undefined;
     onPick: (appid: number) => void;
 }) {
     const needle = filter.trim().toLowerCase();
+    // A game fixed while chosen leaves the list at once (the user's call); it stays open on the right.
     const shown = library.games.filter(
-        (g) =>
-            (!needle || g.name.toLowerCase().includes(needle)) &&
-            // A game fixed while chosen leaves the list at once (the user's call); it stays open on the right.
-            (!issuesOnly || library.issuesOf(g.appid).length > 0),
+        (g) => (!needle || g.name.toLowerCase().includes(needle)) && library.inGroup(g.appid, group),
     );
 
     return (
@@ -35,12 +43,17 @@ export function GamePicker({
             <div style={{ padding: `${BLOCK_GAP}px ${BLOCK_GAP}px ${BLOCK_GAP}px` }}>
                 <Card>
                     <TextRows label="Games" description={`${shown.length} of ${library.games.length} shown; type to filter by name`} value={filter} onChange={onFilter} />
-                    <ToggleRow
-                        label="Only games with issues"
-                        description={`${library.stats.issues} game${library.stats.issues === 1 ? "" : "s"} miss Game Info, controller support or achievements`}
-                        value={issuesOnly}
-                        onChange={onIssuesOnly}
-                    />
+                    <FullWidthRows label="Show">
+                        <Dropdown
+                            rgOptions={GROUPS.map((f) => ({
+                                data: f.id,
+                                label: `${f.label} (${library.games.filter((g) => library.inGroup(g.appid, f.id)).length})`,
+                            }))}
+                            selectedOption={group}
+                            onChange={(o) => onGroup(o.data as LibraryGroup)}
+                            contextMenuPositionOptions={{ bMatchWidth: true }}
+                        />
+                    </FullWidthRows>
                     {library.loading && <ActionRow message="Reading your library..." />}
                 </Card>
             </div>

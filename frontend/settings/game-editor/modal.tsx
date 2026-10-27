@@ -8,29 +8,30 @@ import { ActionRow, BLOCK_GAP, Card } from "../components";
 import { GamePicker } from "./game-picker";
 import { GameForm } from "./game-form";
 import { useLibraryIssues } from "./library-issues";
+import type { LibraryGroup } from "../../domain/game-issues";
 
-export function GameDataEditor({ issuesOnly: startIssuesOnly = false }: { issuesOnly?: boolean; closeModal?: () => void }) {
+export function GameDataEditor({ group: startGroup = "all" }: { group?: LibraryGroup; closeModal?: () => void }) {
     const library = useLibraryIssues();
     const [filter, setFilter] = useState("");
-    const [issuesOnly, setIssuesOnly] = useState(startIssuesOnly);
+    const [group, setGroup] = useState<LibraryGroup>(startGroup);
     const [appid, setAppid] = useState<number | undefined>();
 
     // Start on a game: from "Fix issues" the first one with issues (once the issues are known), else the first one.
     const started = useRef(false);
     useEffect(() => {
         if (started.current || appid !== undefined) return;
-        const first = startIssuesOnly ? library.games.find((g) => library.issuesOf(g.appid).length > 0) : library.games[0];
+        const first = startGroup === "all" ? library.games[0] : library.games.find((g) => library.inGroup(g.appid, startGroup));
         if (first) {
             started.current = true;
             setAppid(first.appid);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [library.stats.issues, library.games.length, startIssuesOnly]);
+    }, [library.stats.issues, library.games.length, startGroup]);
 
     return (
         <div style={{ display: "flex", height: "calc(100vh - 16px)", minHeight: 560, background: "#1b2838", color: "#dcdedf" }}>
             <div style={{ width: 380, flexShrink: 0, borderRight: "1px solid rgba(255, 255, 255, 0.08)", minHeight: 0 }}>
-                <GamePicker library={library} filter={filter} onFilter={setFilter} issuesOnly={issuesOnly} onIssuesOnly={setIssuesOnly} appid={appid} onPick={setAppid} />
+                <GamePicker library={library} filter={filter} onFilter={setFilter} group={group} onGroup={setGroup} appid={appid} onPick={setAppid} />
             </div>
             <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: BLOCK_GAP }}>
                 {/* Loading (Steam's spinner, as the web searches): the library before a game is chosen; the form shows its own. */}

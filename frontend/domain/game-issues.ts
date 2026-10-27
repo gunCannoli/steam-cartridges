@@ -1,6 +1,6 @@
 /**
  * What a non-Steam game is missing, as the Game Data editor shows it (ADR-0076). Pure, `import type` only, so Node runs
- * the unit tests. The Library Analytics counts and the editor's "Only games with issues" filter use this one rule.
+ * the unit tests. The Library Analytics counts and the editor's group filter use this one rule.
  *
  * A game is checked only once something was fetched for it (a game still waiting for the background sync has no
  * issues yet), and never when the routing rules exclude it or the user chose to ignore its issues.
@@ -45,6 +45,23 @@ function filled(v: unknown): boolean {
 /** Was anything fetched for the game yet? Before that, it is waiting for the sync, not missing anything. */
 export function fetched(i: IssueInputs): boolean {
     return i.metadata !== undefined || i.storeData || i.hasAchievements || i.achievementsNone;
+}
+
+/** The Library Analytics groups the Game Data editor filters by: one per Analytics row. */
+export type LibraryGroup = 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues';
+
+/**
+ * Whether the game belongs to the Analytics group: each row's own rule, so the editor and the counts agree.
+ * An excluded game is only in "ignored"; "issues" is the same rule as the issues list (empty when the game
+ * has none, is excluded, ignored or not fetched yet).
+ */
+export function inGroup(i: IssueInputs, group: LibraryGroup): boolean {
+    if (group === 'all') return true;
+    if (group === 'ignored') return !!i.excluded;
+    if (i.excluded) return false;
+    if (group === 'metadata') return !!i.metadata || i.storeData;
+    if (group === 'achievements') return i.hasAchievements;
+    return gameIssues(i).length > 0;
 }
 
 /** The game's issues, in form order; empty when it has none, is excluded, ignored or not fetched yet. */

@@ -7,7 +7,7 @@ import { backend } from "../../ports/backend";
 import type { GameMetadata } from "../../kernel/record";
 import { lookupStored } from "../../kernel/appid";
 import { controllerFromPlatforms } from "../../domain/controller-platforms";
-import { gameIssues, fetched, type IssueKey } from "../../domain/game-issues";
+import { gameIssues, fetched, inGroup, type IssueKey, type LibraryGroup } from "../../domain/game-issues";
 import { usePanelContext } from "../context";
 import { useSyncProgress } from "../sync-progress";
 
@@ -34,6 +34,8 @@ export interface LibraryIssues {
     /** Every shortcut, by name. */
     games: { appid: number; name: string }[];
     issuesOf(appid: number): IssueKey[];
+    /** Whether the game is in the Library Analytics group (the editor's filter). */
+    inGroup(appid: number, group: LibraryGroup): boolean;
     achievementsOf(appid: number): AchievementState | undefined;
     /** Nothing fetched yet (the background sync has not reached it). */
     waiting(appid: number): boolean;
@@ -158,6 +160,9 @@ export function useLibraryIssues(): LibraryIssues {
 
     const stats = { games: games.length, metadata: 0, achievements: 0, excluded: 0, issues: 0 };
     const issuesBy = new Map<number, IssueKey[]>();
+    // Group membership, worked out once per render from the same inputs as the stats: the picker filters and
+    // counts per group without asking the routing again (per-render routing reads swallowed clicks before).
+    const groupsBy = new Map<number, Set<LibraryGroup>>();
     for (const g of games) {
         const i = inputsOf(g.appid);
         if (i.excluded) stats.excluded++;
@@ -168,11 +173,17 @@ export function useLibraryIssues(): LibraryIssues {
         const list = gameIssues(i);
         issuesBy.set(g.appid, list);
         if (list.length > 0) stats.issues++;
+        const set = new Set<LibraryGroup>(["all"]);
+        (["metadata", "achievements", "ignored", "issues"] as const).forEach((group) => {
+            if (inGroup(i, group)) set.add(group);
+        });
+        groupsBy.set(g.appid, set);
     }
 
     return {
         games,
         issuesOf: (appid) => issuesBy.get(appid) ?? [],
+        inGroup: (appid, group) => groupsBy.get(appid)?.has(group) ?? group === "all",
         achievementsOf: (appid) => lookupStored(data.achievements, appid),
         waiting: (appid) => !fetched(inputsOf(appid)),
         ignored: (appid) => lookupStored(ignoredMap, appid) === true,
