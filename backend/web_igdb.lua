@@ -174,6 +174,16 @@ end
 --- Detect platform hints from shortcut info (exe, launch options, tags)
 local function detect_platform_hints(shortcut)
   if not shortcut then return {} end
+  -- The platform verdict's answer, when the caller has one (Library Setup, plan Q1): IGDB's own platform ids
+  -- (platforms.lua), no guessing from the command line. "id:<platform>" names it in the log and keeps #hints > 0.
+  if type(shortcut.platform) == "string" then
+    local p = require("platforms").BY_ID[shortcut.platform]
+    if p and p.igdb then
+      local want = {}
+      for _, id in ipairs(p.igdb) do want[id] = true end
+      return { "id:" .. shortcut.platform, igdb_ids = want }
+    end
+  end
   local text_parts = {
     shortcut.exe or "",
     shortcut.launch_options or "",
@@ -225,8 +235,72 @@ local function detect_platform_hints(shortcut)
   return hints
 end
 
+--- Latin letters with accents (UTF-8, U+00C0..U+017F) as their plain letter: "Ōkami" is "Okami", "Pokémon" "Pokemon".
+local FOLD_RANGES = {
+  { 0xC0, 0xC5, "a" }, { 0xC7, 0xC7, "c" }, { 0xC8, 0xCB, "e" }, { 0xCC, 0xCF, "i" }, { 0xD1, 0xD1, "n" },
+  { 0xD2, 0xD6, "o" }, { 0xD8, 0xD8, "o" }, { 0xD9, 0xDC, "u" }, { 0xDD, 0xDD, "y" }, { 0xDF, 0xDF, "ss" },
+  { 0xE0, 0xE5, "a" }, { 0xE7, 0xE7, "c" }, { 0xE8, 0xEB, "e" }, { 0xEC, 0xEF, "i" }, { 0xF1, 0xF1, "n" },
+  { 0xF2, 0xF6, "o" }, { 0xF8, 0xF8, "o" }, { 0xF9, 0xFC, "u" }, { 0xFD, 0xFF, "y" },
+  { 0x100, 0x105, "a" }, { 0x106, 0x10D, "c" }, { 0x10E, 0x111, "d" }, { 0x112, 0x11B, "e" }, { 0x11C, 0x123, "g" },
+  { 0x124, 0x127, "h" }, { 0x128, 0x131, "i" }, { 0x134, 0x135, "j" }, { 0x136, 0x138, "k" }, { 0x139, 0x142, "l" },
+  { 0x143, 0x14B, "n" }, { 0x14C, 0x151, "o" }, { 0x154, 0x159, "r" }, { 0x15A, 0x161, "s" }, { 0x162, 0x167, "t" },
+  { 0x168, 0x173, "u" }, { 0x174, 0x175, "w" }, { 0x176, 0x178, "y" }, { 0x179, 0x17E, "z" },
+}
+local function fold_accents(s)
+  return (s:gsub("([\195-\197])([\128-\191])", function(a, b)
+    local cp = (a:byte() - 0xC0) * 64 + (b:byte() - 0x80)
+    for _, r in ipairs(FOLD_RANGES) do
+      if cp >= r[1] and cp <= r[2] then return r[3] end
+    end
+    return a .. b
+  end))
+end
+
+--- A name as compared: lower case, accents folded, "&" is "and", apostrophes and punctuation gone, a leading "the"
+--- dropped.
+function igdb.name_key(s)
+  s = fold_accents(tostring(s or "")):lower():gsub("&", " and "):gsub("\226\128\153", ""):gsub("['`]", "")
+  s = s:gsub("[^%w]+", " "):gsub("^%s+", ""):gsub("%s+$", ""):gsub("^the ", "")
+  return s
+end
+
+--- How a candidate's name relates to the title: "exact", "alternative" (one of its alternative names is exact),
+--- "sequel" (it is the title plus a number: "Final Fight 3"), "contains" (one holds the other), or nil.
+function igdb.name_match(cand, title)
+  local want = igdb.name_key(title)
+  if want == "" then return nil end
+  local name = igdb.name_key(cand.name)
+  -- Spaces do not count either: "Ghouls'n Ghosts" and "Ghouls 'N Ghosts".
+  local function same(a, b) return a == b or a:gsub(" ", "") == b:gsub(" ", "") end
+  if same(name, want) then return "exact" end
+  if type(cand.alternative_names) == "table" then
+    for _, alt in ipairs(cand.alternative_names) do
+      if same(igdb.name_key(type(alt) == "table" and alt.name or alt), want) then return "alternative" end
+    end
+  end
+  if name:sub(1, #want) == want then
+    local rest = name:sub(#want + 1)
+    if rest:match("^ [%divx]+$") or rest:match("^ [%divx]+ ") then return "sequel" end
+  end
+  if name:find(want, 1, true) or want:find(name, 1, true) then return "contains" end
+  return nil
+end
+
+local MATCH_RANK = { exact = 4, alternative = 3, contains = 2, sequel = 1 }
+
+--- The best name_match of a candidate over several names (the shortcut's title first, then names other sources gave:
+--- a RetroAchievements title found by ROM hash spells the game right where the shortcut may not, "Aliens vs. Predator").
+function igdb.best_name_match(cand, names)
+  local best
+  for _, n in ipairs(names) do
+    local kind = igdb.name_match(cand, n)
+    if kind and (not best or MATCH_RANK[kind] > MATCH_RANK[best]) then best = kind end
+  end
+  return best
+end
+
 --- Score an IGDB candidate to prioritize main games and rich descriptions over ports
-local function score_candidate(cand, clean_lower, hints)
+local function score_candidate(cand, clean_lower, hints, names)
   local score = 0
   local cat = cand.category or 0
   if cat == 0 then
@@ -239,11 +313,16 @@ local function score_candidate(cand, clean_lower, hints)
     score = score + 10
   end
 
-  local cand_name = tostring(cand.name or ""):lower():gsub("[^%w%s]", "")
-  local clean_norm = clean_lower:gsub("[^%w%s]", "")
-  if cand_name == clean_norm then
-    score = score + 80
-  elseif cand_name:find(clean_norm, 1, true) or clean_norm:find(cand_name, 1, true) then
+  -- The name decides first (Library Setup accuracy pass, 2026-10-22): an exact name has to beat a sequel that only
+  -- contains it ("Final Fight" lost to "Final Fight 3", "Joe & Mac" to "Joe & Mac 2" with the old +80 / +30).
+  local kind = igdb.best_name_match(cand, names or { clean_lower })
+  if kind == "exact" then
+    score = score + 200
+  elseif kind == "alternative" then
+    score = score + 150
+  elseif kind == "sequel" then
+    score = score - 40
+  elseif kind == "contains" then
     score = score + 30
   end
 
@@ -278,6 +357,11 @@ local function score_candidate(cand, clean_lower, hints)
   end
 
   hints = hints or {}
+  if hints.igdb_ids and type(cand.platforms) == "table" then
+    for _, p in ipairs(cand.platforms) do
+      if type(p) == "table" and hints.igdb_ids[tonumber(p.id)] then score = score + 150 break end
+    end
+  end
   for _, hint in ipairs(hints) do
     if hint == "snes" then
       if plat_str:find("super nintendo") or plat_str:find("snes") or plat_str:find("super famicom") then
@@ -401,15 +485,28 @@ function igdb.to_consolidated_metadata(appid, raw_title, game)
   -- Platforms the game was released on (names, abbreviations when IGDB has one): the frontend infers controller
   -- support from a console release (domain/controller-platforms.ts, ADR-0073).
   local platforms = {}
+  local platform_names = {} -- the names alone, for Library Setup's question (no abbreviations)
   if type(game.platforms) == "table" then
     for _, p in ipairs(game.platforms) do
       if type(p) == "table" and type(p.name) == "string" and p.name ~= "" then
         platforms[#platforms + 1] = p.name
+        platform_names[#platform_names + 1] = p.name
         if type(p.abbreviation) == "string" and p.abbreviation ~= "" and p.abbreviation ~= p.name then
           platforms[#platforms + 1] = p.abbreviation
         end
       end
     end
+  end
+
+  -- Names of a list IGDB returns as { {name = ...}, ... } (Library Setup's question shows them).
+  local function names_of(list)
+    local out = {}
+    if type(list) == "table" then
+      for _, item in ipairs(list) do
+        if type(item) == "table" and type(item.name) == "string" and item.name ~= "" then out[#out + 1] = item.name end
+      end
+    end
+    return out
   end
 
   -- Categories from game_modes
@@ -467,6 +564,10 @@ function igdb.to_consolidated_metadata(appid, raw_title, game)
     release_date = game.first_release_date or 0,
     genres = genres,
     platforms = platforms,
+    platform_names = platform_names,
+    themes = names_of(game.themes),
+    game_mode_names = names_of(game.game_modes),
+    perspectives = names_of(game.player_perspectives),
     categories = {
       single_player = single_player,
       multiplayer = multiplayer,
@@ -482,18 +583,25 @@ end
 ---@param appid number
 ---@param raw_title string
 ---@param shortcut_info table|nil
+---@param extra_names string[]|nil  names other sources gave the game (a RetroAchievements title by ROM hash), best
+---                                 first; a candidate named so scores as if named like the shortcut
 ---@return table|nil metadata
-function igdb.fetch_game_metadata(appid, raw_title, shortcut_info)
+function igdb.fetch_game_metadata(appid, raw_title, shortcut_info, extra_names)
   local clean = clean_title(raw_title)
   if clean == "" then return nil end
+  local names = { clean }
+  for _, n in ipairs(extra_names or {}) do
+    if type(n) == "string" and n ~= "" and not n:find("~", 1, true) then names[#names + 1] = n end
+  end
 
   local hints = detect_platform_hints(shortcut_info)
   logger:info("Searching IGDB for: '" .. clean .. "' (raw: '" .. raw_title .. "', hints: " .. table.concat(hints, ", ") .. ")")
 
-  local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, alternative_names.name; "
+  local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, player_perspectives.name, alternative_names.name; "
   local query = fields .. 'search "' .. escape_query(clean) .. '"; limit 30;'
 
   local results = query_igdb(query)
+  local from_title = results ~= nil and #results > 0 -- false once a fallback below found the results
 
   -- Fallback 1: if no matches and title has a colon/dash, try prefix
   if not results or #results == 0 then
@@ -543,14 +651,33 @@ function igdb.fetch_game_metadata(appid, raw_title, shortcut_info)
   end
 
   local clean_lower = clean:lower()
-  local best_game = results[1]
-  local best_score = -9999
+  local function pick(list)
+    local best, best_sc = list[1], -9999
+    for _, cand in ipairs(list) do
+      local sc = score_candidate(cand, clean_lower, hints, names)
+      if sc > best_sc then best, best_sc = cand, sc end
+    end
+    return best, best_sc
+  end
+  local best_game, best_score = pick(results)
 
-  for _, cand in ipairs(results) do
-    local sc = score_candidate(cand, clean_lower, hints)
-    if sc > best_score then
-      best_score = sc
-      best_game = cand
+  -- A title search whose best hit does not carry the title (Library Setup accuracy pass, 2026-10-22): IGDB's search
+  -- skips alternative names ("Out of This World" is listed as "Another World"), so ask for the name there; with still
+  -- no name match there is no proposal, rather than a random game ("Quickie World").
+  if from_title and not igdb.best_name_match(best_game, names) then
+    local wheres = {}
+    for _, n in ipairs(names) do
+      local q = escape_query(n)
+      wheres[#wheres + 1] = 'name ~ "' .. q .. '" | alternative_names.name ~ "' .. q .. '"'
+    end
+    local alt = query_igdb(fields .. "where " .. table.concat(wheres, " | ") .. "; limit 20;")
+    if alt and #alt > 0 then
+      for _, cand in ipairs(alt) do results[#results + 1] = cand end
+      best_game, best_score = pick(results)
+    end
+    if not igdb.best_name_match(best_game, names) then
+      logger:info("No IGDB candidate is named '" .. clean .. "' (best: '" .. tostring(best_game.name) .. "'): no match")
+      return nil
     end
   end
 
@@ -568,7 +695,7 @@ end
 function igdb.fetch_by_id(appid, igdb_id, raw_title)
   local id = tonumber(igdb_id)
   if not id or id <= 0 then return nil, "invalid igdb id" end
-  local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, alternative_names.name; "
+  local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, player_perspectives.name, alternative_names.name; "
   local query = fields .. "where id = " .. tostring(id) .. "; limit 1;"
   local results = query_igdb(query)
   if not results or #results == 0 then return nil, "game not found on igdb" end
@@ -602,5 +729,8 @@ function igdb.check()
   end
   return false, "Twitch answered HTTP " .. tostring(res.status) .. "."
 end
+
+igdb._score_candidate = score_candidate -- probes and tests: rank candidates without fetching
+igdb._detect_platform_hints = detect_platform_hints
 
 return igdb

@@ -16,6 +16,7 @@ import {
 } from "./surfaces/library-home";
 import { createView } from "./app/view";
 import { createIngest } from "./app/ingest";
+import { createLibrarySetup } from "./app/library-setup";
 import { createNativeLinksSurface, wrapNavigators } from "./surfaces/native-links";
 import { createArtworkSurface } from "./surfaces/artwork";
 import { createCommunitySurface } from "./surfaces/community";
@@ -124,7 +125,6 @@ const records = createRecords(bus);
 /** Routing (app/routing.ts, plan M4a / ADR-0040), wired to every former buckets caller through D3 setters. */
 const routing = createRouting({
     buckets: () => setting("buckets"),
-    autoMode: () => setting("autoRoutingMode"),
     rules: () => setting("routingRules"),
     collections: collectionsSource,
     titleOf: shortcutTitle,
@@ -173,8 +173,9 @@ const metadata = createMetadata({
     titleOf: (appid) => shortcutTitle(appid),
     ensureBase: (appid) => records.ensureBase(appid, shortcutTitle(appid) ?? ""),
     storeItemFor: (steamAppid) => loadStoreItem(steamAppid),
-    allowWeb: (appid) => setting("services").igdbEnabled !== false && routing.serviceAllowed("igdb", appid),
-    allowScreenscraper: (appid) => setting("services").screenscraperEnabled !== false && routing.serviceAllowed("screenscraper", appid),
+    allowWeb: (appid, userAction) => setting("services").igdbEnabled !== false && (userAction === true || routing.serviceAllowed("igdb", appid)),
+    allowScreenscraper: (appid, userAction) =>
+        setting("services").screenscraperEnabled !== false && (userAction === true || routing.serviceAllowed("screenscraper", appid)),
     controller: (appid) => ({
         inferred: controller.inferredFor(appid),
         defaultFull: setting("defaultFullController"),
@@ -228,9 +229,9 @@ const media = createMedia({
     allowWeb: (appid) => setting("services").igdbEnabled !== false && routing.serviceAllowed("igdb", appid),
     allowScreenscraper: (appid) => setting("services").screenscraperEnabled !== false && routing.mediaServiceAllowed("screenscraper", appid),
     toggles: () => ({
-        trailers: setting("communityShowTrailers") !== false,
-        artworks: setting("communityShowArtworks") !== false,
-        manuals: setting("communityShowManuals") !== false,
+        trailers: setting("communityShowTrailers") === true,
+        artworks: setting("communityShowArtworks") === true,
+        manuals: setting("communityShowManuals") === true,
     }),
     cacheDays: () => setting("mediaCacheDays"),
     objectUrl,
@@ -251,7 +252,7 @@ const manuals = createManuals({
     log: (message) => logger.info(message),
     titleOf: (appid) => shortcutTitle(appid),
     manualKeyOf: (appid) =>
-        setting("communityShowManuals") === false ? undefined : records.store.get(appid as ShortcutId)?.media?.data?.items?.find((item) => item.kind === "manual")?.key,
+        setting("communityShowManuals") !== true ? undefined : records.store.get(appid as ShortcutId)?.media?.data?.items?.find((item) => item.kind === "manual")?.key,
 });
 
 /** The view pipeline (app/view.ts, plan M7b): what happens when a shortcut's page opens. */
@@ -280,6 +281,7 @@ const gameEditor = createGameEditor({
     titleOf: (appid) => shortcutTitle(appid),
     routeOf: (appid) => routing.getBucket(appid),
     metadata,
+    identity,
     steamStore,
 });
 
@@ -324,12 +326,37 @@ const ingest = createIngest({
     },
 });
 
+/** The Library Setup window's work (app/library-setup.ts, ADR-0086): a validated game is fetched at once, as "Fetch now". */
+const librarySetup = createLibrarySetup({
+    backend,
+    shortcuts: () => routing.listShortcuts(),
+    collectionsOf: (appid) => routing.collectionsOf(appid),
+    // The confirmed game is fetched, then its Game Info is filled in from what matched it (a Steam match reads Steam's own store item) so the
+    // onboarding shows every field filled, for the user to check or just confirm (ADR-0100).
+    fetchGames: async (appids) => {
+        await ingest.startSync({ forceAll: true, onlyAppids: appids });
+        for (const appid of appids) {
+            const id = toShortcutId(appid);
+            if (id === undefined) continue;
+            const route = routing.getBucket(id);
+            const ident = records.store.get(id)?.identity ?? (route.bucket === "steam-store" ? await identity.ensure(id, route) : undefined);
+            await metadata.ensure(id, route, ident, { userAction: true });
+        }
+    },
+    resetSettings,
+});
+
 export { setSetting, resetSettings, SettingsPanel };
 /** Kill switches, error counts and safe mode (migration plan M0b). */
 export const safetyDiagnostics = () => features.diagnostics();
 /** K6: how often Game Info was re-applied from Steam's overview rebuild (`viaTrigger`) or from a render (`viaRender`, the fallback). */
 export { gameInfoRepairDiagnostics } from "./surfaces/game-info";
 export const bucketReport = () => routing.bucketReport();
+/** How many non-Steam games the routing rules put in scope right now (live checks of the Rules step). */
+export const scopeReport = () => {
+    const all = routing.listShortcuts();
+    return { rules: setting("routingRules").length, games: all.length, inScope: all.filter((s) => routing.serviceAllowed("all", s.appid)).length };
+};
 export const loadAutoRoutingProfiles = () => routing.loadAutoRoutingProfiles();
 export const clearSteamStore = (appid: number, reject: boolean) => steamStore.clear(appid, reject);
 export const setSteamStoreMapping = (appid: number, steamAppid: number, name?: string) => steamStore.setMapping(appid, steamAppid, name);
@@ -462,6 +489,13 @@ async function init() {
         },
         records: {
             achievementsOf: (appid) => achievements.summary(appid),
+            forget: (appid) => {
+                // The backend deleted the stored copy; the session's records and the achievement stores go too, so the page and the counts agree.
+                const ids = appid === undefined ? records.store.all().map((r) => r.appid) : [toShortcutId(appid)].filter((x): x is ShortcutId => x !== undefined);
+                for (const id of ids) {
+                    records.store.update(id, { metadata: undefined, achievements: undefined, media: undefined, identity: undefined, provided: undefined });
+                }
+            },
             refreshAchievements: async (appid) => {
                 const id = toShortcutId(appid);
                 if (id !== undefined) {
@@ -477,7 +511,8 @@ async function init() {
                 if (id !== undefined) metadata.rebadge(id);
             },
         },
-        dialog: { open: (element, title, onClose, from) => showDialog(element, { title, ...screenSize(from), onClose, parent: from }) },
+        dialog: { open: (element, title, onClose, from, scale) => showDialog(element, { title, ...screenSize(from, scale), onClose, parent: from }) },
+        setup: librarySetup,
         editor: gameEditor,
     });
 
@@ -555,9 +590,9 @@ async function init() {
         createCapturesSurface({
             ...surfaceDeps,
             activityOptions: () => ({
-                showAdded: setting("activityShowAddedToLibrary") !== false,
-                showFirstPlayed: setting("activityShowFirstPlayed") !== false,
-                showAchievements: setting("activityShowAchievements") !== false,
+                showAdded: setting("activityShowAddedToLibrary") === true,
+                showFirstPlayed: setting("activityShowFirstPlayed") === true,
+                showAchievements: setting("activityShowAchievements") === true,
             }),
             bus,
         }),

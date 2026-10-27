@@ -56,8 +56,16 @@ local function save()
   end
 end
 
-local function key(appid)
+--- A shortcut's appid arrives signed from CEF when it is above 0x7FFFFFFF (knowledgebase "Signed vs Unsigned 32-bit AppId"):
+--- turn it back into the unsigned id this store is keyed by.
+local function unsigned(appid)
   local n = tonumber(appid)
+  if n and n < 0 and n >= -0x80000000 then n = n + 0x100000000 end
+  return n
+end
+
+local function key(appid)
+  local n = unsigned(appid)
   if not n or n < SHORTCUT_MIN then
     error("steam_store persists non-Steam shortcuts only (got appid " .. tostring(appid) .. ")")
   end
@@ -65,7 +73,7 @@ local function key(appid)
 end
 
 function M._reset() state = nil end
-function M.is_shortcut(appid) local n = tonumber(appid); return n ~= nil and n >= SHORTCUT_MIN end
+function M.is_shortcut(appid) local n = unsigned(appid); return n ~= nil and n >= SHORTCUT_MIN end
 
 function M.is_rejected(appid, steam_appid)
   local list = load().rejected[key(appid)]

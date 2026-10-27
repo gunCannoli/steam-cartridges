@@ -155,4 +155,9 @@ function metadata_db.delete(appid)
   return true
 end
 
+--- Forget the in-memory copy so the next read loads the file again (a reset moved it away, ADR-0093).
+function metadata_db._reset()
+  db = nil
+end
+
 return metadata_db

@@ -59,15 +59,25 @@ Then copy the folder (with the generated `.millennium` folder inside it) to `<St
 It works on its own with no setup: install it and your non-Steam games get Steam's page and Post-Game Summary from the
 captures Steam already has. The rest is in Steam's Millennium settings under **Steam Cartridges**:
 
-- **Metadata:** add your IGDB (Twitch), SteamGridDB or ScreenScraper credentials with **Add service**. Game Info and
+- **Onboarding:** the first time you open the plugin's settings, a window walks you through your sources,
+  achievements and rules before anything is downloaded. Until you finish it, or choose
+  **(I know what I'm doing, skip)**, the other settings wait and the plugin fetches nothing new (what it already stored
+  keeps showing). You need at least one source on and at least one rule (**Scan only these** or **Exclude these**; with
+  no rule the plugin scans nothing). Full walkthrough: [Onboarding.md](Onboarding.md).
+- **Metadata:** add your IGDB (Twitch), SteamGridDB or ScreenScraper credentials with **Add source**. Game Info and
   artwork from the web need at least one of them.
-- **Auto Mode (on by default):** every non-Steam game is looked up automatically, by what its shortcut runs:
+- **Achievements:** RetroAchievements finds a game by the hash of its ROM or disc, so the shortcut has to launch a file
+  RetroAchievements knows. Steam's own achievements are a list only and cannot be unlocked in a custom game, so the Steam
+  Store Mirror is not an achievements source.
+- **Rules decide everything:** with no rule the plugin scans nothing. Routing Rules start simple: **Scan only these** or
+  **Exclude these**, by collection or game; an **Advanced rule** covers a specific case (one service, a title, a regex). All of
+  them start from **Add rule**.
+  Once a game is in scope it is looked up by what its shortcut runs:
   - **Emulators and ROMs** (RetroArch, DuckStation, PCSX2, ...): Game Info from IGDB, then ScreenScraper.
   - **PC games:** a match to the same game on Steam first (Steam's own Game Info and artwork), else IGDB.
-- **Your own rules** (Routing Rules → **Custom Rules**) take over from Auto Mode: include or exclude games from a
+- **Advanced rules** include or exclude games from a
   service (Steam Store Mirror, IGDB, ScreenScraper, SteamGridDB, RetroAchievements, Console Emulators) by **collection**,
-  **game title** or a **regex pattern**. With **Auto Mode** off, every service may be used for every game unless a
-  rule excludes it.
+  **game title** or a **regex pattern**. **Scan only these** leaves out every game it does not match.
 - **Manual Edit** (Library Analytics): every game full screen. **Only games with issues** lists the games missing
   Game Info, controller support or achievements, with what they miss tinted red; fill it in, link the right Steam, IGDB
   ScreenScraper or RetroAchievements entry, mark a game as having **No achievements**, or **Ignore issues**. Your own Game Info for a
@@ -76,7 +86,7 @@ captures Steam already has. The rest is in Steam's Millennium settings under **S
 **Your artwork stays yours.** A portrait, hero, logo, wide capsule or icon you set yourself in Steam is never replaced:
 Steam Cartridges only fills the empty ones (and replaces only art it put there itself).
 
-Achievements and what each source needs: [Achievements.md](Achievements.md).
+First run: [Onboarding.md](Onboarding.md). Achievements and what each source needs: [Achievements.md](Achievements.md).
 
 For your screenshots and recordings as "{Username} captured" cards in the Activity feed, install
 [Steam Captured Activity](https://github.com/gunCannoli/steam-captured-activity) next to it.
@@ -92,8 +102,12 @@ For your screenshots and recordings as "{Username} captured" cards in the Activi
 ## Reporting a problem
 
 Send the log file: `<your Steam folder>\millennium\config\steam-cartridges\steam-cartridges.log`.
+On Linux that is `<your Steam folder>/millennium/config/steam-cartridges/steam-cartridges.log`, usually
+`~/.local/share/Steam/millennium/config/steam-cartridges/steam-cartridges.log` (or under `~/.steam/steam/`). It is **not** in
+Millennium's own folders (`~/.config/millennium`, `~/.local/share/millennium`); Millennium keeps no log folder there. Its first
+line `[startup]` names your OS and this exact folder.
 It lists what the plugin did and what each service (IGDB, ScreenScraper, RetroAchievements, SteamGridDB) answered.
-Passwords, keys, tokens and your Windows user name are removed before anything is written.
+Passwords, keys, tokens and your user name (Windows or Linux) are removed before anything is written.
 
 ## Support
 

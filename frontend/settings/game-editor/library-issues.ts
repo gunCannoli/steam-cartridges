@@ -1,7 +1,8 @@
 // The library's issues, for Library Analytics and the Game Data editor (ADR-0076): one load of the stored records, one
 // rule (domain/game-issues.ts). Moved from the Library Audit panel; reads the app through the panel context.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { onSettingChange, useSetting } from "../settings";
+import { onSettingChange, setting, useSetting } from "../settings";
+import { onLibraryChanged } from "../library-events";
 import { backend } from "../../ports/backend";
 import type { GameMetadata } from "../../kernel/record";
 import { lookupStored } from "../../kernel/appid";
@@ -47,9 +48,8 @@ export function useLibraryIssues(): LibraryIssues {
     const ctx = usePanelContext();
     const [overrides] = useSetting("controllerOverrides");
     const [ignoredMap] = useSetting("ignoredIssues");
-    // Re-render when the rules or Auto Mode change (ctx.routing.serviceAllowed reads them).
+    // Re-render when the rules change (ctx.routing.serviceAllowed reads them).
     useSetting("routingRules");
-    useSetting("autoRoutingMode");
     const [data, setData] = useState<Loaded>(() => cached ?? EMPTY);
     const [loading, setLoading] = useState(cached === null);
     const sync = useSyncProgress();
@@ -93,14 +93,17 @@ export function useLibraryIssues(): LibraryIssues {
     useEffect(() => {
         void refresh();
         const offSettings = onSettingChange((key) => {
-            if (key === "routingRules" || key === "autoRoutingMode") void refresh();
+            if (key === "routingRules") void refresh();
         });
         const offProgress = ctx.ingest.onProgress((p) => {
             if (p.isSyncing && p.current > 0 && p.current % 4 === 0) void refresh();
         });
+        // Delete metadata (ADR-0097): the counts are read again at once.
+        const offLibrary = onLibraryChanged(() => void refresh());
         return () => {
             offSettings();
             offProgress();
+            offLibrary();
         };
     }, [refresh, ctx]);
 
@@ -147,7 +150,8 @@ export function useLibraryIssues(): LibraryIssues {
             hasAchievements,
             achievementsNone: ach?.source === "none" || ach?.status === "none",
             controllerKnown,
-            excluded: !ctx.routing.serviceAllowed("all", appid),
+            // With no rule at all nothing is excluded by a rule: the plugin just waits for one (ADR-0089).
+            excluded: setting("routingRules").some((r) => r.enabled !== false) && !ctx.routing.serviceAllowed("all", appid),
             ignored: lookupStored(ignoredMap, appid) === true,
         };
     }

@@ -191,8 +191,8 @@ function M.find_trophy_dir(cmd, launch_options)
   local cusa_id = full:match("(CUSA%d+)") or full:match("(cusa%d+)")
   if cusa_id then cusa_id = cusa_id:upper() end
 
-  local appdata = (os.getenv("APPDATA") or ""):gsub("\\", "/")
-  local localappdata = (os.getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
+  local appdata = (require("platform").getenv("APPDATA") or ""):gsub("\\", "/")
+  local localappdata = (require("platform").getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
 
   local root_dirs = {
     appdata .. "/shadps4/user/trophy",

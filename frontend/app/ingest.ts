@@ -14,7 +14,7 @@ import type { backend as Backend } from "../ports/backend";
 import { asList } from "../kernel/lists.ts";
 
 export interface IngestDeps {
-    backend: Pick<typeof Backend, "getNewShortcuts" | "markKnown" | "ensureFresh">;
+    backend: Pick<typeof Backend, "getNewShortcuts" | "markKnown" | "ensureFresh" | "getSetupState">;
     /** Every shortcut in the library (the full-sync source). */
     shortcuts(): { appid: number; name: string }[];
     /** Routing inputs are loaded (auto-routing profiles, collections). */
@@ -139,6 +139,17 @@ export function createIngest(deps: IngestDeps): Ingest {
         const force = options?.forceAll === true;
         try {
             await deps.ready();
+
+            // Library Setup (ADR-0086): until the user has run it nothing is fetched, and no game is marked known (it
+            // would drop out of the "new games" count unfetched). An answer we cannot read is no gate (fail open).
+            const setup = await deps.backend.getSetupState(BACKGROUND).catch(() => undefined);
+            // A run over the whole library also waits for onboarding (finished or skipped), even for an install that held data
+            // before Library Setup existed; a per-game run (the setup window, the audit panel) only needs the consent.
+            if (setup?.done === false || (setup?.onboarded === false && !options?.onlyAppids)) {
+                logger.info("Ingest: Library Setup has not run yet; nothing is fetched.");
+                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0 });
+                return;
+            }
 
             let items: { appid: number; name: string }[];
             if (force || options?.onlyAppids) {

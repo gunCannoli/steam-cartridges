@@ -9,7 +9,7 @@ import { iconRestoreOf, slotList } from "../domain/art-plan";
 export interface SteamStoreDeps {
     backend: Pick<typeof Backend, "steamStoreClearMapping" | "steamStoreSetMapping" | "steamStoreGetState">;
     identity: { invalidate(appid: ShortcutId): void; ensure(appid: ShortcutId, route: Route): Promise<Part<Identity>> };
-    metadata: { ensure(appid: ShortcutId, route: Route, identity: Part<Identity>): Promise<Part<GameMetadata>> };
+    metadata: { ensure(appid: ShortcutId, route: Route, identity: Part<Identity>, opts?: { userAction?: boolean }): Promise<Part<GameMetadata>> };
     artwork: {
         ensure(appid: ShortcutId, route: Route, identity: Part<Identity>): Promise<unknown>;
         invalidate(appid: ShortcutId): void;
@@ -37,7 +37,7 @@ export function createSteamStore(deps: SteamStoreDeps): SteamStore {
             deps.identity.invalidate(id);
             deps.artwork.invalidate(id);
             const identity = await deps.identity.ensure(id, MANUAL);
-            await deps.metadata.ensure(id, MANUAL, identity);
+            await deps.metadata.ensure(id, MANUAL, identity, { userAction: true });
             return res;
         },
         async setMapping(appid, steamAppid, name) {
@@ -47,7 +47,7 @@ export function createSteamStore(deps: SteamStoreDeps): SteamStore {
                 deps.identity.invalidate(id);
                 deps.artwork.invalidate(id);
                 const identity = await deps.identity.ensure(id, MANUAL);
-                await deps.metadata.ensure(id, MANUAL, identity);
+                await deps.metadata.ensure(id, MANUAL, identity, { userAction: true });
                 await deps.artwork.ensure(id, MANUAL, identity);
             }
             return res;

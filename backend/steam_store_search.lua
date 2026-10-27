@@ -51,6 +51,20 @@ function M.classify_items(title, items)
   return out
 end
 
+--- The Steam game Library Setup proposes for a search result (plan Q9, the user 2026-10-22): the exact hit, else the first
+--- edition hit ("The Witcher 3: Wild Hunt" is only on Steam as "... — Remastered"). Safe because nothing is applied
+--- before the user's Yes (ADR-0086); two exact hits of one name (Resident Evil 4, 2005 and 2023) still propose nothing.
+---@param result table  what M.search / M.classify_items returned
+---@return table|nil { appid, name, kind = "exact" | "edition" }
+function M.proposal(result)
+  if type(result) ~= "table" then return nil end
+  if result.exact then return { appid = result.exact.appid, name = result.exact.name, kind = "exact" } end
+  for _, s in ipairs(result.suggestions or {}) do
+    if s.reason == "edition" then return { appid = s.steam_appid, name = s.name, kind = "edition" } end
+  end
+  return nil
+end
+
 local MAX_CANDIDATES = 10
 
 --- Manual link picker (Game Data editor): the store's own hits for a typed term, unclassified.

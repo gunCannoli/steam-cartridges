@@ -212,7 +212,11 @@ export type ServiceTarget =
     | 'rpcs3'
     | 'none';
 
-export type RuleAction = 'include' | 'exclude';
+/**
+ * `include`: a match is allowed whatever Auto Mode says. `exclude`: a match is not. `only` ("scan only these", onboarding plan):
+ * once an enabled `only` rule applies to a service, a game that matches none of them is not allowed for it.
+ */
+export type RuleAction = 'include' | 'exclude' | 'only';
 
 export type ConditionType = 'collection' | 'game_name' | 'regex';
 
@@ -281,6 +285,18 @@ export function isServiceAllowedByAutoMode(
     return true;
 }
 
+/** Does a rule's condition match this game (its title and the names of its collections)? The services are not looked at. */
+export function ruleMatches(rule: Pick<RoutingRule, 'conditionType' | 'pattern'>, title: string, collectionIds: string[]): boolean {
+    const subPatterns = rule.pattern.split(',').map((s) => s.trim()).filter(Boolean);
+    const patternsToTest = subPatterns.length > 0 ? subPatterns : [rule.pattern.trim()];
+    if (rule.conditionType === 'collection') {
+        return collectionIds.some((cid) => patternsToTest.some((pat) => cid.toLowerCase() === pat.toLowerCase() || matchesPattern(cid, pat)));
+    }
+    if (rule.conditionType === 'game_name') return patternsToTest.some((pat) => matchesPattern(title, pat));
+    if (rule.conditionType === 'regex') return matchesRegex(title, rule.pattern);
+    return false;
+}
+
 /**
  * Evaluates whether a given service is allowed for a shortcut based on ordered rules,
  * falling back to Auto Mode classification if enabled.
@@ -295,6 +311,8 @@ export function isServiceAllowed(
     autoProfile?: AutoRoutingProfile,
 ): boolean {
     if (rules && rules.length > 0) {
+        let onlyDefined = false;
+        let onlyMatched = false;
         for (const rule of rules) {
             if (rule.enabled === false) continue;
             const targetServices = (rule.service || 'all').split(',').map((s) => s.trim().toLowerCase());
@@ -309,28 +327,17 @@ export function isServiceAllowed(
 
             if (!matchesService) continue;
 
-            let matched = false;
-            const subPatterns = rule.pattern.split(',').map((s) => s.trim()).filter(Boolean);
-            const patternsToTest = subPatterns.length > 0 ? subPatterns : [rule.pattern.trim()];
+            const matched = ruleMatches(rule, title, collectionIds);
 
-            if (rule.conditionType === 'collection') {
-                matched = collectionIds.some((cid) =>
-                    patternsToTest.some((pat) =>
-                        cid.toLowerCase() === pat.toLowerCase() ||
-                        matchesPattern(cid, pat)
-                    )
-                );
-            } else if (rule.conditionType === 'game_name') {
-                matched = patternsToTest.some((pat) => matchesPattern(title, pat));
-            } else if (rule.conditionType === 'regex') {
-                matched = matchesRegex(title, rule.pattern);
-            }
-
-            if (matched) {
+            if (rule.action === 'only') {
+                onlyDefined = true;
+                onlyMatched ||= matched;
+            } else if (matched) {
                 if (rule.action === 'exclude') return false;
                 if (rule.action === 'include') return true;
             }
         }
+        if (onlyDefined && !onlyMatched) return false;
     }
 
     // No custom rule matched: apply auto-mode default if enabled

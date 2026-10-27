@@ -388,7 +388,11 @@ function M.get_retroarch_config(override_dir)
   if ra_dir and ra_dir ~= override_dir then
     table.insert(candidates, ra_dir .. "/retroarch.cfg")
   end
-  table.insert(candidates, (os.getenv("APPDATA") or "") .. "/RetroArch/retroarch.cfg")
+  table.insert(candidates, (require("platform").getenv("APPDATA") or "") .. "/RetroArch/retroarch.cfg")
+  -- Linux: any spelling/location (retroarch, .config, Flatpak ...).
+  for _, p in ipairs(require("platform").is_windows() and {} or require("platform").locate({ "RetroArch/retroarch.cfg" }, function() return false end)) do
+    table.insert(candidates, p)
+  end
 
   local cfg_path = nil
   for _, p in ipairs(candidates) do
@@ -460,12 +464,20 @@ end
 --- Discovers RetroAchievements credentials from installed emulators
 --- (RetroArch, DuckStation, PCSX2, Dolphin, PPSSPP).
 function M.get_credentials(exe_hint)
-  local appdata = os.getenv("APPDATA") or ""
-  local localappdata = os.getenv("LOCALAPPDATA") or ""
-  local userprofile = os.getenv("USERPROFILE") or ""
+  local appdata = require("platform").getenv("APPDATA") or ""
+  local localappdata = require("platform").getenv("LOCALAPPDATA") or ""
+  local userprofile = require("platform").getenv("USERPROFILE") or ""
   local exe_str = tostring(exe_hint or ""):lower():gsub("\\", "/")
   local exe_dir = exe_str:match("^(.*)/[^/]+$") or ""
   local emu = M.emulator_dirs()
+
+  --- Linux: the same settings file in whatever spelling and root it lives (case, XDG, Flatpak); nothing on Windows.
+  local function linux_more(candidates, rels)
+    local plat = require("platform")
+    if plat.is_windows() then return candidates end
+    for _, p in ipairs(plat.locate(rels, function() return false end)) do candidates[#candidates + 1] = p end
+    return candidates
+  end
 
   local function read_ra()
     local conf = M.get_retroarch_config(#exe_dir > 0 and exe_dir or nil)
@@ -488,6 +500,7 @@ function M.get_credentials(exe_hint)
       #appdata > 0 and (appdata .. "/DuckStation/settings.ini"),
       #localappdata > 0 and (localappdata .. "/DuckStation/settings.ini"),
     }
+    linux_more(candidates, { "DuckStation/settings.ini" })
     for _, p in ipairs(candidates) do
       if p then
         local text = utils.read_file(p)
@@ -520,6 +533,7 @@ function M.get_credentials(exe_hint)
       #appdata > 0 and (appdata .. "/PCSX2/inis/PCSX2.ini"),
       #localappdata > 0 and (localappdata .. "/PCSX2/inis/PCSX2.ini"),
     }
+    linux_more(candidates, { "PCSX2/inis/PCSX2.ini" })
     for _, p in ipairs(candidates) do
       if p then
         local text = utils.read_file(p)
@@ -557,6 +571,7 @@ function M.get_credentials(exe_hint)
       #userprofile > 0 and (userprofile .. "/Documents/Dolphin Emulator/Config/RetroAchievements.ini"),
       #userprofile > 0 and (userprofile .. "/Documents/Dolphin Emulator/Config/Dolphin.ini"),
     }
+    linux_more(candidates, { "Dolphin Emulator/Config/RetroAchievements.ini", "Dolphin Emulator/Config/Dolphin.ini", "dolphin-emu/RetroAchievements.ini", "dolphin-emu/Dolphin.ini" })
     for _, p in ipairs(candidates) do
       if p then
         local text = utils.read_file(p)
@@ -587,6 +602,7 @@ function M.get_credentials(exe_hint)
       emu.ppsspp and (emu.ppsspp .. "/memstick/PSP/SYSTEM/ppsspp.ini"),
       #appdata > 0 and (appdata .. "/PPSSPP/PSP/SYSTEM/ppsspp.ini"),
     }
+    linux_more(candidates, { "PPSSPP/PSP/SYSTEM/ppsspp.ini" })
     for _, p in ipairs(candidates) do
       if p then
         local text = utils.read_file(p)
@@ -785,8 +801,16 @@ end
 
 local games_list_cache = {}
 
---- Detects RetroAchievements console ID from shortcut exe or launch options
+--- Detects RetroAchievements console ID from shortcut exe or launch options.
+--- The platform verdict first (platforms.lua, ids checked against RetroAchievements 2026-10-22), then the folder and
+--- program names below for what it cannot place (a RetroArch core it does not know, a ROM in a /ps2/ folder).
 function M.detect_console_id(cmd, launch_options)
+  local okv, pv = pcall(require, "platform_verdict")
+  if okv then
+    local v = pv.verdict("", { exe = cmd, launch_options = launch_options }, nil)
+    local p = v.platform and require("platforms").BY_ID[v.platform]
+    if p and p.ra then return p.ra end
+  end
   local full = (tostring(cmd or "") .. " " .. tostring(launch_options or "")):lower()
   if full:find("pcsx2") or full:find("[/\\]ps2[/\\]") then
     return 21 -- PlayStation 2
@@ -809,17 +833,18 @@ function M.detect_console_id(cmd, launch_options)
   elseif full:find("ppsspp") or full:find("[/\\]psp[/\\]") then
     return 41 -- PSP
   elseif full:find("flycast") or full:find("dreamcast") or full:find("[/\\]dreamcast[/\\]") or full:find("%.gdi") or full:find("%.cdi") then
-    return 18 -- Dreamcast
+    return 40 -- Dreamcast
   elseif full:find("beetle_saturn") or full:find("yabause") or full:find("kronos") or full:find("[/\\]saturn[/\\]") then
     return 39 -- Saturn
   elseif full:find("gambatte") or full:find("gearboy") or full:find("[/\\]gbc[/\\]") or full:find("[/\\]gb[/\\]") or full:find("%.gbc") or full:find("%.gb") then
-    return 4  -- Game Boy / Game Boy Color
+    if full:find("[/\\]gbc[/\\]") or full:find("%.gbc") then return 6 end -- Game Boy Color
+    return 4  -- Game Boy
   elseif full:find("melonds") or full:find("desmume") or full:find("[/\\]nds[/\\]") or full:find("%.nds") then
-    return 19 -- Nintendo DS
+    return 18 -- Nintendo DS
   elseif full:find("mednafen_pce") or full:find("[/\\]pce[/\\]") or full:find("%.pce") then
     return 8  -- PC Engine / TurboGrafx-16
   elseif full:find("sms") or full:find("gearsystem") or full:find("[/\\]sms[/\\]") then
-    return 9  -- Master System
+    return 11 -- Master System
   end
   return nil
 end
@@ -981,11 +1006,8 @@ end
 ---@param cmd string|nil
 ---@param launch_options string|nil
 ---@param appid number|nil
-function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
-  if not target_title or #target_title == 0 then return nil end
-  local console_id = M.detect_console_id(cmd, launch_options)
-  if not console_id then return nil end
-
+--- One console's games list ({ [id] = title }), fetched once per session (no account needed).
+local function games_list(console_id)
   local list = games_list_cache[console_id]
   if not list then
     local url = "https://retroachievements.org/dorequest.php?r=gameslist&c=" .. tostring(console_id)
@@ -1007,6 +1029,25 @@ function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
     end
   end
 
+  return list
+end
+
+--- The title of a RetroAchievements game on a console, from the console's games list (Library Setup: what a ROM hash
+--- found, shown to the user and given to IGDB as a second name). nil when unknown.
+function M.game_title(console_id, game_id)
+  if not console_id or not game_id then return nil end
+  local list = games_list(console_id)
+  if type(list) ~= "table" then return nil end
+  local t = list[tostring(game_id)] or list[tonumber(game_id)]
+  return type(t) == "string" and t or nil
+end
+
+function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
+  if not target_title or #target_title == 0 then return nil end
+  local console_id = M.detect_console_id(cmd, launch_options)
+  if not console_id then return nil end
+
+  local list = games_list(console_id)
   if not list or type(list) ~= "table" then return nil end
 
   local candidates = clean_shortcut_candidates(target_title)
@@ -1071,6 +1112,34 @@ function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
 end
 
 --- Fetches full game schema and user unlocks from RetroAchievements
+--- A game's developer, publisher, genre and release year (the `patch` answer of the dorequest endpoint carries them and needs only
+--- the emulator's saved login, no Web API key), for the Library Setup card (ADR-0095). Kept in ra_cache; nil when it cannot be read.
+---@return table|nil { developer, publisher, genre, year }
+function M.game_info(game_id, exe_hint)
+  local gid = tonumber(game_id)
+  if not gid or gid <= 0 then return nil end
+  local cached = ra_cache.info_for(gid)
+  if cached then return cached end
+  local creds = M.get_credentials(exe_hint) or {}
+  local u, t = tostring(creds.username or ""), tostring(creds.token or "")
+  local url = "https://retroachievements.org/dorequest.php?r=patch&g=" .. tostring(gid)
+  if #u > 0 and #t > 0 then url = url .. "&u=" .. utils.url_encode(u) .. "&t=" .. utils.url_encode(t) end
+  local ok, res = pcall(net.get, url, { source = "retroachievements", user_agent = "RetroArch/1.19.0", headers = { ["User-Agent"] = "RetroArch/1.19.0", ["Accept"] = "application/json" }, timeout = 10 })
+  if not ok or not res or res.status ~= 200 or not res.body then return nil end
+  local okj, data = pcall(json.decode, res.body)
+  local patch = okj and type(data) == "table" and data.Success and data.PatchData or nil
+  if type(patch) ~= "table" then return nil end
+  local function text(v) return type(v) == "string" and #v > 0 and v or nil end
+  local info = {
+    developer = text(patch.Developer),
+    publisher = text(patch.Publisher),
+    genre = text(patch.Genre),
+    year = tonumber(tostring(patch.Released or ""):match("(%d%d%d%d)")),
+  }
+  ra_cache.put_info(gid, info)
+  return info
+end
+
 function M.fetch_game_data(game_id, username, token, hardcore, api_key)
   local gid = tonumber(game_id) or 0
   if gid <= 0 then return nil, "invalid game id" end
@@ -1461,9 +1530,9 @@ end
 --- Returns detection and authentication status for all supported retro emulators
 function M.get_emulator_status()
   local list = {}
-  local appdata = (os.getenv("APPDATA") or ""):gsub("\\", "/")
-  local localappdata = (os.getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
-  local userprofile = (os.getenv("USERPROFILE") or ""):gsub("\\", "/")
+  local appdata = (require("platform").getenv("APPDATA") or ""):gsub("\\", "/")
+  local localappdata = (require("platform").getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
+  local userprofile = (require("platform").getenv("USERPROFILE") or ""):gsub("\\", "/")
 
   local emu_dirs = M.emulator_dirs()
 

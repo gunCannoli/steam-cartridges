@@ -31,7 +31,6 @@ export interface BucketReport {
 
 export interface RoutingInputs {
     buckets(): BucketsConfig;
-    autoMode(): boolean;
     /** Setting routingRules (service rules, ADR-0040). */
     rules(): RoutingRule[];
     collections: { ready(): boolean; list(): any[] | undefined };
@@ -64,7 +63,9 @@ export function createRouting(inputs: RoutingInputs) {
         }
         const out = new Set<number>();
         const apps = coll?.apps;
-        const keys: Iterable<unknown> = apps instanceof Map ? apps.keys() : Array.isArray(apps) ? apps.map((a: any) => a?.appid ?? a) : [];
+        // Steam's `apps` is an observable map, not a `Map` instance (verified live 2026-10-27: `instanceof Map` is false, so every collection read as empty and no
+        // collection rule ever matched): anything with `keys()` is read as a map.
+        const keys: Iterable<unknown> = typeof apps?.keys === 'function' ? apps.keys() : Array.isArray(apps) ? apps.map((a: any) => a?.appid ?? a) : [];
         for (const k of keys) {
             const n = Number(k);
             if (Number.isFinite(n) && n >= NON_STEAM_APPID_MIN) out.add(n);
@@ -134,8 +135,7 @@ export function createRouting(inputs: RoutingInputs) {
         const hit = memo.get(appid);
         if (hit) return hit;
         const cfg = inputs.buckets();
-        const autoMode = inputs.autoMode();
-        const autoProf = autoMode ? getAutoRoutingProfile(appid) : undefined;
+        const autoProf = undefined; // no Auto routing (ADR-0089): the user's rules decide
         const r =
             appid >= NON_STEAM_APPID_MIN && cfg.overrides[String(appid)]
                 ? resolveBucket(appid, cfg, membersOf, inputs.titleOf, autoProf)
@@ -192,35 +192,41 @@ export function createRouting(inputs: RoutingInputs) {
         };
     }
 
-    /** The Community media sources' check: as `serviceAllowed`, but Auto Mode no longer keeps ScreenScraper off a PC game. */
-    function mediaServiceAllowed(service: ServiceTarget, appid: number): boolean {
-        const collNames = listCollections()
+    /** The names of the Steam collections a shortcut is in (the routing rules, Library Setup's platform signal). */
+    function collectionsOf(appid: number): string[] {
+        return listCollections()
             .filter((c) => membersOf(c.id)?.has(appid))
             .map((c) => c.name);
+    }
+
+    /** No enabled rule = the plugin does nothing (ADR-0089): the user says which games it may scan. */
+    function hasRules(): boolean {
+        return inputs.rules().some((r) => r.enabled !== false);
+    }
+
+    /** The Community media sources' check: as `serviceAllowed`. */
+    function mediaServiceAllowed(service: ServiceTarget, appid: number): boolean {
+        if (!hasRules()) return false;
+        const collNames = collectionsOf(appid);
         return isMediaServiceAllowed(
             service,
             appid,
             inputs.titleOf(appid) ?? "",
             collNames,
             inputs.rules(),
-            inputs.autoMode(),
-            getAutoRoutingProfile(appid),
         );
     }
 
-    /** Do the routing rules and Auto Mode allow `service` for this shortcut? (was index.tsx and the audit panel) */
+    /** Do the routing rules allow `service` for this shortcut? No rule, no game (ADR-0089). */
     function serviceAllowed(service: ServiceTarget, appid: number): boolean {
-        const collNames = listCollections()
-            .filter((c) => membersOf(c.id)?.has(appid))
-            .map((c) => c.name);
+        if (!hasRules()) return false;
+        const collNames = collectionsOf(appid);
         return isServiceAllowed(
             service,
             appid,
             inputs.titleOf(appid) ?? "",
             collNames,
             inputs.rules(),
-            inputs.autoMode(),
-            getAutoRoutingProfile(appid),
         );
     }
 
@@ -232,6 +238,7 @@ export function createRouting(inputs: RoutingInputs) {
         bucketReport,
         listCollections,
         membersOf,
+        collectionsOf,
         waitForCollections,
         loadAutoRoutingProfiles,
         ensureProfiles,

@@ -6,8 +6,11 @@ import { ActivitySection } from "./panels/activity";
 import { CommunitySection } from "./panels/community";
 import { RulesSection } from "./panels/rules";
 import { RevisionSection } from "./panels/audit";
+import { LibrarySetupSection } from "./panels/library-setup";
+
 import { SyncProgressBar } from "./sync-progress";
-import { COLUMN_STYLE } from "./components";
+import { COLUMN_STYLE, ItemRow } from "./components";
+import { Field } from "@steambrew/client";
 
 class ExtensionErrorBoundary extends Component<{ id: string; children: ReactNode }, { hasError: boolean; error?: Error }> {
     constructor(props: any) {
@@ -35,6 +38,8 @@ class ExtensionErrorBoundary extends Component<{ id: string; children: ReactNode
 
 export function SettingsPanel() {
     const [, tick] = useState(0);
+    // Until onboarding is finished or skipped every other section is greyed out (an answer we cannot read blocks nothing).
+    const [onboarded, setOnboarded] = useState<boolean | undefined>();
 
     // Periodic refresh so live collections, shortcuts, and extension panels remain synced
     useEffect(() => {
@@ -54,6 +59,16 @@ export function SettingsPanel() {
     return (
         <div style={{ ...COLUMN_STYLE, paddingBottom: "70px", position: "relative" }}>
             <SyncProgressBar />
+            <LibrarySetupSection onOnboarded={setOnboarded} />
+            {onboarded === false && (
+                <ItemRow>
+                    <Field label="Finish onboarding or skip it to change settings" bottomSeparator="none" />
+                </ItemRow>
+            )}
+            <div
+                style={{ ...COLUMN_STYLE, ...(onboarded === false ? { opacity: 0.4, pointerEvents: "none" } : {}) }}
+                inert={onboarded === false}
+            >
             <MetadataSection />
             <AchievementsSection />
             {prePanels.map((p) => (
@@ -70,6 +85,8 @@ export function SettingsPanel() {
             ))}
             <RulesSection />
             <RevisionSection />
+
+            </div>
         </div>
     );
 }

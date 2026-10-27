@@ -29,6 +29,7 @@ export function DetailsCard({
     errors,
     dirty,
     custom,
+    linked,
     hasMetadata,
     busy,
     onSave,
@@ -41,6 +42,8 @@ export function DetailsCard({
     errors: string[];
     dirty: boolean;
     custom: boolean;
+    /** The source the Game Info is linked to ("IGDB", "ScreenScraper"), if any: Revert then unlinks it (ADR-0087). */
+    linked?: string;
     hasMetadata: boolean;
     busy: boolean;
     onSave: () => void;
@@ -78,9 +81,17 @@ export function DetailsCard({
             <ButtonRow label="Save" description="Saves your changes as your own edit" buttonLabel="Save" disabled={busy || !dirty || errors.length > 0} onClick={onSave} />
             <ButtonRow
                 label="Revert to fetched data"
-                description={custom ? "Drops your edit and shows what the sources give" : "No edit of yours to revert"}
+                description={
+                    custom
+                        ? linked
+                            ? `Drops your edit and shows the linked ${linked} game's data`
+                            : "Drops your edit and shows what the sources give"
+                        : linked
+                          ? `Unlinks the ${linked} game: the game is looked up by its name again`
+                          : "No edit of yours to revert"
+                }
                 buttonLabel="Revert"
-                disabled={busy || !custom}
+                disabled={busy || !(custom || linked)}
                 onClick={onRevert}
             />
             {status && <ActionRow message={status} />}

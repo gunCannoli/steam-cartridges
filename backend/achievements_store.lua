@@ -142,6 +142,30 @@ function M.get_state(shortcut_appid, native_appid)
   }
 end
 
+--- Points a shortcut's Steam binding at another Steam game (or at none, nid 0). The unlocks belong to the game they
+--- were earned in: they are parked under its appid, and the new game's parked ones (an earlier link) come back, so a
+--- wrong match never mixes two games' progress and an undone one loses nothing. Only a binding to a Steam game moves:
+--- a store's or emulator's list (a string id, or a `source`) is not this link's. Returns true when it changed.
+local function move_binding(sc, nid)
+  local old = sc.schema_appid
+  if sc.source or (old ~= nil and type(old) ~= "number") or (old or 0) == nid then return false end
+  sc.parked = sc.parked or {}
+  if old and old > 0 and sc.unlocks and next(sc.unlocks) ~= nil then sc.parked[tostring(old)] = sc.unlocks end
+  sc.unlocks = (nid > 0 and sc.parked[tostring(nid)]) or {}
+  if nid > 0 then sc.parked[tostring(nid)] = nil end
+  if next(sc.parked) == nil then sc.parked = nil end
+  sc.schema_appid = nid > 0 and nid or nil
+  return true
+end
+
+--- A shortcut's Steam match changed (a link, or an unlink with nid 0; steam_store_rpc): moves the binding so the old
+--- game's list and unlocks stop showing. Nothing is fetched: the next EnsureFresh builds the new game's list.
+function M.rebind(shortcut_appid, native_appid)
+  local sc_key = tostring(math.floor(tonumber(shortcut_appid) or 0))
+  local sc = load().shortcuts[sc_key]
+  if sc and move_binding(sc, tonumber(native_appid) or 0) then save() end
+end
+
 --- The shortcut's entry, created (bound to `native_appid`) when missing, re-bound when the native app changed.
 function M.ensure_shortcut(shortcut_appid, native_appid)
   local nid = tonumber(native_appid) or 0
@@ -153,7 +177,7 @@ function M.ensure_shortcut(shortcut_appid, native_appid)
     s.shortcuts[sc_key] = sc
     save()
   elseif nid > 0 and sc.schema_appid ~= nid then
-    sc.schema_appid = nid
+    if not move_binding(sc, nid) then sc.schema_appid = nid end
     save()
   end
   return sc
@@ -224,6 +248,17 @@ function M.forget(shortcut_appid)
   local sc_key = tostring(math.floor(tonumber(shortcut_appid) or 0))
   local sc = s.shortcuts[sc_key]
   if not sc or (type(sc.unlocks) == "table" and next(sc.unlocks) ~= nil) then return false end
+  s.shortcuts[sc_key] = nil
+  save()
+  return true
+end
+
+--- Erase a shortcut's entry whatever it holds, unlocks included (Delete metadata, ADR-0098: achievements are part of a game's metadata and come
+--- back when the game is set up again). Shared schemas are left alone. Returns true when there was an entry.
+function M.erase(shortcut_appid)
+  local s = load()
+  local sc_key = tostring(math.floor(tonumber(shortcut_appid) or 0))
+  if not s.shortcuts[sc_key] then return false end
   s.shortcuts[sc_key] = nil
   save()
   return true

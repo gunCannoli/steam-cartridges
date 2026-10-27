@@ -4,7 +4,7 @@
 --- achievements entry). This drops them once the shortcut has been gone for GRACE_DAYS: a shortcut removed and added
 --- back (same exe and name, so the same appid) keeps everything within that time.
 ---
---- Never deleted: the user's own Game Info edits (custom_override), an achievements entry holding unlocks (progress),
+--- Never deleted: the user's own Game Info edits (custom_override) and links (linked, ADR-0087), an achievements entry holding unlocks (progress),
 --- and steam_store.json (user state by its own rule: Steam links, rejected suggestions, written artwork).
 --- Never run blind: with no readable shortcuts.vdf, or one listing no shortcut, nothing is pruned or marked.
 ---
@@ -73,13 +73,16 @@ local function stores()
       end,
       forget = function(k)
         local rec = metadata_db.get(k)
-        if rec and rec.custom_override then return false end -- the user's own edit
+        if rec and (rec.custom_override or rec.linked) then return false end -- the user's own edit or link
         return metadata_db.delete(k)
       end },
     { name = "achievements", keys = achievements.shortcut_keys, forget = achievements.forget },
     { name = "freshness", keys = fresh.keys, forget = function(k) fresh.forget(k); return true end },
     { name = "media", keys = media.keys, forget = function(k) media.delete(k); return true end },
     { name = "provided", keys = provided.keys, forget = function(k) provided.delete(k); return true end },
+    -- Library Setup's proposals are the plugin's own lookups; the user's answers (choices_store) are kept, as a custom
+    -- Game Info edit is: a shortcut added back has the same appid and keeps its answer.
+    { name = "proposals", keys = require("proposals_store").keys, forget = function(k) require("proposals_store").forget(k); return true end },
   }
 end
 

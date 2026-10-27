@@ -102,6 +102,10 @@ M.SS_SYSTEM = {
   [27] = 75,  -- Arcade (MAME)
   [41] = 61,  -- PSP
 }
+-- Every other console platforms.lua knows (its ra -> ss pair; Library Setup plan Q3).
+for _, p in ipairs(require("platforms").LIST) do
+  if p.ra and p.ss and M.SS_SYSTEM[p.ra] == nil then M.SS_SYSTEM[p.ra] = p.ss end
+end
 
 --- The `jeu` for a shortcut: the ROM file name, console and MD5 read from its shortcuts.vdf entry (the
 --- RetroAchievements readers), else the title. Returns what fetch_jeu returns.

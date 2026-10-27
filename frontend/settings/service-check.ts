@@ -1,15 +1,11 @@
-// Adding an account in Settings: save it, ask the service whether it accepts it, and say what happens next.
+// Adding an account in Settings: save it, ask the service whether it accepts it, and say whether it was accepted.
 import { backend } from "../ports/backend";
 
 type Service = "igdb" | "screenscraper" | "steamgriddb" | "retroachievements";
 
-/** What the player is told once an account is connected (the first fetch runs over every game already in the library). */
-export const FETCH_NOTE =
-    "Your library is being fetched now, in the background; it can take a few minutes. The progress bar is at the top of this panel.";
-
 /**
  * Save `credentials`, then check them. A refused account is removed again (every key saved blank), so a wrong value
- * never sits in the plugin pretending to be a source. `message` is what to show: the reason, or the next step.
+ * never sits in the plugin pretending to be a source. `message` is what to show: the reason, or that it is connected (nothing is fetched until the user decides, ADR-0086).
  */
 export async function saveAndCheck(
     service: Service,
@@ -29,5 +25,5 @@ export async function saveAndCheck(
         await backend.saveServiceCredentials(blank).catch(() => {});
         return { ok: false, message: `${check.message ?? check.error ?? "The account was not accepted."} Nothing was saved.` };
     }
-    return { ok: true, message: `✓ ${label} connected. ${FETCH_NOTE}` };
+    return { ok: true, message: `✓ ${label} connected.` };
 }

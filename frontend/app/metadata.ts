@@ -15,15 +15,16 @@ export interface MetadataDeps {
     /** The mapped native's StoreItemCache item, loaded by sensors/store-item. */
     storeItemFor(steamAppid: number): Promise<any | null>;
     /** services.igdbEnabled and the routing service check for "igdb". */
-    allowWeb(appid: ShortcutId): boolean;
-    /** services.screenscraperEnabled and the routing service check for "screenscraper". */
-    allowScreenscraper(appid: ShortcutId): boolean;
+    allowWeb(appid: ShortcutId, userAction?: boolean): boolean;
+    /** services.screenscraperEnabled and the routing service check for "screenscraper". `userAction`: the user asked for this game
+     *  (Revert, a manual link), so the rules, which say what the plugin scans on its own, do not apply (ADR-0089). */
+    allowScreenscraper(appid: ShortcutId, userAction?: boolean): boolean;
     /** What decides the controller badge without Steam Store data (app/controller + setting defaultFullController). */
     controller(appid: ShortcutId): ControllerContext;
 }
 
 export interface MetadataResolver {
-    ensure(appid: ShortcutId, route: Route, identity: Part<Identity> | undefined, opts?: { noNetwork?: boolean }): Promise<Part<GameMetadata>>;
+    ensure(appid: ShortcutId, route: Route, identity: Part<Identity> | undefined, opts?: { noNetwork?: boolean; userAction?: boolean }): Promise<Part<GameMetadata>>;
     /** Preload every record from the backend's disk-only bulk read (replaces initGameInfo's preload). */
     preload(): Promise<void>;
     /** Re-derives the badges of the stored record (the controller override changed); no network. */
@@ -44,7 +45,7 @@ export function createMetadata(deps: MetadataDeps): MetadataResolver {
         appid: ShortcutId,
         route: Route,
         identity: Part<Identity> | undefined,
-        opts: { noNetwork?: boolean } = {},
+        opts: { noNetwork?: boolean; userAction?: boolean } = {},
     ): Promise<Part<GameMetadata>> {
         const native = identity?.data?.native?.appid;
         let storeItem: GameMetadata | null | undefined;
@@ -58,8 +59,8 @@ export function createMetadata(deps: MetadataDeps): MetadataResolver {
             route,
             identity,
             storeItem: storeItem ?? undefined,
-            allowWeb: deps.allowWeb(appid),
-            allowScreenscraper: deps.allowScreenscraper(appid),
+            allowWeb: deps.allowWeb(appid, opts.userAction),
+            allowScreenscraper: deps.allowScreenscraper(appid, opts.userAction),
             noNetwork: opts.noNetwork,
         }, { lane: "view" }); // Game Info is the top of the page (ADR-0060)
 

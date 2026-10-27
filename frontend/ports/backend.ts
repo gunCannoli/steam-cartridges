@@ -57,6 +57,81 @@ export interface AchievementPackExplain {
     error?: string;
 }
 
+/** Library Setup (ADR-0086): what the plugin proposes for a game (library_service.lua detect). */
+export interface SetupProposal {
+    title?: string;
+    platform?: string;
+    state?: string;
+    steam_appid?: number;
+    steam_name?: string;
+    /** "exact" or "edition" (plan Q9). */
+    steam_kind?: string;
+    igdb_id?: number;
+    igdb_name?: string;
+    ss_id?: number;
+    ss_name?: string;
+    ra_game_id?: number;
+    ra_title?: string;
+    /** "hash" or "title". */
+    ra_by?: string;
+    year?: number;
+    /** What the source said about the game (IGDB / ScreenScraper), for the question's details. */
+    platforms?: string[];
+    genres?: string[];
+    franchises?: string[];
+    developers?: string[];
+    themes?: string[];
+    game_modes?: string[];
+    perspectives?: string[];
+}
+
+/** The user's answer for a game (choices_store.lua). */
+export interface SetupChoice {
+    kind: "validated" | "existing" | "skipped";
+    platform?: string;
+    steam_appid?: number;
+    igdb_id?: number;
+    ss_id?: number;
+    ra_game_id?: number;
+    /** "ra", "steam", a pack, or "none" (the user said the game has none). */
+    achievements?: string;
+}
+
+/** One row of the setup list (library_service.lua row). `error` instead when the call failed. */
+export interface SetupGame {
+    appid: number;
+    name: string;
+    /** platform_verdict state: steam | steam-proposed | other | conflict | unknown. */
+    state?: string;
+    platform?: string;
+    platform_name?: string;
+    /** The Steam collections the game is in (filled by app/library-setup, not by the backend). */
+    collections?: string[];
+    signals?: WireList<string>;
+    status?: "validated" | "existing" | "skipped" | "conflict" | "not-detected" | "needs-link" | "proposed";
+    choice?: SetupChoice;
+    proposal?: SetupProposal;
+    metadata?: { title?: string; igdb_id?: number; ss_id?: number };
+    /** The game's stored achievement source, if any. */
+    achievements?: string;
+    warnings?: WireList<string>;
+    error?: string;
+}
+
+/** A platform the manual link offers (platforms.lua). */
+export interface SetupPlatform {
+    id: string;
+    name: string;
+}
+
+export type SetupAnswer =
+    | { yes: true }
+    | { no: true }
+    | { linked: true; platform?: string }
+    | { no_achievements: true }
+    | { skip: true }
+    | { reset: true };
+
 /** What a reset did to one source. */
 export interface ResetSourceResult {
     id: string;
@@ -227,6 +302,57 @@ export const backend = {
     markKnown(appids: number[], opts?: CallOptions): Promise<{ ok?: boolean; error?: string }> {
         return call<{ ok?: boolean; error?: string }>("MarkKnown", { appids }, opts);
     },
+    /** The native PC ports the plugin supports and how many shortcuts launch each (the Achievements section's info window). */
+    getNativePortsStatus(): Promise<{ ports?: { id: string; name: string; detected: number }[]; error?: string }> {
+        return call<{ ports?: { id: string; name: string; detected: number }[]; error?: string }>("CartridgesAchievementsGetNativePortsStatus");
+    },
+    /** One line in the plugin's log file (the log users share): counts and feature names, never a name, key or path (ADR-0094). Never throws. */
+    logEvent(tag: string, message: string): void {
+        void call<unknown>("ClientLog", { tag, message }, { lane: "background" }).catch(() => undefined);
+    },
+    /** The backend's second copy of the settings (ADR-0090): used when Millennium's Configuration API gives nothing back. */
+    getSettings(): Promise<{ values?: Record<string, unknown>; error?: string }> {
+        return call<{ values?: Record<string, unknown>; error?: string }>("GetSettings", {});
+    },
+    saveSettings(change: { values?: Record<string, unknown>; remove?: string[] }): Promise<{ changed?: number; error?: string }> {
+        return call<{ changed?: number; error?: string }>("SaveSettings", change);
+    },
+    /** Library Setup (ADR-0086): has the user run it. Until then the backend fetches nothing on its own. */
+    getSetupState(opts?: CallOptions): Promise<{ done?: boolean; onboarded?: boolean; at?: number; why?: string; version?: number; current?: number; error?: string }> {
+        return call<{ done?: boolean; onboarded?: boolean; at?: number; why?: string; version?: number; current?: number; error?: string }>("GetSetupState", {}, opts);
+    },
+    /** The "new onboarding" prompt (ADR-0093): the user chose to run it or to skip it. */
+    answerOnboardingPrompt(prompt: "run" | "skip") {
+        return call<{ done?: boolean; onboarded?: boolean; error?: string }>("SetSetupDone", { done: true, prompt });
+    },
+    /** Game Data editor: forgets what the plugin fetched or learned about one game (Game Info, achievements, proposal, answer, freshness, media). Irreversible. */
+    deleteGameMetadata(appid: number) {
+        return call<{ ok?: boolean; error?: string }>("DeleteGameMetadata", { appid });
+    },
+    /** Starts over for a new onboarding: with `zero`, the groups in `clear` are moved aside (nothing is deleted) and the setup state is cleared. */
+    resetPluginData(change: { zero: boolean; clear: { credentials?: boolean; settings?: boolean; metadata?: boolean } }) {
+        return call<{ moved?: number; backup?: string; error?: string }>("ResetPluginData", change);
+    },
+    /** Library Setup window: marks setup run (`done = false` starts over: nothing is fetched until the next run). */
+    setSetupDone(done: boolean) {
+        return call<{ done?: boolean; onboarded?: boolean; at?: number; why?: string; error?: string }>("SetSetupDone", { done });
+    },
+    /** Onboarding finished, or skipped (`skipped`, at `step`): lifts the first-run limits. `pending` = games in scope still to fetch (logged, no user data). */
+    finishOnboarding(info: { skipped: boolean; step?: number; pending?: number }) {
+        return call<{ done?: boolean; onboarded?: boolean; error?: string }>("SetSetupDone", { done: true, onboarded: true, ...info });
+    },
+    /** Library Setup step 4: every shortcut with its platform verdict and its answer or proposal. Offline. */
+    libraryScan(collections: Record<string, string[]>) {
+        return call<{ games?: WireList<SetupGame>; platforms?: WireList<SetupPlatform>; error?: string }>("LibraryScan", { collections });
+    },
+    /** Library Setup: look one game up (Steam store, RetroAchievements hash, IGDB, ScreenScraper); stores only the proposal. */
+    libraryDetect(appid: number, collections: string[]) {
+        return call<SetupGame>("LibraryDetect", { appid, collections });
+    },
+    /** Library Setup: the user's answer for one game. A validated game may be fetched; nothing is fetched here. */
+    validateGame(appid: number, answer: SetupAnswer, collections: string[]) {
+        return call<SetupGame>("ValidateGame", { appid, answer, collections });
+    },
     /** Game Data editor: stores a manual edit (custom_override) and returns the metadata part to put in the record. */
     saveCustomMetadata(appid: number, metadata: GameMetadata) {
         return call<{ part?: Part<GameMetadata>; error?: string }>("SaveCustomMetadata", { appid, metadata });
@@ -341,7 +467,7 @@ export const backend = {
             steam_appid: info.steamAppid,
         });
     },
-    setAchievementSource(appid: number, source: "ra" | "steam" | "none" | "pack", target?: string | number) {
+    setAchievementSource(appid: number, source: "ra" | "none" | "pack", target?: string | number) {
         return call<{ ok?: boolean; error?: string; source?: string; title?: string; total?: number; game_id?: number; steam_appid?: number; pack?: string }>(
             "SetAchievementSource",
             { appid, source, target },

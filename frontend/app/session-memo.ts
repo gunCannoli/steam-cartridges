@@ -7,7 +7,11 @@ import type { ShortcutId } from "../kernel/appid";
 import type { Part } from "../kernel/record";
 
 export interface SessionMemo<T> {
-    /** `resolve()` unless this shortcut already has a final answer (then `cached()`), or joins the call in flight. */
+    /**
+     * `resolve()` unless this shortcut already has a final answer stored (then `cached()`), or joins the call in flight.
+     * A final answer with nothing stored resolves again: the write behind it can vanish (`records.update` is a silent
+     * no-op before the base record exists, e.g. a background resolve before the first view; a forget drops the parts).
+     */
     run(appid: ShortcutId, resolve: () => Promise<Part<T>>, cached: () => Part<T> | undefined): Promise<Part<T>>;
     /** Forget this shortcut: the next run resolves again. */
     forget(appid: ShortcutId): void;
@@ -20,7 +24,12 @@ export function createSessionMemo<T>(): SessionMemo<T> {
     const inflight = new Map<ShortcutId, Promise<Part<T>>>();
     return {
         run(appid, resolve, cached) {
-            if (done.has(appid)) return Promise.resolve(cached() ?? { status: "pending" });
+            if (done.has(appid)) {
+                const hit = cached();
+                if (hit !== undefined) return Promise.resolve(hit);
+                // Final answer, nothing stored: resolve again instead of pending forever (see the interface note).
+                done.delete(appid);
+            }
             const existing = inflight.get(appid);
             if (existing) return existing;
             const promise = resolve()

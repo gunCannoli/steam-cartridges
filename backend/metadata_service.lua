@@ -28,19 +28,54 @@ M.deps = {
   screenscraper_fetch = nil, -- nil = ScreenScraper jeuInfos (screenscraper_media.fetch_jeu) mapped by
                              -- M.screenscraper_to_metadata; fun(appid, title, shortcut_info) -> meta|nil
   igdb_fetch = nil,       -- nil = igdb.fetch_game_metadata
+  igdb_by_id = nil,       -- fun(appid, igdb_id, title) -> meta|nil, err ; nil = igdb.fetch_by_id (a linked game's refresh)
+  screenscraper_by_id = nil, -- fun(appid, ss_id, title) -> meta|nil, err ; nil = screenscraper_media.jeu_by_id, mapped
   appdetails_fetch = nil, -- nil = appdetails.fetch
   provided = nil,         -- fun(appid) -> pushed record | nil ; nil = provided_store.get (ADR-0067)
   shortcut_info = nil,    -- nil = registry.shortcut (the shortcuts.vdf entry)
   now = function() return os.time() end,
 }
 
+--- Names other sources already gave this game: the title of its RetroAchievements set (found by ROM hash, or by name on
+--- its console), which spells the game right where the shortcut may not ("Aliens vs. Predator" is RetroAchievements'
+--- and IGDB's "Alien vs. Predator"). Read from the stored list only: no network.
+local function known_names(appid)
+  local ok, names = pcall(function()
+    local st = require("achievements_store").get_state(appid)
+    local id = st and st.schema_appid
+    local title = st and st.schema and st.schema.title
+    if type(id) == "string" and id:match("^ra_") and type(title) == "string" and title ~= "" then return { title } end
+    return nil
+  end)
+  return ok and names or nil
+end
+
 local function igdb_fetch(appid, title, shortcut_info)
-  return (M.deps.igdb_fetch or igdb.fetch_game_metadata)(appid, title, shortcut_info)
+  return (M.deps.igdb_fetch or igdb.fetch_game_metadata)(appid, title, shortcut_info, known_names(appid))
 end
 
 local function appdetails_fetch(steam_appid)
   return (M.deps.appdetails_fetch or appdetails.fetch)(steam_appid)
 end
+
+--- The game a link names, by its id (ADR-0087): no title search, so a refresh can never swap the game for another.
+local function fetch_linked(appid, linked, title)
+  if linked.source == "igdb" then
+    return (M.deps.igdb_by_id or igdb.fetch_by_id)(appid, linked.id, title)
+  end
+  if M.deps.screenscraper_by_id then return M.deps.screenscraper_by_id(appid, linked.id, title) end
+  local jeu, err = require("screenscraper_media").jeu_by_id(appid, linked.id)
+  if not jeu then return nil, err end
+  return M.screenscraper_to_metadata(jeu, appid, title or "")
+end
+
+--- A record linked to one IGDB or ScreenScraper game: { source = "igdb" | "screenscraper", id } or nil.
+local function linked_of(rec)
+  local l = type(rec) == "table" and rec.linked or nil
+  if type(l) ~= "table" or (l.source ~= "igdb" and l.source ~= "screenscraper") or tonumber(l.id) == nil then return nil end
+  return { source = l.source, id = tonumber(l.id) }
+end
+M.linked_of = linked_of
 
 local function shortcut_info(appid)
   if M.deps.shortcut_info then return M.deps.shortcut_info(appid) end
@@ -207,18 +242,30 @@ function M.save_custom(appid, meta)
   if type(meta) ~= "table" or type(meta.title) ~= "string" or meta.title == "" then return nil, "invalid metadata" end
   meta.appid = n
   meta.custom_override = true
+  -- An edit on a linked game keeps the link, so Revert goes back to the linked game, not to a title search.
+  meta.linked = linked_of(meta) or linked_of(metadata_db.get(n))
   local saved = metadata_db.set(n, meta, true)
   return { status = "ok", data = saved, source = "custom", checkedAt = now_ms() }
 end
 
---- Drop a manual edit so the next ensure() resolves the game from its sources again.
---- Only a custom_override record is removed; anything else is left alone.
+--- Revert, one layer at a time (ADR-0087): an edit on a linked game goes back to the linked game (fetched again by id on
+--- the next ensure()); an edit, or a link, alone is removed, so the next ensure() resolves the game from its sources by
+--- name. A record that is neither is left alone.
 ---@return boolean|nil removed, string|nil err
 function M.clear_custom(appid)
   local n = tonumber(appid)
   if not n or n < SHORTCUT_MIN then return nil, "not a shortcut" end
   local rec = metadata_db.get(n)
-  if not (rec and rec.custom_override) then return false end
+  local linked = linked_of(rec)
+  if not (rec and (rec.custom_override or linked)) then return false end
+  if rec.custom_override and linked then
+    metadata_db.set(n, {
+      appid = n, title = rec.title, matched_title = rec.matched_title, linked = linked, custom_override = false,
+      igdb_id = linked.source == "igdb" and linked.id or nil, ss_id = linked.source == "screenscraper" and linked.id or nil,
+    }, true)
+    pcall(function() require("fresh_policy").forget_part(n, "metadata") end)
+    return true
+  end
   return metadata_db.delete(n)
 end
 
@@ -354,6 +401,28 @@ function M.ensure(appid, ctx)
   -- web-scraping, or steam-store identity ok without a native match:
   -- the local record while it is fresh, else what an extension pushed (Epic, Xbox: the game's own data, ADR-0067; no
   -- network) -> igdb -> screenscraper -> the fallback record.
+  -- A linked game (ADR-0087): refreshed from the game the user linked, by its id; never searched by name, never mixed
+  -- with another source's search (no store copy, no gap filling), so the answer stays the user's.
+  local linked = linked_of(local_rec)
+  if linked then
+    local allowed = (linked.source == "igdb" and ctx.allowWeb) or (linked.source == "screenscraper" and ctx.allowScreenscraper)
+    local due = ctx.force or fresh().is_stale(appid, "metadata", { status = "ok", source = "local_db" }, now_ms())
+    if not (due and allowed and not ctx.noNetwork) then
+      local stale = (ctx.noNetwork and due and allowed) and true or nil
+      return { status = "ok", data = local_rec, source = "local_db", stale = stale, checkedAt = now_ms() }
+    end
+    local meta, err = fetch_linked(appid, linked, title)
+    note("linked " .. linked.source .. " " .. tostring(linked.id) .. " for " .. tostring(appid) .. ": " .. (meta and "ok" or tostring(err)))
+    if not meta then
+      fresh().touch(appid, "metadata", now_ms(), "error")
+      return { status = "ok", data = local_rec, source = "local_db", checkedAt = now_ms() }
+    end
+    meta.linked, meta.custom_override = linked, false
+    metadata_db.set(appid, meta)
+    fresh().touch(appid, "metadata", now_ms())
+    return { status = "ok", data = meta, source = linked.source, checkedAt = now_ms() }
+  end
+
   local pushed = provided(appid)
   local pushed_meta = provided_meta(pushed)
   local use_store = pushed_meta ~= nil
@@ -434,6 +503,41 @@ function M.ensure(appid, ctx)
   metadata_db.set(appid, fallback)
   fresh().touch(appid, "metadata", now_ms())
   return { status = "ok", data = fallback, source = "fallback", checkedAt = now_ms() }
+end
+
+
+--- Link a shortcut to an IGDB game by id and take its Game Info. The record keeps the link (`linked`, ADR-0087): a refresh
+--- fetches that game by id again, never by title (a refresh by title replaced a link within a day, found 2026-10-19), so
+--- the Game Info stays the linked game's and stays current. Revert unlinks it.
+--- `preview`: what the id is, for the user to confirm, nothing saved (ADR-0079). Moved from record_rpc's IgdbLink
+--- (Library Setup phase 3: a service, so the setup service can use it too).
+---@return table { ok, metadata, preview? } | { error }
+function M.link_igdb(s_appid, igdb_id, title, preview)
+  local meta, err = igdb.fetch_by_id(s_appid, igdb_id, title)
+  pcall(function() require("plog").event("metadata", "IgdbLink " .. tostring(s_appid) .. " id " .. tostring(igdb_id) .. (preview and " (preview)" or "") .. ": " .. (meta and "ok" or tostring(err))) end)
+  if not meta then
+    return { error = err or "could not fetch IGDB metadata" }
+  end
+  if preview then return { ok = true, preview = true, metadata = meta } end
+  meta.linked, meta.custom_override = { source = "igdb", id = tonumber(igdb_id) }, false
+  metadata_db.set(s_appid, meta, true)
+  require("fresh_policy").touch(s_appid, "metadata", now_ms())
+  return { ok = true, metadata = meta }
+end
+
+--- Link a shortcut to a ScreenScraper game by id and take its Game Info, as link_igdb (refreshed by id, ADR-0087).
+function M.link_screenscraper(s_appid, ss_id, title, preview)
+  -- `preview`: not kept as the session's media game either (ADR-0079).
+  local jeu, err = require("screenscraper_media").jeu_by_id(not preview and s_appid or nil, ss_id)
+  pcall(function() require("plog").event("metadata", "ScreenscraperLink " .. tostring(s_appid) .. " id " .. tostring(ss_id) .. (preview and " (preview)" or "") .. ": " .. (jeu and "ok" or tostring(err))) end)
+  if not jeu then return { error = err == "no-credentials" and "Add your ScreenScraper account first (Metadata > Add service)." or "Could not read that ScreenScraper game." } end
+  local meta = M.screenscraper_to_metadata(jeu, s_appid, title or "")
+  if not meta then return { error = "Could not read that ScreenScraper game." } end
+  if preview then return { ok = true, preview = true, metadata = meta } end
+  meta.linked, meta.custom_override = { source = "screenscraper", id = tonumber(ss_id) }, false
+  metadata_db.set(s_appid, meta, true)
+  require("fresh_policy").touch(s_appid, "metadata", now_ms())
+  return { ok = true, metadata = meta }
 end
 
 return M

@@ -10,17 +10,21 @@ export interface ServicesConfig {
     steamgriddbEnabled: boolean;
     retroachievementsEnabled: boolean;
     emulatorsEnabled: boolean;
+    /** Native PC ports with their own trophy files (Bloodborne PC, Dusklight, ...). */
+    nativePortsEnabled?: boolean;
     rpcs3Enabled?: boolean;
 }
 
+/** Nothing is on until the user picks it in onboarding (ADR-0091): no opinionated defaults. */
 export const DEFAULT_SERVICES: ServicesConfig = {
-    steamStoreEnabled: true,
-    screenscraperEnabled: true,
-    igdbEnabled: true,
-    steamgriddbEnabled: true,
-    retroachievementsEnabled: true,
-    emulatorsEnabled: true,
-    rpcs3Enabled: true,
+    steamStoreEnabled: false,
+    screenscraperEnabled: false,
+    igdbEnabled: false,
+    steamgriddbEnabled: false,
+    retroachievementsEnabled: false,
+    emulatorsEnabled: false,
+    nativePortsEnabled: false,
+    rpcs3Enabled: false,
 };
 
 export type ControllerOverride = 'full' | 'partial' | 'none' | 'auto';
@@ -34,8 +38,6 @@ export interface Settings {
     raHardcoreMode: boolean;
     /** General routing rules engine for multi-service targeting. */
     routingRules: RoutingRule[];
-    /** Automatic routing based on shortcut executable and emulator info. Default true. */
-    autoRoutingMode: boolean;
     /** Service enablement toggles. */
     services: ServicesConfig;
     /** Per-game controller overrides. */
@@ -74,17 +76,17 @@ export const DEFAULTS: Settings = {
     defaultFullController: false,
     raHardcoreMode: true,
     routingRules: [],
-    autoRoutingMode: true,
     services: DEFAULT_SERVICES,
     controllerOverrides: {},
     ignoredIssues: {},
-    activityShowAddedToLibrary: true,
-    activityShowFirstPlayed: true,
-    activityShowAchievements: true,
-    communityShowTrailers: true,
-    communityShowManuals: true,
-    communityShowArtworks: true,
-    communityShowExternalLinks: true,
+    // Everything optional starts off on a first initialization (ADR-0091): the user turns on what they want.
+    activityShowAddedToLibrary: false,
+    activityShowFirstPlayed: false,
+    activityShowAchievements: false,
+    communityShowTrailers: false,
+    communityShowManuals: false,
+    communityShowArtworks: false,
+    communityShowExternalLinks: false,
     mediaCacheDays: MEDIA_CACHE_DAYS.default,
     disabledFeatures: '',
 };

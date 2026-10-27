@@ -182,8 +182,8 @@ export function CredentialsNote({ service }: { service: string }) {
     return (
         <ItemRow>
             <Field
-                label="Stored only on this PC"
-                description={`Saved in the plugin's own folder, sent only to ${service}, never logged or shared.`}
+                label="Protected on this PC"
+                description={`Saved on this PC, protected. Sent only to ${service}, never logged or shared.`}
                 bottomSeparator="none"
             />
         </ItemRow>
@@ -241,6 +241,31 @@ export function FullWidthRows({
     );
 }
 
+/** The frame of a popup window (guardrail 18.8): the window's background and padding, a scrolling column of cards `BLOCK_GAP` apart,
+ *  and a last card with the window's buttons (an `ActionRow`). */
+export function WindowFrame({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) {
+    return (
+        <div
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: BLOCK_GAP,
+                height: "100vh",
+                minHeight: 360,
+                padding: BLOCK_GAP,
+                boxSizing: "border-box",
+                background: "#1b2838",
+                color: "#dcdedf",
+            }}
+        >
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
+                <div style={{ ...COLUMN_STYLE, maxWidth: 900, margin: "0 auto", gap: BLOCK_GAP }}>{children}</div>
+            </div>
+            <Card>{footer}</Card>
+        </div>
+    );
+}
+
 /** One block drawn as a card (Steam's settings-card colour), for a popup whose blocks sit on a darker background. */
 export function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
     return (
@@ -262,6 +287,17 @@ export function Overlay({ on, color, edge, children }: { on: boolean; color: str
     );
 }
 
+/** The eye of the password field: open while the password is shown, crossed out while it is hidden. */
+function EyeIcon({ open }: { open: boolean }) {
+    return (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+            <circle cx="12" cy="12" r="3" />
+            {!open && <path d="M3 3l18 18" />}
+        </svg>
+    );
+}
+
 /** A text field (guardrail 18.3): its label and description in Steam's own indent, then the field across the full row. */
 export function TextRows({
     label,
@@ -280,14 +316,25 @@ export function TextRows({
     password?: boolean;
     disabled?: boolean;
 }) {
+    // A password is hidden as it is typed (each character shows as a dot) until the eye at the right of the field is clicked.
+    const [shown, setShown] = useState(false);
+    const hidden = password === true && !shown;
     // One Field with the control below its label, like a textarea; Steam puts the description under the control. The
     // TextField's own 22 px tail is cancelled inside the Field, so the description follows the field closely and the
     // row ends with Steam's own spacing (measured live 2026-10-19).
     return (
         <ItemRow>
             <Field label={label} description={description} disabled={disabled} childrenLayout="below" childrenContainerWidth="max" bottomSeparator="none">
-                <div style={{ width: "100%", marginBottom: description ? -(STEAM_TRAILING - 16) : -STEAM_TRAILING }}>
-                    <TextField value={value} bIsPassword={password} disabled={disabled} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} />
+                <div style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: CONTROL_GAP, marginBottom: description ? -(STEAM_TRAILING - 16) : -STEAM_TRAILING }}>
+                    {/* `-webkit-text-security` masks the text whatever the TextField does with `bIsPassword` (it showed the typed text in a popup window). */}
+                    <div style={{ flex: 1, minWidth: 0, ...(hidden ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : {}) }}>
+                        <TextField value={value} bIsPassword={hidden} disabled={disabled} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} />
+                    </div>
+                    {password && (
+                        <IconButton onClick={() => setShown(!shown)} title={shown ? "Hide" : "Show"}>
+                            <EyeIcon open={shown} />
+                        </IconButton>
+                    )}
                 </div>
             </Field>
         </ItemRow>

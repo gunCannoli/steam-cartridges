@@ -90,7 +90,7 @@ export function IdLinkCard({
                     </ItemRow>
                     <ButtonRow
                         label="Save game data"
-                        description={`Saves this game's Game Info from ${source} as your own edit; Revert undoes it`}
+                        description={`Links this game to it: its Game Info comes from this ${source} game and keeps refreshing from it; Revert unlinks it`}
                         buttonLabel="Save"
                         disabled={busy}
                         onClick={() => {

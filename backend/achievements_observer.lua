@@ -227,7 +227,10 @@ end
 --- RetroArch's log folders: next to the executable, the defaults, and log_dir from retroarch.cfg (":\" expanded)
 --- when the shortcut runs RetroArch.
 local function retroarch_log_dirs(exe_dir, sc_match)
-  local dirs = { (os.getenv("APPDATA") or "") .. "/RetroArch/logs" }
+  local dirs = { (require("platform").getenv("APPDATA") or "") .. "/RetroArch/logs" }
+  if not require("platform").is_windows() then
+    for _, p in ipairs(require("platform").locate({ "RetroArch/logs" }, function() return false end)) do dirs[#dirs + 1] = p end
+  end
   if #exe_dir > 0 then dirs[#dirs + 1] = exe_dir .. "/logs" end
   if sc_match and tostring(sc_match.exe or ""):lower():find("retroarch", 1, true) then
     local ok, conf = pcall(function() return require("retroachievements").get_retroarch_config(exe_dir) end)
@@ -239,9 +242,9 @@ end
 --- Every console-emulator log that may hold this game's unlocks and exists: next to the executable
 --- and in known install folders. Engine logs are steam-cartridges-local's (ADR-0063).
 function M.log_paths(game_title, sc_match, exe_dir)
-  local appdata = os.getenv("APPDATA") or ""
-  local localappdata = os.getenv("LOCALAPPDATA") or ""
-  local userprofile = os.getenv("USERPROFILE") or ""
+  local appdata = require("platform").getenv("APPDATA") or ""
+  local localappdata = require("platform").getenv("LOCALAPPDATA") or ""
+  local userprofile = require("platform").getenv("USERPROFILE") or ""
   local out, seen = {}, {}
   local function add(p)
     if p and not seen[p] and file_exists(p) then
@@ -274,6 +277,17 @@ function M.log_paths(game_title, sc_match, exe_dir)
     localappdata .. "\\shadps4\\user\\log\\shadps4.log",
   }) do
     add(p)
+  end
+  -- Linux: each log in whatever spelling and root it lives (case, XDG config/data, Flatpak).
+  local plat = require("platform")
+  if not plat.is_windows() then
+    for _, p in ipairs(plat.locate({
+      "RetroArch/logs/retroarch.log", "DuckStation/duckstation.log", "PCSX2/logs/emulog.txt",
+      "Dolphin Emulator/Logs/dolphin.log", "dolphin-emu/Logs/dolphin.log", "PPSSPP/PSP/SYSTEM/ppsspp.log",
+      "rpcs3/RPCS3.log", "shadPS4/user/log/shadps4.log",
+    }, file_exists)) do
+      add(p)
+    end
   end
   -- One spelling per folder (slashes, case), so the same log is not read twice under two names.
   local seen_dir = {}

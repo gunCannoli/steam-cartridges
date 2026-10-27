@@ -44,15 +44,25 @@ end
 ---
 --- Returning a bare nil crashes Millennium (it tries to parse the result as an
 --- integer), so a nil result must become the string 'null'.
+--- `opts.user_action`: the user started this call (a manual link, a search, "Check connection"), so it may use the
+--- network before Library Setup has run (net.with_consent, ADR-0086). Background calls (a page view, the start-up
+--- sync) never set it.
 ---@param name string
 ---@param func fun(data: table): any
+---@param opts? { user_action: boolean }
 ---@return fun(payload: string): string
-local function method(name, func)
+local function method(name, func, opts)
+  local user_action = type(opts) == "table" and opts.user_action == true
   return function(payload)
     if jit and jit.off then jit.off() end
     local data = decode_payload(payload) or {}
 
-    local success, result = pcall(func, data)
+    local success, result
+    if user_action then
+      success, result = pcall(require("net").with_consent, func, data)
+    else
+      success, result = pcall(func, data)
+    end
     if not success then
       logger:error("RPC " .. name .. " failed: " .. tostring(result))
       return json.encode({ error = tostring(result) })
@@ -134,6 +144,6 @@ RPC.TestServiceConnection = method("TestServiceConnection", function(data)
   end
   pcall(function() require("plog").event("settings", service .. " connection check: " .. tostring(success) .. " - " .. tostring(message)) end)
   return { ok = success == true, message = message }
-end)
+end, { user_action = true })
 
 return RPC

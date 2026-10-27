@@ -9,6 +9,10 @@
 ---
 --- The return value on success is Millennium's own response table ({ status, body, ... }), so
 --- callers keep their existing status checks.
+---
+--- The consent gate (ADR-0086): main.lua sets `M.gate` (a function saying whether the plugin may fetch on its own, i.e.
+--- the user ran Library Setup). While it says no, a call returns `nil, "setup"` without a request, unless it runs inside
+--- `with_consent` (an RPC the user started: a manual link, a store search, "Check connection"). nil gate = open.
 
 local M = {}
 
@@ -23,6 +27,9 @@ M.deps = {
   now = nil,  -- nil = wall clock in seconds
 }
 
+M.gate = nil -- fun(): boolean ; set by main.lua
+
+local consent = 0    -- > 0 while an RPC the user started runs (with_consent)
 local calls = {}     -- source -> count of requests actually made
 local failures = {}  -- source -> consecutive failures
 local paused = {}    -- source -> epoch seconds until which it is paused
@@ -43,7 +50,23 @@ local function now()
 end
 
 function M._reset()
-  calls, failures, paused = {}, {}, {}
+  calls, failures, paused, consent = {}, {}, {}, 0
+end
+
+--- Run `fn(...)` with the gate open: the user asked for this call. Errors pass through; the gate closes again.
+function M.with_consent(fn, ...)
+  consent = consent + 1
+  local results = { pcall(fn, ...) }
+  consent = consent - 1
+  if not results[1] then error(results[2], 0) end
+  return unpack(results, 2, table.maxn(results))
+end
+
+--- Whether a request may go out now (the gate is open, absent, or the user started the call).
+function M.allowed()
+  if consent > 0 or M.gate == nil then return true end
+  local ok, open = pcall(M.gate)
+  return not ok or open == true -- a gate that throws fails open: never a broken plugin because of the gate
 end
 
 function M.is_paused(source)
@@ -118,6 +141,7 @@ end
 ---@param opts? { source: string, headers?: table, timeout?: number }
 function M.get(url, opts)
   local source = source_of(opts)
+  if not M.allowed() then trace(source, "GET", url, nil, "setup not run", now()) return nil, "setup" end
   if M.is_paused(source) then trace(source, "GET", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
   local started = now()
@@ -140,6 +164,7 @@ end
 ---@param opts? { source: string, headers?: table, timeout?: number }
 function M.post(url, body, opts)
   local source = source_of(opts)
+  if not M.allowed() then trace(source, "POST", url, nil, "setup not run", now()) return nil, "setup" end
   if M.is_paused(source) then trace(source, "POST", url, nil, "paused", now()) return nil, "paused" end
   local started = now()
   local http = http_module()
@@ -184,6 +209,7 @@ end
 ---@param opts? { source: string, user_agent?: string, max_bytes?: number }
 function M.get_binary(url, opts)
   local source = source_of(opts)
+  if not M.allowed() then trace(source, "GET(bin)", url, nil, "setup not run", now()) return nil, "setup" end
   if M.is_paused(source) then trace(source, "GET(bin)", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
   local started = now()

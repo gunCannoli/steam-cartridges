@@ -68,7 +68,7 @@ local function exists(p)
   return false
 end
 
-local function getenv(name) return (M.deps.getenv or os.getenv)(name) end
+local function getenv(name) return (M.deps.getenv or require("platform").getenv)(name) end
 
 local function norm(p) return (tostring(p or ""):gsub("\\", "/"):gsub("/+$", "")) end
 local function parent(p) return norm(p):match("^(.*)/[^/]+$") end
@@ -198,6 +198,20 @@ function M.find(exe, _launch_options, only)
     end
   end
   return nil
+end
+
+--- Every supported port and how many of the given shortcuts launch it: [{ id, name, detected }]. The shortcuts are registry entries
+--- ({ exe, launch_options }); a port is detected by its program and the marker files next to it (`find`), as the sources do.
+function M.status(entries)
+  local out = {}
+  for _, def in ipairs(M.definitions()) do
+    local n = 0
+    for _, e in ipairs(entries or {}) do
+      if M.find(e.exe, e.launch_options, { def }) then n = n + 1 end
+    end
+    out[#out + 1] = { id = tostring(def.id), name = def.name or tostring(def.id), detected = n }
+  end
+  return out
 end
 
 --- The port of the definition a stored schema names (`schema.native_port`), for this shortcut, or nil. An

@@ -1,7 +1,7 @@
 // Game Data editor: the ScreenScraper link card (ADR-0077, ADR-0079). Enter the game's ScreenScraper id (or its
 // screenscraper.fr page address, …gameid=1234), search it, then save its game data: its Game Info comes from
 // ScreenScraper (the database of console and arcade games), kept as the user's own edit. Needs a ScreenScraper account
-// (Metadata > Add service). The card itself: id-link.tsx.
+// (Metadata > Add source). The card itself: id-link.tsx.
 import { usePanelContext, type EditorSnapshot } from "../context";
 import { IdLinkCard } from "./id-link";
 import type { RunAction } from "./styles";

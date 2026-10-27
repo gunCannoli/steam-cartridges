@@ -46,4 +46,10 @@ RPC.CartridgesAchievementsGetRetroStatus = method("CartridgesAchievementsGetRetr
   return ra.get_emulator_status()
 end)
 
+--- Which native PC ports the plugin supports and how many shortcuts launch each (the Achievements section's info window).
+RPC.CartridgesAchievementsGetNativePortsStatus = method("CartridgesAchievementsGetNativePortsStatus", function(_)
+  local entries = require("registry").entries() or {}
+  return { ports = require("native_ports").status(entries) }
+end)
+
 return RPC

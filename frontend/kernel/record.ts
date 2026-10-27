@@ -108,6 +108,8 @@ export interface GameMetadata {
     /** Steam's own player + controller category ids (StoreItemCache); filtered by category-policy.ts. */
     store_category_ids?: number[];
     custom_override?: boolean;
+    /** The IGDB or ScreenScraper game the user linked (ADR-0087): refreshed from it by id, never searched by name. */
+    linked?: { source: "igdb" | "screenscraper"; id: number };
     /** Set by the Steam Store bucket. */
     source?: string;
     steam_appid?: number;

@@ -15,7 +15,49 @@ function M.strip_html(s)
   return (s:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+--- The stored schema's layout. 2: names, descriptions, icons and `hidden` matched to the WebAPI ids by `api_name`
+--- (the community page became a React page in 2026, so the old HTML rows are gone and a schema built from them holds
+--- raw ids and no icons); get_or_fetch rebuilds an older one.
+M.SCHEMA_VERSION = 2
+
+--- Text of the page's embedded JSON (a JSON string inside a script's JS string literal): one JS unescape, then JSON's.
+local function unescape_embedded(s)
+  s = s:gsub("\\(.)", "%1")
+  local ok, decoded = pcall(json.decode, '"' .. s .. '"')
+  return ok and type(decoded) == "string" and decoded or s
+end
+
+--- Parses the achievements embedded in the community page's dehydrated React query state into a list of
+--- { api_name, name, description, hidden, icon, icon_locked }, keyed by Steam's own api_name (no row order to trust).
+function M.parse_community_state(html)
+  local items, seen = {}, {}
+  if not html or #html == 0 then return items end
+  local q = '\\"'
+  local pattern = table.concat({
+    q, 'api_name', q, ':', q, '(.-)', q, ',', q, 'name', q, ':', q, '(.-)', q, ',', q, 'description', q, ':', q, '(.-)', q, ',',
+    q, 'hidden', q, ':(%a+),', q, 'archived', q, ':%a+,', q, 'icon_achieved', q, ':', q, '(.-)', q, ',',
+    q, 'icon_unachieved', q, ':', q, '(.-)', q,
+  })
+  for api_name, name, desc, hidden, icon, icon_locked in html:gmatch(pattern) do
+    api_name = unescape_embedded(api_name)
+    -- A `.-` that ran past a missing field is far longer than any real value; the state also appears twice.
+    if not seen[api_name] and #name < 600 and #desc < 2000 then
+      seen[api_name] = true
+      items[#items + 1] = {
+        api_name = api_name,
+        name = unescape_embedded(name),
+        description = unescape_embedded(desc),
+        hidden = hidden == "true",
+        icon = icon:gsub("\\", ""),
+        icon_locked = icon_locked:gsub("\\", ""),
+      }
+    end
+  end
+  return items
+end
+
 --- Parses Steam Community achievements HTML page into list of { icon, name, description }
+--- (the page before 2026; rows carry no api_name, so they can only be paired by position).
 function M.parse_community_html(html)
   local items = {}
   if not html or #html == 0 then return items end
@@ -59,22 +101,29 @@ function M.merge_schema(native_appid, webapi_items, html_items)
   local achievements = {}
   html_items = html_items or {}
 
+  -- The current page names every achievement by its api_name: pair by that. Only the old page's rows (no api_name)
+  -- are paired by position, and only when their count is the API's (a different count means they are not its list).
+  local by_name, positional = {}, #html_items == #webapi_items
+  for _, item in ipairs(html_items) do
+    if item.api_name then by_name[item.api_name] = item end
+  end
+
   for i, api_item in ipairs(webapi_items) do
-    local html = html_items[i]
+    local html = by_name[api_item.id] or (positional and not html_items[i].api_name and html_items[i]) or nil
     local name = (html and #html.name > 0) and html.name or api_item.id
-    local desc = html and html.description or ""
-    local icon = html and html.icon or ""
     achievements[#achievements + 1] = {
       id = api_item.id,
       name = name,
-      description = desc,
-      icon = icon,
+      description = html and html.description or "",
+      icon = html and html.icon or "",
+      hidden = html and html.hidden == true or nil,
       global_pct = api_item.percent,
     }
   end
 
   return {
     native_appid = tonumber(native_appid) or 0,
+    version = M.SCHEMA_VERSION,
     total = #achievements,
     fetched_at = os.time(),
     achievements = achievements,
@@ -119,9 +168,12 @@ function M.fetch(native_appid, http_get_json, http_get_html)
 
   local html_url = "https://steamcommunity.com/stats/" .. id .. "/achievements/"
   local html_body = get_html(html_url)
-  local html_items = html_body and M.parse_community_html(html_body) or {}
+  local html_items = html_body and M.parse_community_state(html_body) or {}
+  if #html_items == 0 and html_body then html_items = M.parse_community_html(html_body) end
 
   local schema = M.merge_schema(id, webapi_items, html_items)
+  -- A page we could not read leaves raw ids and no icons: kept (the API's list is true), built again at the next refresh.
+  if #html_items == 0 then schema.unreadable = true end
   return schema
 end
 
@@ -130,13 +182,17 @@ function M.get_or_fetch(shortcut_appid, native_appid, http_get_json, http_get_ht
   local nid = tonumber(native_appid) or 0
   local sc = store.ensure_shortcut(shortcut_appid, nid)
   local schema = (nid > 0) and store.get_schema(nid) or nil
-  if not schema and nid > 0 then
+  -- A schema from before SCHEMA_VERSION, or one built without the page's names and icons, is rebuilt; if that fails,
+  -- it is kept rather than lost.
+  local outdated = schema ~= nil and ((tonumber(schema.version) or 0) < M.SCHEMA_VERSION or schema.unreadable == true)
+  if (not schema or outdated) and nid > 0 then
     local fetched, err = M.fetch(nid, http_get_json, http_get_html)
-    if not fetched then
+    if fetched then
+      store.save_schema(nid, fetched)
+      schema = fetched
+    elseif not schema then
       return { schema = nil, unlocks = sc.unlocks, error = err }
     end
-    store.save_schema(nid, fetched)
-    schema = fetched
   end
   return {
     schema = schema,

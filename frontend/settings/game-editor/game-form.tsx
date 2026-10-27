@@ -141,6 +141,7 @@ export function GameForm({ appid, library, single = false }: { appid: number; li
                                 errors={errors}
                                 dirty={dirty}
                                 custom={snapshot.custom}
+                                linked={snapshot.linked ? (snapshot.linked.source === "igdb" ? "IGDB" : "ScreenScraper") : undefined}
                                 hasMetadata={snapshot.hasMetadata}
                                 busy={busy}
                                 onSave={() => run(() => editor.save(snapshot.appid, draft), "Saved.", "Saving...", "details")}
@@ -177,6 +178,23 @@ export function GameForm({ appid, library, single = false }: { appid: number; li
                         ])}
                     </div>
                 )}
+                <Card>
+                    <ButtonRow
+                        label="Delete metadata"
+                        description="Deletes everything the plugin fetched or learned about this game: Game Info, achievements, the match you confirmed, downloaded media. It is asked again in Library Setup."
+                        buttonLabel="Delete"
+                        disabled={busy}
+                        onClick={() =>
+                            run(
+                                () => editor.deleteMetadata(snapshot.appid).then(() => ({})),
+                                "Metadata deleted. Restart Steam to refresh the pages already open.",
+                                "Deleting the game's metadata...",
+                                "delete",
+                            )
+                        }
+                    />
+                    {statusFor("delete") && <ActionRow message={statusFor("delete")} />}
+                </Card>
             </Blocks>
         </div>
     );

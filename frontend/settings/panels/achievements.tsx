@@ -1,188 +1,71 @@
-// Settings: Achievement sources (migration plan M8c, moved verbatim).
+// Settings: Achievement sources. The sources in use and "Add source"; the Add popup is its own window (add-service.tsx).
 import { useEffect, useState } from "react";
-import { DialogButton, Dropdown, Field, PanelSection, TextField } from "@steambrew/client";
+import { DialogButton, Field, PanelSection } from "@steambrew/client";
 import { useSetting } from "../settings";
 import { backend, type RetroStatusResponse } from "../../ports/backend";
 import { usePanelContext } from "../context";
-import {
-    ActionRow,
-    Blocks,
-    BUTTON_STYLE,
-    ButtonRow,
-    CONTROL_GAP,
-    CredentialsNote,
-    FullWidthRows,
-    IconButton,
-    ItemRow,
-    SettingsModal,
-} from "../components";
-import { saveAndCheck } from "../service-check";
+import { ActionRow, Blocks, BUTTON_STYLE, ButtonRow, CONTROL_GAP, IconButton, ItemRow, SettingsModal } from "../components";
+import { ADD_SERVICE_SCALE, AddServiceWindow, type Addable } from "./add-service";
 
-// ===========================================================================
-// 2. {Achievements} Sources Section
-// ===========================================================================
+type AchievementSourceId = "retroachievements" | "console_emulators" | "native_ports";
 
-interface AchievementSourceDef {
-    id: "steam_store" | "retroachievements" | "console_emulators";
-    label: string;
+interface AchievementSourceDef extends Addable {
+    id: AchievementSourceId;
 }
 
 const ALL_ACHIEVEMENT_SOURCES: AchievementSourceDef[] = [
-    { id: "steam_store", label: "Steam Store Mirror" },
     { id: "retroachievements", label: "RetroAchievements" },
     { id: "console_emulators", label: "Emulators" },
+    { id: "native_ports", label: "Native ports" },
 ];
-
-/** What each source reads, shown under the Source dropdown of the Add popup. */
-const SOURCE_DESCRIPTIONS: Record<AchievementSourceDef["id"], string> = {
-    steam_store: "The achievement list and rarity of the Steam game a shortcut maps to.",
-    retroachievements: "Your RetroAchievements unlocks. Sign in with your username and Web API key.",
-    console_emulators: "Reads PS3 / PS4 trophies (RPCS3, shadPS4, Bloodborne PC) and DuckStation, PCSX2, Dolphin, PPSSPP and RPCS3 logs.",
-};
 
 export function AchievementsSection() {
     const ctx = usePanelContext();
     const [services, setServices] = useSetting("services");
-    const [retroStatus, setRetroStatus] = useState<RetroStatusResponse | null>(
-        null,
-    );
-
-    const [showAddModal, setShowAddModal] = useState(false);
+    const [retroStatus, setRetroStatus] = useState<RetroStatusResponse | null>(null);
     const [showEmuModal, setShowEmuModal] = useState(false);
-    const [sourceToRegister, setSourceToRegister] = useState<
-        "steam_store" | "retroachievements" | "console_emulators"
-    >("retroachievements");
-
-    // RA credentials input
-    const [raUser, setRaUser] = useState("");
-    const [raToken, setRaToken] = useState("");
-    const [raMsg, setRaMsg] = useState("");
-    const [isSavingRa, setIsSavingRa] = useState(false);
+    const [showPortsModal, setShowPortsModal] = useState(false);
+    const [ports, setPorts] = useState<{ id: string; name: string; detected: number }[] | null>(null);
 
     const refreshRetro = () => {
-        backend.getRetroStatus()
+        backend
+            .getRetroStatus()
             .then(setRetroStatus)
             .catch(() => {});
     };
 
     useEffect(() => {
         refreshRetro();
+        backend
+            .getNativePortsStatus()
+            .then((res) => setPorts(res.ports ?? []))
+            .catch(() => {});
     }, []);
 
     const activeRaUser =
-        retroStatus?.emulators?.find((e) => e.authenticated && e.username)
-            ?.username ||
-        (retroStatus?.env_fallback
-            ? retroStatus.env_username || "Configured in .env"
-            : null);
+        retroStatus?.emulators?.find((e) => e.authenticated && e.username)?.username ||
+        (retroStatus?.env_fallback ? retroStatus.env_username || "Configured in .env" : null);
 
-    // Active sources calculation
-    const activeSources: AchievementSourceDef[] = [];
-    const [steamStoreSrc, raSrc, emuSrc] = ALL_ACHIEVEMENT_SOURCES;
-    if (steamStoreSrc && services.steamStoreEnabled !== false) {
-        activeSources.push(steamStoreSrc);
-    }
-    if (raSrc && services.retroachievementsEnabled !== false && activeRaUser) {
-        activeSources.push(raSrc);
-    }
-    if (
-        emuSrc &&
-        services.emulatorsEnabled !== false &&
-        services.rpcs3Enabled !== false
-    ) {
-        activeSources.push(emuSrc);
-    }
-
-    const availableToAdd = ALL_ACHIEVEMENT_SOURCES.filter(
-        (s) => !activeSources.some((active) => active.id === s.id),
+    // A source is in use once the user turned it on (nothing is on by default); RetroAchievements also needs an account.
+    const activeSources = ALL_ACHIEVEMENT_SOURCES.filter((s) =>
+        s.id === "retroachievements"
+            ? services.retroachievementsEnabled === true && !!activeRaUser
+            : s.id === "native_ports"
+              ? services.nativePortsEnabled === true
+              : services.emulatorsEnabled === true && services.rpcs3Enabled !== false,
     );
+    const availableToAdd = ALL_ACHIEVEMENT_SOURCES.filter((s) => !activeSources.some((active) => active.id === s.id));
 
-    const handleRemoveSource = (
-        id: "steam_store" | "retroachievements" | "console_emulators",
-    ) => {
-        if (id === "steam_store") {
-            setServices({ ...services, steamStoreEnabled: false });
-        } else if (id === "retroachievements") {
-            setServices({ ...services, retroachievementsEnabled: false });
-        } else if (id === "console_emulators") {
-            setServices({
-                ...services,
-                emulatorsEnabled: false,
-                rpcs3Enabled: false,
-            });
-        }
+    const handleRemoveSource = (id: AchievementSourceId) => {
+        if (id === "retroachievements") setServices({ ...services, retroachievementsEnabled: false });
+        else if (id === "native_ports") setServices({ ...services, nativePortsEnabled: false });
+        else setServices({ ...services, emulatorsEnabled: false, rpcs3Enabled: false });
         ctx.ingest.trigger(250);
     };
 
-    const handleOpenAddModal = () => {
-        const first = availableToAdd[0];
-        if (first) {
-            setSourceToRegister(first.id);
-            setRaMsg("");
-            setShowAddModal(true);
-        }
-    };
-
-    /** Closes the Add popup; a connected account keeps its popup open (with what happens next) until this. */
-    const closeAddModal = () => {
-        setShowAddModal(false);
-        setIsSavingRa(false);
-        setRaMsg("");
-        setRaToken("");
-    };
-
-    const handleRegisterSource = async () => {
-        setIsSavingRa(true);
-        setRaMsg("Saving...");
-
-        if (sourceToRegister === "steam_store") {
-            setServices({ ...services, steamStoreEnabled: true });
-            ctx.ingest.trigger(250);
-            setRaMsg("✓ Steam Store Mirror added");
-            setTimeout(() => {
-                setShowAddModal(false);
-                setIsSavingRa(false);
-                setRaMsg("");
-            }, 1000);
-            return;
-        }
-
-        if (sourceToRegister === "console_emulators") {
-            setServices({
-                ...services,
-                emulatorsEnabled: true,
-                rpcs3Enabled: true,
-            });
-            ctx.ingest.trigger(250);
-            setRaMsg("✓ Emulators added");
-            setTimeout(() => {
-                setShowAddModal(false);
-                setIsSavingRa(false);
-                setRaMsg("");
-            }, 1000);
-            return;
-        }
-
-        if (sourceToRegister === "retroachievements") {
-            if (!raUser.trim() || !raToken.trim()) {
-                setRaMsg("Username and API token are required.");
-                setIsSavingRa(false);
-                return;
-            }
-            setRaMsg("Checking the account...");
-            const res = await saveAndCheck("retroachievements", "RetroAchievements", {
-                retroachievements_user: raUser.trim(),
-                retroachievements_api: raToken.trim(),
-            });
-            if (res.ok) {
-                setServices({ ...services, retroachievementsEnabled: true });
-                ctx.ingest.trigger(250);
-            }
-            refreshRetro();
-            setRaMsg(res.message);
-            if (!res.ok) setIsSavingRa(false);
-            return;
-        }
+    const openAdd = (e?: { currentTarget?: unknown }) => {
+        const from = (e?.currentTarget as Element | undefined)?.ownerDocument?.defaultView ?? undefined;
+        ctx.dialog.open(<AddServiceWindow title="Add Achievements Source" options={availableToAdd} onAdded={refreshRetro} />, "Add Achievements Source", refreshRetro, from, ADD_SERVICE_SCALE);
     };
 
     return (
@@ -199,6 +82,11 @@ export function AchievementsSection() {
                                                 🛈
                                             </IconButton>
                                         )}
+                                        {src.id === "native_ports" && (
+                                            <IconButton onClick={() => setShowPortsModal(true)} title="Supported native ports">
+                                                🛈
+                                            </IconButton>
+                                        )}
                                         <IconButton onClick={() => handleRemoveSource(src.id)} title="Remove">
                                             🗑️
                                         </IconButton>
@@ -209,46 +97,26 @@ export function AchievementsSection() {
                     </>
                 )}
                 {availableToAdd.length > 0 && (
-                    <ButtonRow
-                        label="Add source"
-                        description="Connect another source of achievements"
-                        buttonLabel="Add"
-                        onClick={handleOpenAddModal}
-                    />
+                    <ButtonRow label="Add source" description="Connect a source of achievements" buttonLabel="Add" onClick={openAdd as () => void} />
                 )}
             </Blocks>
 
-            {/* Add Source popup: the same rows and spacing as the panel. */}
-            <SettingsModal title="Add Achievements Source" isOpen={showAddModal} onClose={() => setShowAddModal(false)}>
+            {/* Native ports popup: every supported port and how many shortcuts launch it. */}
+            <SettingsModal title="Native Ports" isOpen={showPortsModal} onClose={() => setShowPortsModal(false)} width="480px">
                 <PanelSection>
                     <Blocks>
-                        <FullWidthRows label="Source" description={SOURCE_DESCRIPTIONS[sourceToRegister]}>
-                            <Dropdown
-                                rgOptions={availableToAdd.map((s) => ({ data: s.id, label: s.label }))}
-                                selectedOption={sourceToRegister}
-                                onChange={(o) => setSourceToRegister(o.data as AchievementSourceDef["id"])}
-                                contextMenuPositionOptions={{ bMatchWidth: true }}
-                            />
-                        </FullWidthRows>
-                        {sourceToRegister === "retroachievements" && (
-                            <>
-                                <ItemRow trailing>
-                                    <TextField label="Username" value={raUser} onChange={(e) => setRaUser(e.target.value)} />
+                        <>
+                            {(ports ?? []).map((p) => (
+                                <ItemRow key={p.id}>
+                                    <Field label={p.name} description={p.detected > 0 ? `Found in ${p.detected} shortcut${p.detected === 1 ? "" : "s"}` : "Not found in your library"}>
+                                        <span style={{ color: p.detected > 0 ? "#a4d007" : "#8b929a" }}>{p.detected > 0 ? "✓" : "✗"}</span>
+                                    </Field>
                                 </ItemRow>
-                                <ItemRow trailing>
-                                    <TextField label="Web API Key" bIsPassword value={raToken} onChange={(e) => setRaToken(e.target.value)} />
-                                </ItemRow>
-                                <CredentialsNote service="RetroAchievements" />
-                            </>
-                        )}
-                        <ActionRow message={raMsg}>
-                            {!raMsg.startsWith("✓") && (
-                                <DialogButton disabled={isSavingRa} onClick={handleRegisterSource} style={BUTTON_STYLE}>
-                                    Add
-                                </DialogButton>
-                            )}
-                            <DialogButton onClick={closeAddModal} style={BUTTON_STYLE}>
-                                {raMsg.startsWith("✓") ? "Close" : "Cancel"}
+                            ))}
+                        </>
+                        <ActionRow>
+                            <DialogButton onClick={() => setShowPortsModal(false)} style={BUTTON_STYLE}>
+                                Close
                             </DialogButton>
                         </ActionRow>
                     </Blocks>
@@ -264,13 +132,7 @@ export function AchievementsSection() {
                                 <ItemRow key={emu.name}>
                                     <Field
                                         label={emu.name}
-                                        description={
-                                            emu.authenticated
-                                                ? `Signed in as ${emu.username}`
-                                                : emu.detected
-                                                  ? "Found, not signed in"
-                                                  : "Not found"
-                                        }
+                                        description={emu.authenticated ? `Signed in as ${emu.username}` : emu.detected ? "Found, not signed in" : "Not found"}
                                     >
                                         <span style={{ color: emu.detected ? "#a4d007" : "#8b929a" }}>{emu.detected ? "✓" : "✗"}</span>
                                     </Field>

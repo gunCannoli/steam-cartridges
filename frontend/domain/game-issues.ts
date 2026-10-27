@@ -59,6 +59,7 @@ export function gameIssues(i: IssueInputs): IssueKey[] {
         if (!filled(m.release_date)) out.push('release_date');
     }
     if (!i.controllerKnown) out.push('controller');
-    if (!i.hasAchievements && !i.achievementsNone) out.push('achievements');
+    // A game matched to Steam (or fed by an extension) has no achievements to miss: the Steam mirror gives none (ADR-0100).
+    if (!i.hasAchievements && !i.achievementsNone && !i.storeData) out.push('achievements');
     return out;
 }

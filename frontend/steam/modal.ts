@@ -94,11 +94,13 @@ export function showDialog(modal: ReactElement, opts: { title: string; width: nu
     else millenniumShowModal(element, parent, props);
 }
 
-/** A popup as big as the screen allows (the work area less a small margin), never smaller than 1000 x 680. `from` is a
- *  visible window: SharedJSContext's own reports a 1 x 1 screen (verified live 2026-10-19). */
-export function screenSize(from: Window = window): { width: number; height: number } {
+/** A popup as big as the screen allows (the work area less a small margin), or `scale` of it, never smaller than
+ *  1000 x 680. `from` is a visible window: SharedJSContext's own reports a 1 x 1 screen (verified live 2026-10-19). */
+export function screenSize(from: Window = window, scale?: number): { width: number; height: number } {
     const scr = from.screen?.availWidth > 100 ? from.screen : undefined;
     const w = scr?.availWidth || 1600;
     const h = scr?.availHeight || 900;
-    return { width: Math.max(1000, Math.round(w * 0.96)), height: Math.max(680, Math.round(h * 0.94)) };
+    // A small popup (the Add source windows, scale under 0.5) may be smaller than the big editors' 1000 x 680.
+    const [minW, minH] = scale !== undefined && scale < 0.5 ? [700, 480] : [1000, 680];
+    return { width: Math.max(minW, Math.round(w * (scale ?? 0.96))), height: Math.max(minH, Math.round(h * (scale ?? 0.94))) };
 }

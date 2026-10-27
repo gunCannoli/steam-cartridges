@@ -30,6 +30,8 @@ export interface EditorSnapshot {
     hasMetadata: boolean;
     /** A manual edit is stored (Revert is available). */
     custom: boolean;
+    /** The IGDB or ScreenScraper game the Game Info is linked to (ADR-0087; Revert unlinks it), or null. */
+    linked: { source: "igdb" | "screenscraper"; id: number } | null;
     /** The manual or automatic Steam link, or null. */
     link: StoreMapping | null;
     /** Native appids the user chose "never suggest again" for. */
@@ -52,15 +54,19 @@ export interface GameEditor {
     linkScreenscraper(appid: number, ssId: number, title?: string): Promise<{ error?: string }>;
     /** The ScreenScraper game of an id, not saved. */
     previewScreenscraper(appid: number, ssId: number): Promise<{ game?: LinkPreview; error?: string }>;
+    /** Forgets what the plugin fetched or learned about one game; the session's copies go too. Throws on a backend error. */
+    deleteMetadata(appid: number): Promise<void>;
 }
 
 export interface GameEditorDeps {
-    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbLink" | "screenscraperLink">;
+    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbLink" | "screenscraperLink" | "deleteGameMetadata">;
     records: RecordStore;
     ensureBase(appid: ShortcutId): void;
     titleOf(appid: number): string | undefined;
     routeOf(appid: number): Route;
-    metadata: { ensure(appid: ShortcutId, route: Route, identity: Part<Identity> | undefined): Promise<Part<GameMetadata>> };
+    metadata: { ensure(appid: ShortcutId, route: Route, identity: Part<Identity> | undefined, opts?: { userAction?: boolean }): Promise<Part<GameMetadata>> };
+    /** app/identity: a game whose page was not opened this session has no identity in its record yet. */
+    identity: { ensure(appid: ShortcutId, route: Route): Promise<Part<Identity>> };
     /** app/steam-store.ts setSteamStoreMapping / clearSteamStore (they re-run identity, metadata and artwork). */
     steamStore: {
         setMapping(appid: number, steamAppid: number, name?: string): Promise<{ mapping?: unknown; error?: string }>;
@@ -86,14 +92,27 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
         async load(appid) {
             const id = shortcut(appid);
             deps.ensureBase(id);
-            const { metadata, hasMetadata } = currentOf(id);
             const mapping = await deps.backend.steamStoreGetMapping(id).catch(() => null);
+            let { metadata, hasMetadata } = currentOf(id);
+            // A game whose Game Info the backend holds but this session never read (confirmed a moment ago, or matched to Steam before it was
+            // filled in on the spot, ADR-0100): read it now, so the form opens with its fields, not empty.
+            if (!hasMetadata) {
+                try {
+                    const route = deps.routeOf(id);
+                    const identity = deps.records.get(id)?.identity ?? (route.bucket === "steam-store" ? await deps.identity.ensure(id, route) : undefined);
+                    await deps.metadata.ensure(id, route, identity, { userAction: true });
+                    ({ metadata, hasMetadata } = currentOf(id));
+                } catch {
+                    /* the form opens empty, as before */
+                }
+            }
             return {
                 appid: id,
                 title: deps.titleOf(id) ?? metadata.title,
                 metadata,
                 hasMetadata,
                 custom: metadata.custom_override === true,
+                linked: metadata.linked ?? null,
                 link: mapping?.mapping ?? null,
                 rejected: mapping?.rejected ?? [],
             };
@@ -113,7 +132,11 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
             deps.ensureBase(id);
             const res = await deps.backend.clearCustomMetadata(id);
             if (res.error) throw new Error(res.error);
-            await deps.metadata.ensure(id, deps.routeOf(id), deps.records.get(id)?.identity);
+            // A Steam-routed game asks its identity first, as its page does: without one the backend answers from disk
+            // only, and the reverted game would stay empty until its page opens (seen live 2026-10-22, ADR-0087).
+            const route = deps.routeOf(id);
+            const identity = deps.records.get(id)?.identity ?? (route.bucket === "steam-store" ? await deps.identity.ensure(id, route) : undefined);
+            await deps.metadata.ensure(id, route, identity, { userAction: true });
         },
 
         async search(term) {
@@ -169,6 +192,15 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
                 deps.records.update(id, { metadata: { status: "ok", data: res.metadata, source: "screenscraper" } });
             }
             return {};
+        },
+
+        async deleteMetadata(appid) {
+            const id = shortcut(appid);
+            deps.ensureBase(id);
+            const res = await deps.backend.deleteGameMetadata(id);
+            if (res.error) throw new Error(res.error);
+            // The backend forgot the stored copy: the session's parts go too, so the form, the counts and the setup list agree at once.
+            deps.records.update(id, { metadata: undefined, achievements: undefined, media: undefined, identity: undefined, provided: undefined });
         },
     };
 }

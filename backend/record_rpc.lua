@@ -45,10 +45,18 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
   local requested = need(data, "parts")
   local ctx = data.context or {}
+  -- Library Setup (ADR-0086): until the user has run it, and for a game the user has not validated (a new game, a
+  -- skipped one), a view or the sync answers from disk only. A game from before setup ("existing") fetches as before.
+  if not require("setup_store").gate_open() or not require("choices_store").may_fetch(appid) then ctx.noNetwork = true end
 
   local parts = {}
   for _, name in ipairs(requested) do
-    if name == "identity" then
+    if name == "identity" and ctx.noNetwork then
+      -- Disk only (ADR-0060's paint, and before Library Setup): the saved link, else not known yet. No search, no
+      -- freshness stamp, no remembered error.
+      parts.identity = resolve_identity.saved(appid) or { status = "pending", checkedAt = now_ms() }
+      ctx.identity = parts.identity
+    elseif name == "identity" then
       -- A lookup that failed less than 30 min ago is answered from memory (a saved mapping always wins).
       local recent = not ctx.force and not resolve_identity.saved(appid) and fresh().recent_error(appid, "identity", now_ms())
       if recent then
@@ -111,6 +119,18 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
       local now = now_ms()
       local cached = ach().local_part(appid)
       local due = ctx.force or not cached or fresh().is_stale(appid, "achievements", cached, now)
+      -- A Steam schema is also due when it belongs to another Steam game than the shortcut's match now (a re-link), or
+      -- when it was built by an older reader (steam_schema.SCHEMA_VERSION; tried again at most every error TTL).
+      local stored = cached and cached.data and cached.data.schema
+      if not due and type(stored) == "table" and stored.native_appid then
+        local linked = native and tonumber(native.appid)
+        local checked = fresh().checked_at(appid, "achievements") or 0
+        if linked and linked > 0 and linked ~= tonumber(stored.native_appid) then
+          due = true
+        elseif (tonumber(stored.version) or 0) < require("steam_schema").SCHEMA_VERSION and now - checked >= fresh().TTL.error then
+          due = true
+        end
+      end
       -- ADR-0060: with nothing stored, a lookup that found no source or failed is not repeated until it comes
       -- due (24 h / 30 min): every view, ingest run and observer poll used to ask the sources again.
       -- An "unsupported" memo carries the source list it was found with (ach_service.signature): an update that adds a
@@ -275,64 +295,8 @@ end)
 RPC.SetAchievementSource = method("SetAchievementSource", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
-  local source = need(data, "source")
-  local target = data.target
-  local s_appid = tonumber(appid)
-
-  local store = require("achievements_store")
-  local packs = require("achievement_packs")
-  if source ~= "pack" then packs.assign(s_appid, nil) end
-
-  if source == "pack" then
-    packs.reload()
-    local def = type(target) == "string" and packs.by_id(target) or nil
-    if not def then return { error = "no achievement pack named " .. tostring(target) } end
-    packs.assign(s_appid, def.pack.id)
-    store.sync(s_appid, nil, {}, nil)
-    local part = require("ach_service").ensure(s_appid, {})
-    fresh().touch(s_appid, "achievements", now_ms())
-    if not part or part.status ~= "ok" then
-      return { error = "the pack " .. def.pack.id .. " gave no achievements: " .. tostring(part and part.message or "unknown") }
-    end
-    return { ok = true, source = "pack", pack = def.pack.id, total = def.pack.count }
-  elseif source == "none" then
-    store.sync(s_appid, "none", {}, "none")
-    fresh().touch(s_appid, "achievements", now_ms())
-    return { ok = true, source = "none" }
-  elseif source == "ra" then
-    if not target or target == "" then return { error = "missing RetroAchievements URL or game id" } end
-    local gid_str = tostring(target):match("/game/(%d+)") or tostring(target):match("(%d+)")
-    local gid = tonumber(gid_str)
-    if not gid or gid <= 0 then return { error = "invalid RetroAchievements game id" } end
-
-    local ra = require("retroachievements")
-    local web_cfg = require("web_config")
-    local creds = (web_cfg.get_retroachievements_credentials and web_cfg.get_retroachievements_credentials()) or {}
-    local schema, unlocks = ra.fetch_game_data(gid, creds.username, creds.token, true, creds.api_key)
-    if not schema then
-      return { error = "could not fetch game data for RetroAchievements game " .. tostring(gid) }
-    end
-    local schema_key = "ra_" .. tostring(gid)
-    store.save_schema_and_sync(s_appid, schema_key, schema, unlocks or {}, "retroachievements")
-    fresh().touch(s_appid, "achievements", now_ms())
-    return { ok = true, source = "retroachievements", title = schema.title, total = schema.total, game_id = gid }
-  elseif source == "steam" then
-    if not target or target == "" then return { error = "missing Steam app id" } end
-    local sid_str = tostring(target):match("/app/(%d+)") or tostring(target):match("(%d+)")
-    local sid = tonumber(sid_str)
-    if not sid or sid <= 0 then return { error = "invalid Steam app id" } end
-    local steam_schema = require("steam_schema")
-    local schema, err = steam_schema.get_or_fetch(s_appid, sid)
-    if not schema then
-      return { error = "could not fetch Steam achievement schema: " .. tostring(err) }
-    end
-    store.sync(s_appid, tostring(sid), {}, "steam")
-    fresh().touch(s_appid, "achievements", now_ms())
-    return { ok = true, source = "steam", total = schema.total, steam_appid = sid }
-  else
-    return { error = "unsupported source: " .. tostring(source) }
-  end
-end)
+  return ach().set_source(tonumber(appid), need(data, "source"), data.target)
+end, { user_action = true })
 
 RPC.ClearAchievementSource = method("ClearAchievementSource", function(data)
   local appid = need(data, "appid")
@@ -349,41 +313,15 @@ end)
 RPC.IgdbLink = method("IgdbLink", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
-  local igdb_id = need(data, "igdb_id")
-  local s_appid = tonumber(appid)
-  local igdb = require("web_igdb")
-  local meta, err = igdb.fetch_by_id(s_appid, igdb_id, data.title)
-  pcall(function() require("plog").event("metadata", "IgdbLink " .. tostring(s_appid) .. " id " .. tostring(igdb_id) .. (data.preview and " (preview)" or "") .. ": " .. (meta and "ok" or tostring(err))) end)
-  if not meta then
-    return { error = err or "could not fetch IGDB metadata" }
-  end
-  -- `preview`: what the id is, for the user to confirm before anything is saved (ADR-0079).
-  if data.preview then return { ok = true, preview = true, metadata = meta } end
-  -- A link is the user's choice: kept as their own edit, which no refresh replaces (a refresh looks the game up by
-  -- title again, so an unprotected link lasted a day; found 2026-10-19). Revert (ClearCustomMetadata) undoes it.
-  meta.custom_override = true
-  metadata_db.set(s_appid, meta, true)
-  fresh().touch(s_appid, "metadata", now_ms())
-  return { ok = true, metadata = meta }
-end)
+  return metadata_service.link_igdb(tonumber(appid), need(data, "igdb_id"), data.title, data.preview)
+end, { user_action = true })
 
 --- { appid, ss_id, title }: link a game to a ScreenScraper game and take its Game Info, saved as the user's own edit (as
 --- IgdbLink).
 RPC.ScreenscraperLink = method("ScreenscraperLink", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
-  local s_appid = tonumber(appid)
-  -- `preview`: what the id is, for the user to confirm; not kept as the session's media game either (ADR-0079).
-  local jeu, err = require("screenscraper_media").jeu_by_id(not data.preview and s_appid or nil, need(data, "ss_id"))
-  pcall(function() require("plog").event("metadata", "ScreenscraperLink " .. tostring(s_appid) .. " id " .. tostring(data.ss_id) .. (data.preview and " (preview)" or "") .. ": " .. (jeu and "ok" or tostring(err))) end)
-  if not jeu then return { error = err == "no-credentials" and "Add your ScreenScraper account first (Metadata > Add service)." or "Could not read that ScreenScraper game." } end
-  local meta = require("metadata_service").screenscraper_to_metadata(jeu, s_appid, data.title or "")
-  if not meta then return { error = "Could not read that ScreenScraper game." } end
-  if data.preview then return { ok = true, preview = true, metadata = meta } end
-  meta.custom_override = true -- the user's choice, as IgdbLink: no refresh replaces it; Revert undoes it
-  metadata_db.set(s_appid, meta, true)
-  fresh().touch(s_appid, "metadata", now_ms())
-  return { ok = true, metadata = meta }
-end)
+  return metadata_service.link_screenscraper(tonumber(appid), need(data, "ss_id"), data.title, data.preview)
+end, { user_action = true })
 
 return RPC

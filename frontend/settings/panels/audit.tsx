@@ -27,7 +27,7 @@ export function RevisionSection() {
                         <StatRow label="Non-Steam Games" value={stats.games} />
                         <StatRow label="Metadata Match" value={stats.metadata} />
                         <StatRow label="Achievements Match" value={stats.achievements} />
-                        <StatRow label="Excluded by rules" value={stats.excluded} />
+                        <StatRow label="Ignored by your rules" value={stats.excluded} />
                         <StatRow label="Games with issues" value={stats.issues} warn />
                     </>
                     {stats.issues > 0 && (

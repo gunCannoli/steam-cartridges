@@ -35,13 +35,14 @@ function M._reset() state = nil end
 
 local function load()
   if state then return state end
-  state = { version = 1, hashes = {}, games = {} }
+  state = { version = 1, hashes = {}, games = {}, info = {} }
   local text = utils.read_file(path())
   if text and #text > 0 then
     local ok, data = pcall(json.decode, text)
     if ok and type(data) == "table" then
       if type(data.hashes) == "table" then state.hashes = data.hashes end
       if type(data.games) == "table" then state.games = data.games end
+      if type(data.info) == "table" then state.info = data.info end
     end
   end
   return state
@@ -108,6 +109,19 @@ function M.put_game(md5, id)
   if type(md5) ~= "string" or #md5 == 0 then return end
   local n = tonumber(id)
   load().games[md5] = { id = (n and n > 0) and n or false, at = M.deps.now() }
+  pcall(save)
+end
+
+--- What RetroAchievements says about a game besides its achievements ({ developer, publisher, genre, year }), kept so Library
+--- Setup's Detect asks once per game (ADR-0095). nil when not asked yet.
+function M.info_for(game_id)
+  local entry = load().info[tostring(game_id)]
+  return type(entry) == "table" and entry or nil
+end
+
+function M.put_info(game_id, info)
+  if type(info) ~= "table" then return end
+  load().info[tostring(game_id)] = info
   pcall(save)
 end
 

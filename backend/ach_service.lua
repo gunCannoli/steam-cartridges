@@ -5,7 +5,7 @@
 ---   provided          an extension pushed the player's achievements (ADR-0067: Epic, Xbox from
 ---                     steam-cartridges-third-party): the stored set is the answer, no network; refreshed only by
 ---                     the extension's next push
----   steam             the shortcut has a Steam match (ctx.native > 0)
+---   (steam            removed, ADR-0088: the Steam Store Mirror is a visual list, not a source)
 ---   native_port       the shortcut launches a native port (src_native_ports.supports; ADR-0072); this service
 ---                     persists what the source answers, the source never writes the store
 ---   rpcs3             a PS3 trophy directory is found from the launch command
@@ -25,7 +25,6 @@ local M = {}
 --- Injectable for tests. nil = the real dependency.
 M.deps = {
   entry = nil, -- fun(appid) -> { exe, launch_options } | nil ; nil = shortcuts.vdf lookup
-  steam = nil, -- fun(appid, native) -> res, err   ; nil = steam_schema.get_or_fetch
   ps3 = nil,   -- fun(appid) -> res, err          ; nil = ps3_trophies.get_or_fetch
   ps4 = nil,   -- fun(appid) -> res, err          ; nil = ps4_trophies.get_or_fetch
   native_port = nil, -- fun(entry, stored) -> answer, err ; nil = src_native_ports.fetch
@@ -85,11 +84,7 @@ local SOURCES = {
       return set
     end,
   },
-  {
-    name = "steam",
-    supports = function(ctx) return (tonumber(ctx.native) or 0) > 0 end,
-    fetch = function(appid, ctx) return dep("steam", "steam_schema", "get_or_fetch")(appid, tonumber(ctx.native)) end,
-  },
+  -- No "steam" source (ADR-0088): the Steam Store Mirror is a visual list that cannot be unlocked in a custom game.
   {
     name = "native_port",
     supports = function(_, entry)
@@ -160,7 +155,12 @@ function M._resolve(appid, ctx)
     end
   end
 
-  if not asked then return { status = "unsupported", checkedAt = now_ms() }, nil end
+  if not asked then
+    -- A Steam list an earlier version stored and the user has unlocks in (ADR-0088 repair 4 keeps those) is no longer
+    -- refreshed, but it must not turn into "unsupported" and hide.
+    if st and st.schema and st.source == nil and type(st.schema_appid) == "number" then return M.local_part(appid), nil end
+    return { status = "unsupported", checkedAt = now_ms() }, nil
+  end
   return { status = "error", message = tostring(last_err or "no source returned a schema"), checkedAt = now_ms() }, nil
 end
 
@@ -211,6 +211,59 @@ function M.stored_appids()
     if n then ids[#ids + 1] = n end
   end
   return ids
+end
+
+
+--- Set a shortcut's achievement source by hand (the Game Data editor, Library Setup's validation): "ra" (a
+--- RetroAchievements game id or url), "steam" (refused, ADR-0088), "pack" (an achievement pack's id) or "none".
+--- Any choice but "pack" drops a pack the user gave the game. Fetches the chosen list now. Moved from record_rpc's
+--- SetAchievementSource (Library Setup phase 3: a service, so the setup service can use it too).
+---@return table { ok, source, ... } | { error }
+function M.set_source(s_appid, source, target)
+  local store = require("achievements_store")
+  local packs = require("achievement_packs")
+  if source ~= "pack" then packs.assign(s_appid, nil) end
+
+  if source == "pack" then
+    packs.reload()
+    local def = type(target) == "string" and packs.by_id(target) or nil
+    if not def then return { error = "no achievement pack named " .. tostring(target) } end
+    packs.assign(s_appid, def.pack.id)
+    store.sync(s_appid, nil, {}, nil)
+    local part = require("ach_service").ensure(s_appid, {})
+    require("fresh_policy").touch(s_appid, "achievements", now_ms())
+    if not part or part.status ~= "ok" then
+      return { error = "the pack " .. def.pack.id .. " gave no achievements: " .. tostring(part and part.message or "unknown") }
+    end
+    return { ok = true, source = "pack", pack = def.pack.id, total = def.pack.count }
+  elseif source == "none" then
+    store.sync(s_appid, "none", {}, "none")
+    require("fresh_policy").touch(s_appid, "achievements", now_ms())
+    return { ok = true, source = "none" }
+  elseif source == "ra" then
+    if not target or target == "" then return { error = "missing RetroAchievements URL or game id" } end
+    local gid_str = tostring(target):match("/game/(%d+)") or tostring(target):match("(%d+)")
+    local gid = tonumber(gid_str)
+    if not gid or gid <= 0 then return { error = "invalid RetroAchievements game id" } end
+
+    local ra = require("retroachievements")
+    -- The same login the normal fetch uses: the emulator's saved one first, then .env (a user with no .env confirmed a game and got
+    -- "could not fetch game data" while the same game loaded fine when its page opened).
+    local entry = (M.deps.entry or default_entry)(s_appid)
+    local creds = ra.get_credentials(entry and entry.exe) or {}
+    local schema, unlocks = ra.fetch_game_data(gid, creds.username, creds.token, true, creds.api_key)
+    if not schema then
+      return { error = "could not fetch game data for RetroAchievements game " .. tostring(gid) }
+    end
+    local schema_key = "ra_" .. tostring(gid)
+    store.save_schema_and_sync(s_appid, schema_key, schema, unlocks or {}, "retroachievements")
+    require("fresh_policy").touch(s_appid, "achievements", now_ms())
+    return { ok = true, source = "retroachievements", title = schema.title, total = schema.total, game_id = gid }
+  elseif source == "steam" then
+    return { error = "a Steam achievement list is a visual list only and cannot be unlocked in a custom game: use RetroAchievements or an achievement pack" }
+  else
+    return { error = "unsupported source: " .. tostring(source) }
+  end
 end
 
 return M

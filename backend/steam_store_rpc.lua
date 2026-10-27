@@ -17,6 +17,13 @@ local method = core.method
 local function art() return require("art_service") end
 local function icon_file() return require("shortcut_icon") end
 
+--- A link or unlink changes which Steam game the shortcut's achievements come from: move the stored binding and drop
+--- the achievements check, so the next EnsureFresh builds the new list instead of answering a remembered result.
+local function rebind_achievements(appid, native)
+  pcall(function() require("achievements_store").rebind(appid, native) end)
+  pcall(function() require("fresh_policy").forget_part(appid, "achievements") end)
+end
+
 local RPC = {}
 
 local function need(data, field)
@@ -47,8 +54,9 @@ end)
 RPC.SteamStoreSetMapping = method("SteamStoreSetMapping", function(data)
   local mapping, err = store.set_mapping(need(data, "appid"), need(data, "steam_appid"), data.name, "manual")
   if not mapping then return { error = err } end
+  rebind_achievements(data.appid, mapping.steam_appid)
   return { mapping = mapping }
-end)
+end, { user_action = true })
 
 --- reject=true remembers the appid so it is never auto-applied again. Returns
 --- the slots the frontend must clear (only those this plugin wrote), and
@@ -57,6 +65,7 @@ end)
 RPC.SteamStoreClearMapping = method("SteamStoreClearMapping", function(data)
   local appid = need(data, "appid")
   local out = store.clear(appid, data.reject and true or false)
+  rebind_achievements(appid, 0)
   local icon = out.icon
   out.icon = nil
   if icon and not icon.released then
@@ -74,7 +83,7 @@ end)
 --- Read-only search for the manual link picker: { term } -> { candidates = { {steam_appid,name} } }.
 RPC.SteamStoreSearchCandidates = method("SteamStoreSearchCandidates", function(data)
   return require("steam_store_search").candidates(need(data, "term"))
-end)
+end, { user_action = true })
 
 RPC.SteamStoreRecordArtwork = method("SteamStoreRecordArtwork", function(data)
   if data.source == "steamgriddb" then

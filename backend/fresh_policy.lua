@@ -189,6 +189,15 @@ function M.keys()
   return out
 end
 
+--- Forget one part's check, so it counts as never checked (and any remembered unsupported / error with it).
+function M.forget_part(appid, part)
+  local entry = load().parts[key(appid)]
+  if not entry then return true end
+  entry[part], entry[part .. "_status"], entry[part .. "_sig"] = nil, nil, nil
+  recent[key(appid) .. ":" .. part] = nil
+  return pcall(save)
+end
+
 --- Forget every check of a shortcut (prune_removed.lua).
 function M.forget(appid)
   load().parts[key(appid)] = nil

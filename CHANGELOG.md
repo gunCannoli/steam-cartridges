@@ -7,6 +7,117 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.0-beta] - 2026-10-27
+
+### Added
+
+- **Onboarding guide**: [Onboarding.md](Onboarding.md) walks through the first run step by step: sources, achievements,
+  rules and confirming each game, plus skipping, the new-onboarding prompt after an update and starting over for one game.
+- **Library Setup**: a window opened from the top of the plugin's settings (Library Setup › Start). It walks you through
+  your sources, achievements and rules, then lists every non-Steam game. **Find matches** looks each one up and proposes a
+  match (a Steam game, an IGDB or ScreenScraper game, a RetroAchievements set found by the ROM); you answer each game:
+  **Yes**, **No** (then link it by hand, with its platform), **No achievements**, or **Skip**. Only the games you confirm are
+  downloaded, and a game you confirmed is never asked again. After setup, **Review your games** opens the same list and says
+  how many new games wait for you, and **Refresh library** looks up the games you have not answered yet and fetches again
+  the confirmed games that miss data.
+
+### Changed
+
+- **Onboarding is required, for new and existing installs.** The first time you open the plugin's settings, the Library Setup window
+  opens by itself and explains each step: what every source gives and needs, how RetroAchievements finds a game (the hash of its
+  ROM), and the two kinds of rules. Until you finish it, or choose **(I know what I'm doing, skip)**, the other settings are greyed
+  out and the plugin fetches nothing new on its own, even on an install that already holds data. **Next** needs at least one
+  source on; with more than 150 non-Steam games waiting to be set up, the Rules step must bring them to 150 or fewer first, and
+  step 4 lists only the games your rules put in scope.
+- **The Steam Store Mirror is no longer an achievements source.** Steam's achievements are a list a custom game cannot unlock. Steam
+  lists stored by an earlier version are removed when they hold no unlocks (a list with unlocks is kept); a game matched to a Steam
+  game now asks for RetroAchievements, an achievement pack, or **No achievements** in Library Setup. It stays a source of Game Info and
+  artwork.
+- **Auto routing is removed; no rules means the plugin scans nothing.** Routing Rules start with **Scan just these** and
+  **Exclude these**; an **Advanced rule** keeps the service, title and regex options. Onboarding needs at least one rule.
+- **Routing Rules has one "Add rule"**, which opens a large window: pick a simple rule (Scan just these, Exclude these) or an
+  advanced one. The Library Setup steps along the top are clickable. The **Refresh library** row and the Steam achievements note are
+  gone from the settings panel. The activity cards and community content start **off** on a first run (downloaded media is still
+  kept 7 days); Library Analytics no longer calls every game "excluded" when you have no rule yet.
+- **A new onboarding is offered after an update**: the first time you open the settings, a small window asks whether to run it, with
+  checkmarks to start from zero and to keep your saved credentials, settings and games metadata. Nothing is deleted: what is cleared is moved
+  to a backup folder in the plugin's data folder. Skipping asks no more.
+
+- **The card you confirm shows the RetroAchievements game's developer, genre and release year** (kept, so it is looked up once). "Start from zero" in the new-onboarding window switches the keep options off. A Steam match confirms with facts too: the card shows the store game's platform, release year, developer and genres, and names that Game Info, artwork and community come from Steam.
+- **Settings › Delete metadata** (last section): delete one game's metadata from the last block of the Game Data editor (editor window and Properties › Cartridge) when the onboarding or a fetch goes wrong. The game is asked again in Library Setup. The library-wide block (and "Delete everything") is removed.
+- **Native ports** are an achievements source next to RetroAchievements and Emulators, with an info window listing the supported ports
+  (Bloodborne PC, Dusklight) and where they are found in your library.
+- **The log says more** (for the logs you share): the emulators found, the native ports and how many games launch each, the sources
+  on and the number of rules, and each onboarding step with its counts. No names, keys, paths or rule text.
+- **Games step of onboarding**: one "Games to set up" row, the list waits (greyed out) until you click Find matches, and each proposal
+  shows platform, release year, genres, developer and collections so you can confirm the right game. The settings count only the games your
+  rules put in scope; "Excluded by rules" is now "Ignored by your rules". The skip link is on the first step only.
+- **The 150-game limit is now a warning**: the Rules step says how many games will be scanned and asks if that is what you want, in green (up to 150), yellow (up to 250) or red, and a rule is still required. The first step is named Metadata, the Steam rows are tighter with bold labels, the Achievements step lists the supported emulators and native ports, "Add service" became "Add source", "Scan just these" became "Scan only these", and the Add source windows are smaller.
+- **Onboarding polish**: a welcome line and the sources explained as Steam rows; the Rules step shows three counts (non-Steam games
+  detected, scoped within your rules, waiting to be set up) and the rule window shows how many games a rule catches; skipping asks
+  for a confirmation; no source is pre-selected (the Steam Store Mirror, emulators and RetroAchievements start off); Add service and
+  Add source open in their own window; the collections list shows every collection instead of cutting it off; the games list opens on
+  the first game it shows; "Detect" is now "Find matches".
+- The log says the setup gate at start-up (`[startup] setup gate: ...`) and writes a line per saved setting (the key only), with a
+  warning when a value read back differs from the one written.
+- **A game you link to IGDB or ScreenScraper keeps refreshing from that game**: a link used to be saved as your own edit,
+  so its details never updated. Now the game's Game Info is refreshed from the exact game you linked, by its id, never
+  looked up by name again, so a refresh cannot swap it for another game. Revert unlinks it; if you also edited the
+  details, Revert first drops your edit and goes back to the linked game. Games linked before this version stay as they
+  were (your own edit) until you Revert and link them again.
+- **Nothing is downloaded for your games until you run Library Setup**: a new install no longer fetches Game Info,
+  artwork or achievements for your whole library at start-up; it waits for you to run Library Setup. If you already use
+  the plugin, your library counts as set up and every game you have keeps refreshing as before. A game added after setup
+  waits until you confirm it in the list.
+- **Data an earlier version stored wrong is repaired once, at the first start after an update**: the first such repair
+  marks every game whose Steam achievements were saved with raw ids and no icons, so they are rebuilt when you open them.
+
+### Fixed
+
+- **Onboarding: a confirmed game is done.** The list moves to the next game instead of opening a long editor; tweak a game later in the other menus. The Game Info editor opens with the fields of a game fetched a moment ago instead of empty.
+- **A game matched to Steam is no longer reported as missing achievements**: the Steam mirror gives none, so it is marked "no achievements" when you confirm it. Confirming a game now fills in its Game Info on the spot (from the Steam match, or IGDB / ScreenScraper), and the card shows the fields filled in, to check or leave.
+- **Passwords and keys are hidden as you type** in Add source, with an eye button at the right of the field to show them (hidden by default).
+- **The plugin could stop during onboarding's "Find matches"** on a game RetroAchievements knows (a bug in how its facts were kept, from the previous build). Fixed. A source you did not turn on, or that has no account, is also no longer asked.
+- **Confirming a RetroAchievements game failed with "could not fetch game data"** when your RetroAchievements login lives in RetroArch (not in `.env`).
+- **Collection rules never matched any game** (every count in the Rules step was zero): Steam's collections were read as empty. Fixed.
+- **The Add source windows no longer list a source you already added.**
+- **A game's art could stay empty forever after it was confirmed** (seen live: a Steam match with no grid art). When the game's data was first resolved before its page was ever opened, the session remembered the answer but not where it put it, and every later view silently did nothing. The answer is now resolved again when nothing is stored, so the art (and identity) land on the next view.
+
+- **Shortcuts without an `appid` in Steam's shortcuts file were ignored.** Steam itself writes an `appid` for every non-Steam game, but
+  Lutris, Heroic, Bottles, Steam ROM Manager and others (common on Linux) often do not; the plugin then read the library as empty
+  (`shortcuts=0` in the log) and fetched nothing. Such a game now gets the id Steam derives from its exe and name. The log's
+  `[startup]` section says whether the file was found and how many games had no id of their own.
+- A shortcut whose id Steam reports as a negative number (every id above 2147483647) no longer fails the Steam Store mapping lookup
+  with "persists non-Steam shortcuts only"; the backend turns it back into the unsigned id. Seen on Linux, not Linux-specific.
+- **Linux**: emulator and trophy detection no longer reads only Windows folders. `%APPDATA%`, `%LOCALAPPDATA%` and
+  `%USERPROFILE%` now map to `~/.config`, `~/.local/share` and `$HOME` (or `XDG_CONFIG_HOME` / `XDG_DATA_HOME`), and the log and
+  settings files of RetroArch, DuckStation, PCSX2, Dolphin, PPSSPP, RPCS3 and shadPS4 are looked up under their Linux names.
+  The plugin log hides `/home/<user>` and starts with `[startup] os=...`, naming the data folder. Not yet checked on a Linux
+  machine; Flatpak and Proton locations are still to do.
+
+- **Revert in the Game Data editor fills the game in again at once**: reverting a game whose page you had not opened since
+  Steam started left its Game Info empty until you opened the page; it is now fetched right away.
+
+- **Steam achievements show their real names and icons again**: Steam changed the page the achievement names, descriptions
+  and icons are read from, so a game matched to a Steam game (Escape from Tarkov, say) showed raw ids such as
+  `WelcomeToTarkov` and no icons. They are now read from the page's own data and matched to each achievement by id, and
+  secret achievements are marked. A list saved with the wrong data is rebuilt the next time the game's page opens.
+- **Linking a game to another Steam game replaces its achievements**: after unlinking a wrong match and linking the right
+  game, the old game's list and icons stayed until the 24-hour refresh, and its unlocks were counted against the new list.
+  A link or unlink now moves the achievements at once. Unlocks are kept per Steam game, so linking back brings the earlier
+  ones back.
+- **Game Info finds the right game more often**: a game's exact name now wins over a sequel that contains it (Final Fight
+  no longer gets Final Fight 3's details, Joe & Mac no longer gets Joe & Mac 2's), a game listed under another name is
+  found by that name (Out of This World), and a search with no game of that name gives no match instead of a random one.
+- **Games with accented names (Ōkami, Pokémon) and Doom source ports are recognized**: an accented name now matches its
+  plain spelling, and a Doom `.wad` file no longer marks a shortcut as a Wii game.
+- **RetroAchievements finds Dreamcast, Nintendo DS, Master System and Game Boy Color games**: they were looked up as
+  another console's games.
+
+### Security
+
+- **Saved keys and passwords are encrypted at rest.** On Windows they are protected with your Windows account (DPAPI), on Linux they go to your desktop keyring (`secret-tool`); only where neither exists do they stay plain text, and the log says so. Keys saved by an earlier version are converted automatically at the first start after the update, and the old SteamGridDB key file is folded in. If a saved value cannot be opened (another Windows user, another PC), add it again in Settings.
+
 ## [0.5.3-beta] - 2026-10-20
 
 ### Added

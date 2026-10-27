@@ -93,6 +93,8 @@ function M.redact(s)
   s = s:gsub("([Cc]lient%-[Ii][Dd]%s*[:=]%s*)[^\r\n,]+", "%1<hidden>")
   -- Windows user name in a path.
   s = s:gsub("([Uu][Ss][Ee][Rr][Ss][\\/])([^\\/%s\"']+)", "%1<user>")
+  -- Linux home folder.
+  s = s:gsub("(/home/)([^/%s\"']+)", "%1<user>")
   return s
 end
 

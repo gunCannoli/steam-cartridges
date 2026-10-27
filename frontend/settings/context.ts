@@ -4,7 +4,7 @@
 import type { AutoRoutingProfile, ServiceTarget } from '../domain/routing/policy';
 import type { MetadataDraft } from '../domain/metadata-edit';
 import type { GameMetadata, SyncProgress } from '../kernel/record';
-import type { StoreCandidate, StoreMapping } from '../ports/backend';
+import type { SetupAnswer, SetupGame, SetupPlatform, StoreCandidate, StoreMapping } from '../ports/backend';
 import type { ReactElement } from 'react';
 
 /** Structural copy of app/game-editor.ts LinkPreview (settings never import app/). */
@@ -20,6 +20,7 @@ export interface EditorSnapshot {
     metadata: GameMetadata;
     hasMetadata: boolean;
     custom: boolean;
+    linked: { source: 'igdb' | 'screenscraper'; id: number } | null;
     link: StoreMapping | null;
     rejected: number[];
 }
@@ -45,6 +46,8 @@ export interface PanelContext {
     records: {
         achievementsOf(appid: number): { nAchieved: number; nTotal: number } | undefined;
         refreshAchievements?(appid: number): Promise<void>;
+        /** Drops what the session holds about one game, or about every game (Delete metadata): Game Info, achievements, media, Steam match. */
+        forget?(appid?: number): void;
     };
     controller: {
         load(): Promise<void>;
@@ -53,8 +56,22 @@ export interface PanelContext {
         refresh(appid: number): void;
     };
     /** Opens a dialog in its own window, as big as the screen (steam/modal.ts; ADR-0076): the settings window is narrow. */
-    /** `from`: the window the user clicked in (its screen sizes the popup, and the popup opens over it). */
-    dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window): void };
+    /** `from`: the window the user clicked in (its screen sizes the popup, and the popup opens over it). `scale`: the share
+     *  of the screen it takes (the Library Setup window: 0.6, plan Q4); the whole screen when left out. */
+    dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window, scale?: number): void };
+    /** Library Setup (ADR-0086): structural copy of app/library-setup.ts (settings never import app/). */
+    setup: {
+        isDone(): Promise<boolean | undefined>;
+        isOnboarded(): Promise<boolean | undefined>;
+        state(): Promise<{ done: boolean; onboarded: boolean; upgrade: boolean } | undefined>;
+        startOver(options: { zero: boolean; keepCredentials: boolean; keepSettings: boolean; keepMetadata: boolean }): Promise<void>;
+        skipUpgrade(): Promise<void>;
+        forgetConsent(): void;
+        finish(info: { skipped: boolean; step?: number; pending?: number }): Promise<void>;
+        scan(): Promise<{ games: SetupGame[]; platforms: SetupPlatform[]; error?: string }>;
+        detect(appid: number): Promise<SetupGame>;
+        validate(appid: number, answer: SetupAnswer): Promise<SetupGame & { fetchError?: string }>;
+    };
     editor: {
         load(appid: number): Promise<EditorSnapshot>;
         save(appid: number, draft: MetadataDraft): Promise<void>;
@@ -66,6 +83,8 @@ export interface PanelContext {
         previewIgdb(appid: number, igdbId: number): Promise<{ game?: LinkPreview; error?: string }>;
         linkScreenscraper(appid: number, ssId: number, title?: string): Promise<{ error?: string }>;
         previewScreenscraper(appid: number, ssId: number): Promise<{ game?: LinkPreview; error?: string }>;
+        /** Forgets what the plugin fetched or learned about one game; the session's copies go too. */
+        deleteMetadata(appid: number): Promise<void>;
     };
 }
 
@@ -86,8 +105,20 @@ const INERT: PanelContext = {
     records: { achievementsOf: () => undefined },
     controller: { load: async () => {}, inferredFor: () => undefined, refresh: () => {} },
     dialog: { open: () => {} },
+    setup: {
+        isDone: async () => undefined,
+        isOnboarded: async () => undefined,
+        state: async () => undefined,
+        startOver: async () => {},
+        skipUpgrade: async () => {},
+        forgetConsent: () => {},
+        finish: async () => {},
+        scan: async () => ({ games: [], platforms: [], error: 'not ready' }),
+        detect: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
+        validate: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
+    },
     editor: {
-        load: async (appid) => ({ appid, title: String(appid), metadata: { appid, title: String(appid) }, hasMetadata: false, custom: false, link: null, rejected: [] }),
+        load: async (appid) => ({ appid, title: String(appid), metadata: { appid, title: String(appid) }, hasMetadata: false, custom: false, linked: null, link: null, rejected: [] }),
         save: async () => {},
         revert: async () => {},
         search: async () => ({ candidates: [] }),
@@ -97,6 +128,7 @@ const INERT: PanelContext = {
         linkScreenscraper: async () => ({ error: 'not ready' }),
         previewIgdb: async () => ({ error: 'not ready' }),
         previewScreenscraper: async () => ({ error: 'not ready' }),
+        deleteMetadata: async () => {},
     },
 };
 

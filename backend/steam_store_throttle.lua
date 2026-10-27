@@ -61,7 +61,7 @@ function M.http_get(url)
     headers = { ["Accept"] = "application/json", ["User-Agent"] = M.USER_AGENT },
     timeout = M.TIMEOUT,
   })
-  if err == "paused" then return nil, "paused" end
+  if err == "paused" or err == "setup" then return nil, err end -- a gate, not the network: not "offline"
   if not res or not res.status or res.status == 0 then
     offline_until = M.now() + M.OFFLINE_SECONDS
     return nil, "offline"

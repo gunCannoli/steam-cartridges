@@ -35,6 +35,15 @@ local ACH_RPC   = require("achievements_rpc")
 local RECORD_RPC = require("record_rpc")
 local PROVIDED_RPC = require("provided_rpc")
 local PACKS_RPC = require("packs_rpc")
+local SETUP_RPC = require("setup_rpc")
+local LIBRARY_RPC = require("library_rpc")
+local SETTINGS_RPC = require("settings_rpc")
+local RESET_RPC = require("reset_rpc")
+local LOG_RPC = require("log_rpc")
+
+-- Library Setup gate (ADR-0086): the plugin fetches on its own only after the user ran setup; a call the user started
+-- passes anyway (rpc.method's user_action). net knows nothing of setup; this is where the two meet.
+require("net").gate = function() return require("setup_store").gate_open() end
 
 -- Millennium exposes globals to the frontend as callable methods.
 GetLibraryStats = RPC.GetLibraryStats
@@ -63,6 +72,7 @@ CartridgesAchievementsUnlock       = ACH_RPC.CartridgesAchievementsUnlock
 CartridgesAchievementsReset        = ACH_RPC.CartridgesAchievementsReset
 CartridgesAchievementsResetSources = ACH_RPC.CartridgesAchievementsResetSources
 CartridgesAchievementsGetRetroStatus = ACH_RPC.CartridgesAchievementsGetRetroStatus
+CartridgesAchievementsGetNativePortsStatus = ACH_RPC.CartridgesAchievementsGetNativePortsStatus
 
 -- Record facade (migration M4b; M5a adds GetAllRecords; M10 removed the uncalled GetGameRecord).
 EnsureFresh    = RECORD_RPC.EnsureFresh
@@ -94,6 +104,20 @@ ProvideAchievements = PROVIDED_RPC.ProvideAchievements
 AchievementPacksList    = PACKS_RPC.AchievementPacksList
 AchievementPacksExplain = PACKS_RPC.AchievementPacksExplain
 
+-- Library Setup (ADR-0086): has the user run it; the setup window marks it done.
+GetSetupState = SETUP_RPC.GetSetupState
+SetSetupDone  = SETUP_RPC.SetSetupDone
+-- Settings mirror (ADR-0090): the second copy the frontend falls back to when the Configuration API gives nothing back.
+GetSettings  = SETTINGS_RPC.GetSettings
+SaveSettings = SETTINGS_RPC.SaveSettings
+ResetPluginData = RESET_RPC.ResetPluginData
+DeleteGameMetadata = RESET_RPC.DeleteGameMetadata
+ClientLog = LOG_RPC.ClientLog
+
+LibraryScan   = LIBRARY_RPC.LibraryScan
+LibraryDetect = LIBRARY_RPC.LibraryDetect
+ValidateGame  = LIBRARY_RPC.ValidateGame
+
 local function on_load()
   -- Resolve paths eagerly so a misconfigured install shows up in the log at
   -- startup rather than on the first page view.
@@ -113,12 +137,65 @@ local function on_load()
   local plog = require("plog")
   local function yn(v) return v and "yes" or "no" end
   local ok_v, mver = pcall(function() return millennium.version() end)
-  plog.event("startup", string.format("millennium=%s steam=%s data_dir=%s log=%s", tostring(ok_v and mver or "unknown"),
-    tostring(paths and paths.root), data_dir.path(), plog.path()))
+  plog.event("startup", string.format("os=%s millennium=%s steam=%s data_dir=%s log=%s", require("platform").os_name(),
+    tostring(ok_v and mver or "unknown"), tostring(paths and paths.root), data_dir.path(), plog.path()))
   plog.event("startup", string.format("credentials: igdb=%s screenscraper=%s steamgriddb=%s retroachievements=%s; shortcuts=%s",
     yn(config.get_twitch_credentials()), yn(config.get_screenscraper_credentials()), yn(config.get_api_key()),
     yn(config.get_retroachievements_credentials()),
     tostring(paths and paths.shortcuts and #(require("shortcuts").parse(paths.shortcuts) or {}) or "unknown")))
+
+  -- Can the data folder be written? Settings, answers and fetched data all live there; the path comes from
+  -- millennium.steam_path(), never a hardcoded Steam folder, so a read-only install (Program Files) shows up here.
+  do
+    local probe = data_dir.file(".write-test")
+    local okw = pcall(function() return require("utils").write_file(probe, "ok") end)
+    local back = okw and require("utils").read_file(probe)
+    pcall(function() os.remove(probe) end)
+    plog.event("startup", "data folder writable: " .. ((okw and back == "ok") and "yes" or "NO (settings and fetched data cannot be saved)"))
+  end
+
+  -- What a shared log should say about the setup: which emulators and native ports are found, and how the plugin is configured
+  -- (booleans and counts only: no name, key, path or rule text).
+  pcall(function()
+    local parts = {}
+    local status = require("retroachievements").get_emulator_status() or {}
+    for _, e in ipairs(status.emulators or status) do
+      parts[#parts + 1] = string.format("%s=%s", tostring(e.name):gsub("[^%w]+", ""):lower(), e.authenticated and "signed-in" or e.detected and "found" or "not-found")
+    end
+    plog.event("startup", "emulators: " .. table.concat(parts, ", "))
+  end)
+  pcall(function()
+    local parts = {}
+    for _, p in ipairs(require("native_ports").status(require("registry").entries() or {})) do
+      parts[#parts + 1] = string.format("%s=%d", tostring(p.id), p.detected)
+    end
+    plog.event("startup", "native ports (games launching each): " .. table.concat(parts, ", "))
+  end)
+  pcall(function()
+    local v = require("settings_store").get_all()
+    local on = {}
+    for k, x in pairs(type(v.services) == "table" and v.services or {}) do if x == true and k ~= "rpcs3Enabled" then on[#on + 1] = (k:gsub("Enabled$", "")) end end
+    table.sort(on)
+    local rules = type(v.routingRules) == "table" and #v.routingRules or 0
+    plog.event("startup", string.format("configuration: sources on=[%s], routing rules=%d", table.concat(on, ","), rules))
+  end)
+
+  -- Keys an earlier version saved as plain text are protected now (ADR-0099); the log says which store is in use.
+  pcall(function()
+    local r = require("web_config").protect_existing()
+    plog.event("startup", string.format("credentials store: %s (%d protected now, %d already, %d plain)", r.store == "none" and "none: plain text" or r.store, r.protected, r.already, r.plain))
+  end)
+
+  -- Why a library can look empty: is the file there, how many shortcuts, and how many had no appid of their own (Linux tools).
+  do
+    local sp = paths and paths.shortcuts
+    local okf, there = pcall(function() return sp and require("fs").is_file(sp) end)
+    local list = (okf and there and require("shortcuts").parse(sp)) or {}
+    local derived = 0
+    for _, e in ipairs(list) do if e.appid_derived then derived = derived + 1 end end
+    plog.event("startup", string.format("shortcuts file: %s (%s); entries=%d, without an appid of their own=%d",
+      tostring(sp), okf and there and "found" or "NOT FOUND", #list, derived))
+  end
 
   -- A migration failure logs and continues.
   local ok_m, err_m = pcall(migrate.run)
@@ -139,6 +216,17 @@ local function on_load()
 
   millennium.ready()
   logger:info("Backend loaded.")
+
+  -- Fix what an earlier version stored wrong, once per update (repairs.lua); after ready, so it never delays the backend.
+  local ok_r, err_r = pcall(function() return require("repairs").run() end)
+  if not ok_r then logger:warn("repair pass failed: " .. tostring(err_r)) end
+
+  -- The gate, so a report answers "did it fetch before onboarding?": none | existing (stored data, onboarding pending) | setup (consent, onboarding pending) | onboarded.
+  pcall(function()
+    local st = require("setup_store").get()
+    local gate = not st.done and "none" or st.onboarded and "onboarded" or st.why == "existing library" and "existing" or "setup"
+    require("plog").event("startup", "setup gate: " .. gate .. (st.why and (" (" .. st.why .. ")") or "") .. string.format(", onboarding version %d of %d", st.version or 0, require("setup_store").ONBOARDING_VERSION))
+  end)
 
   -- Forget shortcuts gone from the library for a week (ADR-0078); after ready, so it never delays the backend.
   local ok_p, err_p = pcall(function() return require("prune_removed").run() end)

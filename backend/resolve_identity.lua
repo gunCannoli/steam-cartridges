@@ -20,6 +20,7 @@ M.deps = {
   http_get = nil,    -- nil = steam_store_throttle.http_get (search.search's default)
   is_emulator = nil, -- nil = launches_emulator(appid), moved here from steam_store_rpc.lua
   provided = nil,    -- nil = provided_store.get(appid): what an extension pushed (ADR-0067), for its title
+  choice = nil,      -- fun(appid) -> Library Setup answer | nil ; nil = choices_store.get
   now = function() return os.time() end,
 }
 
@@ -98,6 +99,13 @@ function M.ensure(appid, ctx)
 
   local existing = M.saved(appid)
   if existing then return existing end
+
+  -- A game the user validated in Library Setup (ADR-0086) is what they said: its Steam link (saved above), or not a
+  -- Steam game. The title is never searched again, so no automatic match can replace the answer.
+  local choice = (M.deps.choice or function(id) return require("choices_store").get(id) end)(appid)
+  if choice and choice.kind == "validated" then
+    return { status = "ok", data = {}, source = "choice", checkedAt = now_ms() }
+  end
 
   if is_emulator(appid) then
     return { status = "unsupported", checkedAt = now_ms() }
