@@ -7,6 +7,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.2-beta] - 2026-10-28
+
+### Added
+
+- **Confirm all proposed in Library Setup**: the games list has a **Confirm all proposed (N)** button that validates every
+  proposed match at once (reversing the earlier no-batch decision), then fetches the confirmed games in one run. Answered
+  games and games with nothing proposed are skipped, never changed; a game whose link fails is reported and the rest still
+  confirm.
+
+### Fixed
+
+- **Library Setup says why nothing was found.** Detect names how many shortcuts it read when an id does not resolve
+  (`not in the library (N shortcuts read)`, or no-shorcuts-read with the wrong-user hint), instead of the bare
+  string. When no metadata lookup ran at all (no source picked or credentialed), the game is flagged and the window
+  says "No source searched it: turn on a source in step 1 (Metadata), then Find matches again" instead of a silent
+  "Needs a link".
+- **The sync walk reports failures and stops re-walking settled games.** Each game whose parts error is counted in
+  the progress bar (`17 / 24 games, 1 failed`) and named once in the plugin log (`sync game "<name>": <error>`); the
+  done line says how many failed. Achievements no source could answer ("unsupported") now count as settled like
+  metadata fallbacks (ADR-0096): they are re-walked only when achievements gain an answerer mid-session (a source
+  turned on, an account saved), so an unchanged library no longer replays the same bar every launch.
+- **A setup with no accounts no longer re-fetches its whole library on every sync.** An empty fallback record is asked
+  again when a source gains an account (the record stamps what the web tier could answer when it was saved), otherwise on
+  the normal 24 h cadence — not every 30 min. The sync walk skips settled fallbacks unless a picked source holds an
+  account (ADR-0096). Opening the settings panel never started a fetch itself; it showed the start-up or rule-triggered
+  sync re-walking unsettled games.
+- **Log pointers for faster reports.** A background sync logs why it started (`startup`, `rules`, `services`,
+  `confirmed`, `fetch-now`), how many games it walks (new vs missing) and when it is done; a fallback asked again
+  because an account was added says so. Every settings write logs its key (`saved`, `did not stick`, `not saved`),
+  the start-up logs how many keys the Configuration API and the backend copy hold, and a heal from the backend copy
+  is logged with the key names — values never reach the log.
+
+- **Confirming all proposed games no longer times out on a big library.** Every game was confirmed in a single
+  call, and 216 games outgrew Millennium's 30-second answer window (`RPC timeout for child`). The window now confirms
+  ten games per call with a `Confirming X of N...` line; a failed chunk keeps the earlier confirmations, and clicking
+  again resumes where it stopped.
+- **RetroAchievements sets attach by ROM hash only, never by title alone.** A title match (19XX, say) put the set on
+  the page, but unlocking needs a supported hash, so its achievements could never unlock. Detect no longer proposes a
+  set the hash does not support, and Confirm checks the hash again (a swapped ROM, or a proposal from before this fix,
+  skips the set with a warning while the Game Info links still apply).
+- **The plugin log names more of what a report needs.** The start-up block carries the plugin name and version, every
+  setting (sources on/off, options, routing) as flags and counts, per-part stored health (error vs unsupported), and
+  the reason a forced lookup answered from disk; the Library Analytics counts land when the panel opens, and a shutdown
+  line totals the session's requests, paused sources and errors. Counts and flags only — no names, keys or paths.
+
 ## [0.6.1-beta] - 2026-10-27
 
 ### Added

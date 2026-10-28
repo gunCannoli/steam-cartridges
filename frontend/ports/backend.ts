@@ -109,6 +109,8 @@ export interface SetupGame {
     collections?: string[];
     signals?: WireList<string>;
     status?: "validated" | "existing" | "skipped" | "conflict" | "not-detected" | "needs-link" | "proposed";
+    /** Detect ran no web metadata lookup (no source picked/credentialed): the window says so instead of silent "Needs a link". */
+    no_sources?: boolean;
     choice?: SetupChoice;
     proposal?: SetupProposal;
     metadata?: { title?: string; igdb_id?: number; ss_id?: number };
@@ -352,6 +354,10 @@ export const backend = {
     /** Library Setup: the user's answer for one game. A validated game may be fetched; nothing is fetched here. */
     validateGame(appid: number, answer: SetupAnswer, collections: string[]) {
         return call<SetupGame>("ValidateGame", { appid, answer, collections });
+    },
+    /** Library Setup: confirm every proposed game at once. The window fetches the confirmed games after; nothing is fetched here. */
+    validateAllProposed(appids: number[]) {
+        return call<{ confirmed: WireList<number>; skipped: number; failed: Record<string, string>; error?: string }>("ValidateAllProposed", { appids });
     },
     /** Game Data editor: stores a manual edit (custom_override) and returns the metadata part to put in the record. */
     saveCustomMetadata(appid: number, metadata: GameMetadata) {

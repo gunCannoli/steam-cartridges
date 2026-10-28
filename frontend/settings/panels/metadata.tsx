@@ -52,7 +52,7 @@ export function MetadataSection() {
         else if (id === "screenscraper") setServices({ ...services, screenscraperEnabled: false });
         else if (id === "igdb") setServices({ ...services, igdbEnabled: false });
         else setServices({ ...services, steamgriddbEnabled: false });
-        ctx.ingest.trigger(250);
+        ctx.ingest.trigger(250, "services");
     };
 
     const openAdd = (e?: { currentTarget?: unknown }) => {

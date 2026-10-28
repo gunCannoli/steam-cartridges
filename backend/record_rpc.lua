@@ -40,6 +40,10 @@ local function is_shortcut(appid)
   return n ~= nil and n >= SHORTCUT_MIN
 end
 
+-- A forced lookup answered from disk only is worth one line per game per session: without it a "Fetch now"
+-- that fetches nothing (the setup gate, or a game the user never validated) succeeds silently.
+local forced_disk_logged = {}
+
 RPC.EnsureFresh = method("EnsureFresh", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
@@ -47,7 +51,16 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
   local ctx = data.context or {}
   -- Library Setup (ADR-0086): until the user has run it, and for a game the user has not validated (a new game, a
   -- skipped one), a view or the sync answers from disk only. A game from before setup ("existing") fetches as before.
-  if not require("setup_store").gate_open() or not require("choices_store").may_fetch(appid) then ctx.noNetwork = true end
+  local gate_open = require("setup_store").gate_open()
+  local may_fetch = require("choices_store").may_fetch(appid)
+  if not gate_open or not may_fetch then ctx.noNetwork = true end
+  if ctx.force and (not gate_open or not may_fetch) and not forced_disk_logged[appid] then
+    forced_disk_logged[appid] = true
+    local why = not gate_open and "library setup not finished" or "game not validated in library setup"
+    pcall(function()
+      require("plog").event("fetch", "forced lookup of \"" .. tostring(ctx.title or appid) .. "\" answered from disk (" .. why .. ")")
+    end)
+  end
 
   local parts = {}
   for _, name in ipairs(requested) do

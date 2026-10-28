@@ -40,8 +40,8 @@ export interface PanelContext {
     ingest: {
         progress(): SyncProgress;
         onProgress(fn: (p: SyncProgress) => void): () => void;
-        trigger(delayMs?: number): void;
-        start(opts?: { forceAll?: boolean; onlyAppids?: number[] }): Promise<void>;
+        trigger(delayMs?: number, reason?: string): void;
+        start(opts?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void>;
     };
     records: {
         achievementsOf(appid: number): { nAchieved: number; nTotal: number } | undefined;
@@ -71,6 +71,8 @@ export interface PanelContext {
         scan(): Promise<{ games: SetupGame[]; platforms: SetupPlatform[]; error?: string }>;
         detect(appid: number): Promise<SetupGame>;
         validate(appid: number, answer: SetupAnswer): Promise<SetupGame & { fetchError?: string }>;
+        /** Confirm every proposed game at once; the confirmed games are then fetched. */
+        validateAll(appids: number[], onProgress?: (done: number, total: number) => void): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
     };
     editor: {
         load(appid: number): Promise<EditorSnapshot>;
@@ -88,7 +90,7 @@ export interface PanelContext {
     };
 }
 
-const EMPTY_PROGRESS: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: '', phase: 'idle' };
+const EMPTY_PROGRESS: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: '', phase: 'idle', failed: 0 };
 
 /** Inert until index.tsx wires the real one, so a panel opened early renders empty instead of throwing. */
 const INERT: PanelContext = {
@@ -116,6 +118,7 @@ const INERT: PanelContext = {
         scan: async () => ({ games: [], platforms: [], error: 'not ready' }),
         detect: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
         validate: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
+        validateAll: async () => ({ confirmed: [], skipped: 0, failed: {} }),
     },
     editor: {
         load: async (appid) => ({ appid, title: String(appid), metadata: { appid, title: String(appid) }, hasMetadata: false, custom: false, linked: null, link: null, rejected: [] }),

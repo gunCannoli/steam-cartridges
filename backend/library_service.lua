@@ -41,6 +41,22 @@ local function entry_of(appid)
   return nil
 end
 
+--- Did a web metadata lookup actually run in the current detect (a test stub, or a picked and credentialed
+--- source)? Read by detect: a game with no proposal and no search gets `no_sources` on its row, so the window can
+--- say "turn on a source first" instead of a silent "Needs a link".
+local searched_web = false
+
+--- Why an appid does not resolve: how many shortcuts were read, so a report tells a changed file apart from a
+--- wrong user (0 read) or a renumbered entry (N read, id missing).
+local function entry_or_missing(appid)
+  local all = entries()
+  for _, e in ipairs(all) do
+    if tonumber(e.appid) == tonumber(appid) then return e end
+  end
+  if #all == 0 then return nil, "not in the library (no shortcuts read - is this the right Steam user?)" end
+  return nil, "not in the library (" .. #all .. " shortcuts read)"
+end
+
 local function year_of(ts)
   ts = tonumber(ts)
   if not ts or ts <= 0 then return nil end
@@ -49,22 +65,20 @@ end
 
 -- ---------------------------------------------------------------------------------------------- lookups (detect)
 
+--- Hash only, never title alone: unlocking needs a supported hash, so a title match would attach achievements that can
+--- never unlock (visual-only). A ROM whose hash maps to nothing proposes no set at all, and without a hashable ROM
+--- there is no proposal either (same rule as get_or_fetch).
 local function ra_lookup(entry)
   if M.deps.ra then return M.deps.ra(entry) end
   local ra = require("retroachievements")
-  local console = ra.detect_console_id(entry.exe, entry.launch_options)
   local rom = ra.extract_rom_path(entry.exe, entry.launch_options)
-  local id, by
-  if rom then
-    local md5 = ra.compute_rom_md5(rom)
-    if md5 then id = ra.get_game_id_by_md5(md5); by = id and "hash" or nil end
-  end
-  if not id and console then
-    id = ra.find_game_id_by_title(entry.name or "", entry.exe, entry.launch_options, nil)
-    by = id and "title" or nil
-  end
+  if not rom then return nil end
+  local md5 = ra.compute_rom_md5(rom)
+  if not md5 then return nil end
+  local id = ra.get_game_id_by_md5(md5)
   if not id then return nil end
-  return { id = tonumber(id), title = ra.game_title(console, id), by = by }
+  local console = ra.detect_console_id(entry.exe, entry.launch_options)
+  return { id = tonumber(id), title = ra.game_title(console, id), by = "hash" }
 end
 
 --- Developer, genre and release year of the RetroAchievements game, for the card the user confirms (ADR-0095).
@@ -86,21 +100,24 @@ local function source_on(flag, has_account)
 end
 
 local function steam_lookup(title)
-  if M.deps.steam then return M.deps.steam(title) end
+  if M.deps.steam then searched_web = true; return M.deps.steam(title) end
   if not source_on("steamStoreEnabled") then return nil end
+  searched_web = true
   local search = require("steam_store_search")
   return search.proposal(search.search(title, nil, nil)) -- no store: Detect writes no negative cache
 end
 
 local function igdb_lookup(appid, title, info, names)
-  if M.deps.igdb then return M.deps.igdb(appid, title, info, names) end
+  if M.deps.igdb then searched_web = true; return M.deps.igdb(appid, title, info, names) end
   if not source_on("igdbEnabled", function() return require("web_config").get_twitch_credentials() end) then return nil end
+  searched_web = true
   return require("web_igdb").fetch_game_metadata(appid, title, info, names)
 end
 
 local function screenscraper_lookup(appid, title, info)
-  if M.deps.screenscraper then return M.deps.screenscraper(appid, title, info) end
+  if M.deps.screenscraper then searched_web = true; return M.deps.screenscraper(appid, title, info) end
   if not source_on("screenscraperEnabled", function() return require("web_config").get_screenscraper_credentials() end) then return nil end
+  searched_web = true
   local jeu = require("screenscraper_media").jeu_for(appid, title, info)
   if not jeu then return nil end
   return require("metadata_service").screenscraper_to_metadata(jeu, appid, title)
@@ -192,9 +209,10 @@ end
 
 --- Look one game up and store what to propose. Lookups only: no record, no link, no artwork, nothing to Steam.
 function M.detect(appid, collection_names)
-  local e = entry_of(appid)
-  if not e then return { error = "not in the library" } end
+  local e, missing = entry_or_missing(appid)
+  if not e then return { error = missing } end
   appid = tonumber(appid)
+  searched_web = false
   local title = e.name or ""
   local v = verdict.verdict(title, e, nil, nil, collection_names)
   if v.state == "conflict" then
@@ -266,7 +284,9 @@ function M.detect(appid, collection_names)
     end
   end
   proposals.set_proposal(appid, p.title and p or false, M.deps.now())
-  return row(e, collection_names)
+  local out = row(e, collection_names)
+  if p.title == nil and not searched_web then out.no_sources = true end
+  return out
 end
 
 -- ---------------------------------------------------------------------------------------------- validate
@@ -278,8 +298,25 @@ local function forget_parts(appid)
   end
 end
 
+--- A RetroAchievements set attaches only when the ROM hash maps to that same game: re-verified at confirm, so a
+--- proposal stored before the hash gate (or a ROM swapped since Detect) cannot attach a set that never unlocks.
+--- Returns true, or false + a warning for the card. A hash RetroAchievements never heard of is a definite miss
+--- (ra_cache remembers it); anything else without an answer means the set could not be verified.
+local function ra_hash_ok(entry, ra_game_id)
+  local ra = require("retroachievements")
+  local rom = entry and ra.extract_rom_path(entry.exe, entry.launch_options)
+  if not rom then return false, "no ROM found to verify the RetroAchievements set" end
+  local md5 = ra.compute_rom_md5(rom)
+  if not md5 then return false, "the ROM could not be hashed to verify the RetroAchievements set" end
+  local id = ra.get_game_id_by_md5(md5)
+  if tonumber(id) == tonumber(ra_game_id) then return true end
+  if id then return false, "the ROM hash belongs to another RetroAchievements game" end
+  local known, known_id = require("ra_cache").game_for(md5)
+  if known and not known_id then return false, "the ROM hash is not supported by RetroAchievements for this set" end
+  return false, "the RetroAchievements set could not be verified" end
+
 --- Make the proposal the game's own: its Steam link, or its IGDB / ScreenScraper Game Info and RetroAchievements set.
-local function apply_proposal(appid, p)
+local function apply_proposal(appid, p, entry)
   local choice = { kind = "validated", platform = p.platform }
   local warnings = {}
   if p.steam_appid and (p.state == "steam" or p.state == "steam-proposed") then
@@ -302,8 +339,13 @@ local function apply_proposal(appid, p)
       choice.ss_id = p.ss_id
     end
     if p.ra_game_id then
-      local r = require("ach_service").set_source(appid, "ra", p.ra_game_id)
-      if r.error then warnings[#warnings + 1] = r.error else choice.ra_game_id, choice.achievements = p.ra_game_id, "ra" end
+      local ok_v, verr = ra_hash_ok(entry, p.ra_game_id)
+      if not ok_v then
+        warnings[#warnings + 1] = "RetroAchievements skipped: " .. verr
+      else
+        local r = require("ach_service").set_source(appid, "ra", p.ra_game_id)
+        if r.error then warnings[#warnings + 1] = r.error else choice.ra_game_id, choice.achievements = p.ra_game_id, "ra" end
+      end
     end
   end
   return choice, nil, warnings
@@ -339,8 +381,8 @@ end
 ---   { skip = true }              leave the game alone: never fetched
 ---   { reset = true }             forget the answer (the game waits again)
 function M.validate(appid, answer, collection_names)
-  local e = entry_of(appid)
-  if not e then return { error = "not in the library" } end
+  local e, missing = entry_or_missing(appid)
+  if not e then return { error = missing } end
   appid = tonumber(appid)
   answer = type(answer) == "table" and answer or {}
   local now = M.deps.now()
@@ -349,7 +391,7 @@ function M.validate(appid, answer, collection_names)
   if answer.yes then
     local p = proposals.proposal(appid)
     if type(p) ~= "table" then return { error = "nothing proposed for this game" } end
-    local choice, err, warns = apply_proposal(appid, p)
+    local choice, err, warns = apply_proposal(appid, p, e)
     if not choice then return { error = err } end
     warnings = warns
     choices.set(appid, choice, now)
@@ -388,6 +430,39 @@ function M.validate(appid, answer, collection_names)
   local out = row(e, collection_names)
   out.warnings = warnings
   return out
+end
+
+--- Confirm every proposed game at once (the setup window's "Confirm all proposed", reversing decision 6): the Yes
+--- path of validate, without rebuilding rows (the window re-scans). Answered games and games with nothing
+--- proposed are skipped, never clobbered; a game whose link fails is reported and the rest still confirm.
+--- Returns { confirmed = [appid...], skipped = n, failed = { [appid] = err } }.
+function M.validate_all(appids)
+  local now = M.deps.now()
+  local confirmed, skipped, failed = {}, 0, {}
+  local seen = {}
+  for _, id in ipairs(type(appids) == "table" and appids or {}) do
+    local appid = tonumber(id)
+    if appid and not seen[appid] then
+      seen[appid] = true
+      local e = entry_of(appid)
+      local p = e and proposals.proposal(appid)
+      if not e or type(p) ~= "table" or choices.get(appid) then
+        skipped = skipped + 1
+      else
+        local choice, err = apply_proposal(appid, p, e)
+        if not choice then
+          failed[tostring(appid)] = err or "could not confirm the proposal"
+        else
+          choices.set(appid, choice, now)
+          proposals.clear_proposal(appid)
+          forget_parts(appid)
+          confirmed[#confirmed + 1] = appid
+        end
+      end
+    end
+  end
+  pcall(function() require("plog").event("setup", "validate_all: " .. #confirmed .. " confirmed, " .. skipped .. " skipped") end)
+  return { confirmed = confirmed, skipped = skipped, failed = failed }
 end
 
 return M

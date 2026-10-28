@@ -60,7 +60,7 @@ export function AchievementsSection() {
         if (id === "retroachievements") setServices({ ...services, retroachievementsEnabled: false });
         else if (id === "native_ports") setServices({ ...services, nativePortsEnabled: false });
         else setServices({ ...services, emulatorsEnabled: false, rpcs3Enabled: false });
-        ctx.ingest.trigger(250);
+        ctx.ingest.trigger(250, "services");
     };
 
     const openAdd = (e?: { currentTarget?: unknown }) => {

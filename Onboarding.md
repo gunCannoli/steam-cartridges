@@ -78,6 +78,9 @@ time:
 - A game with no achievements: mark it **No achievements**, and it is never asked again.
 - **Skip**: the plugin leaves this game alone.
 
+When every proposal looks right, **Confirm all proposed** answers them all at once and fetches the games in one run.
+Games with nothing proposed still need you, one at a time.
+
 Only the games you confirm are ever downloaded. A confirmed game is never asked again.
 
 ## Skipping

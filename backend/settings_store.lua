@@ -50,20 +50,33 @@ end
 
 --- Stores `values` (key -> value) and removes `remove` (list of keys) in one write. Returns how many keys changed.
 function M.apply(values, remove)
-  local s, changed = load(), 0
+  local s, changed, saved, dropped = load(), 0, {}, {}
   for key, value in pairs(type(values) == "table" and values or {}) do
     if valid_key(key) and value ~= nil then
       s.values[key] = value
       changed = changed + 1
+      saved[#saved + 1] = key
     end
   end
   for _, key in ipairs(type(remove) == "table" and remove or {}) do
     if valid_key(key) and s.values[key] ~= nil then
       s.values[key] = nil
       changed = changed + 1
+      dropped[#dropped + 1] = key
     end
   end
-  if changed > 0 then save() end
+  if changed > 0 then
+    save()
+    -- Key names only in the log, never values: a "settings not saving" report shows what arrived.
+    pcall(function()
+      table.sort(saved)
+      table.sort(dropped)
+      local parts = {}
+      if #saved > 0 then parts[#parts + 1] = "saved: " .. table.concat(saved, ", ") end
+      if #dropped > 0 then parts[#parts + 1] = "removed: " .. table.concat(dropped, ", ") end
+      require("plog").event("settings", table.concat(parts, "; "):sub(1, 200))
+    end)
+  end
   return changed
 end
 

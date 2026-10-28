@@ -21,7 +21,7 @@ export function RulesSection() {
         const copy = [...rules];
         copy.splice(index, 1);
         setRules(copy);
-        ctx.ingest.trigger(100);
+        ctx.ingest.trigger(100, "rules");
     };
 
     return (

@@ -1042,6 +1042,8 @@ function M.game_title(console_id, game_id)
   return type(t) == "string" and t or nil
 end
 
+--- A console's game id for a title, fuzzy. Measurement only (tests/live/probes/detect_accuracy.lua): production
+--- matching never uses it — unlocking needs a supported hash, so a title match would be visual-only.
 function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
   if not target_title or #target_title == 0 then return nil end
   local console_id = M.detect_console_id(cmd, launch_options)
@@ -1489,14 +1491,10 @@ function M.get_or_fetch(shortcut_appid, hardcore)
       return nil, "unsupported rom hash"
     end
 
-    -- Fallback: Title matching by detected console (only when no ROM path could be extracted/hashed)
-    local title = sc.name or sc.appname or ""
-    game_id = M.find_game_id_by_title(title, sc.exe, sc.launch_options, s_appid)
-    if not game_id then
-      note("shortcut " .. s_appid .. ": no title match on RetroAchievements for " .. title)
-      return nil, "cannot find game on RetroAchievements"
-    end
-    schema, unlocks = M.fetch_game_data(game_id, creds.username, creds.token, is_hardcore, creds.api_key)
+    -- Without a hash there is no set either: a title match would attach achievements that can never
+    -- unlock, so title matching is never used for RetroAchievements (same rule as Detect's proposals).
+    note("shortcut " .. s_appid .. ": no ROM hash available; no RetroAchievements set attached")
+    return nil, "cannot verify the ROM hash"
   end
 
   if not schema or (schema.total or 0) == 0 then

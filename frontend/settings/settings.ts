@@ -69,6 +69,8 @@ const current: Settings = {
     disabledFeatures: '',
 };
 const listeners = new Set<(key: SettingKey) => void>();
+/** The start-up settings-source line is logged once, not after every write (sync runs on each one). */
+let sourceLogged = false;
 
 function apply(key: string, value: unknown): void {
     if (!(key in DEFAULTS)) return;
@@ -161,11 +163,18 @@ async function sync(): Promise<void> {
     const [stored, mirror] = await Promise.all([readStored(), readMirror()]);
     const merged = mergeStored(Object.keys(DEFAULTS), stored, mirror);
     for (const key of Object.keys(DEFAULTS)) apply(key, merged.values[key]);
+    // Once per session: where the settings came from. A config API that answers with nothing is the ADR-0090 case
+    // (every setting reads as its default), and it shows here as 0 keys next to the backend copy's count.
+    if (!sourceLogged) {
+        sourceLogged = true;
+        backend.logEvent('settings', `start: config API ${Object.keys(stored).length} keys, backend copy ${Object.keys(mirror).length} keys`);
+    }
     // Heal whichever side lost a key (names only in the log, never values).
     // A default the Configuration API does not hold is what it should hold (storing a default deletes the key): not a loss.
     const lost = merged.heal.filter((k) => !(stored[k] === undefined && JSON.stringify(merged.values[k]) === JSON.stringify(DEFAULTS[k as SettingKey])));
     if (lost.length > 0) {
         logger.warn(`Configuration API lacked or differed on ${lost.join(', ')}: restored from the backend copy.`);
+        backend.logEvent('settings', `config API lacked ${lost.join(', ')}: restored from backend copy`);
         const name = pluginName();
         for (const key of lost) {
             try {
@@ -222,13 +231,20 @@ export function setSetting<K extends SettingKey>(key: K, value: unknown): Promis
     const op = isDefault ? write((n) => config.delete(n, key), { values: { [key]: valid } }) : write((n) => config.set(n, key, valid), { values: { [key]: valid } });
     // One line per write, the key only (never the value: it can hold a name or a path), and a warning when the value read
     // back is not the one written: that is what a "settings not saving" report (Millennium #903) looks like in the log.
+    // The same lines go to the plugin log users share (ClientLog), where the console lines never reach.
     return op.then(
         () => {
-            if (JSON.stringify(current[key]) === JSON.stringify(valid)) logger.info(`Setting saved: ${key}`);
-            else logger.warn(`Setting did not stick: ${key} (read back a different value than was written)`);
+            if (JSON.stringify(current[key]) === JSON.stringify(valid)) {
+                logger.info(`Setting saved: ${key}`);
+                backend.logEvent('settings', `saved ${key}`);
+            } else {
+                logger.warn(`Setting did not stick: ${key} (read back a different value than was written)`);
+                backend.logEvent('settings', `did not stick: ${key}`);
+            }
         },
         (error) => {
             logger.warn(`Setting not saved: ${key}`, error);
+            backend.logEvent('settings', `not saved: ${key}`);
             throw error;
         },
     );

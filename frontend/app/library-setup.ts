@@ -8,7 +8,7 @@ import { asList } from "../kernel/lists.ts";
 import type { backend as Backend, SetupAnswer, SetupGame, SetupPlatform } from "../ports/backend";
 
 export interface LibrarySetupDeps {
-    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "validateGame">;
+    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "validateGame" | "validateAllProposed">;
     /** Every shortcut in the library. */
     shortcuts(): { appid: number }[];
     /** The names of the Steam collections a shortcut is in (app/routing). */
@@ -57,7 +57,18 @@ export interface LibrarySetup {
     detect(appid: number): Promise<SetupGame>;
     /** Store the user's answer; a Yes or a manual link then fetches the game. */
     validate(appid: number, answer: SetupAnswer): Promise<ValidatedGame>;
+    /** Confirm every proposed game at once; the confirmed games are then fetched. Answered games and games with nothing proposed are skipped, never clobbered. */
+    validateAll(appids: number[], onProgress?: (done: number, total: number) => void): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
 }
+
+/**
+ * Games per ValidateAllProposed call. One game costs up to three network fetches (its Game Info link, its
+ * RetroAchievements set) plus a disk write per store, and Millennium abandons the caller after 30 s
+ * (knowledgebase "Millennium RPC"); 216 games in one call timed out. Ten stays under it with margin, and a
+ * failed chunk throws while the earlier chunks stand (the backend call is idempotent: answered games are
+ * skipped, so clicking again resumes where it stopped).
+ */
+export const VALIDATE_ALL_CHUNK = 10;
 
 /** Lua sends an empty list as `{}`: the window reads plain arrays. */
 function normalize(row: SetupGame): SetupGame {
@@ -158,6 +169,32 @@ export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {
                 logger.warn(`Library Setup: ${appid} validated, its fetch failed:`, e);
             }
             return row;
+        },
+
+        async validateAll(appids, onProgress) {
+            const confirmed: number[] = [];
+            let skipped = 0;
+            const failed: Record<string, string> = {};
+            for (let at = 0; at < appids.length; at += VALIDATE_ALL_CHUNK) {
+                const chunk = appids.slice(at, at + VALIDATE_ALL_CHUNK);
+                const res = await deps.backend.validateAllProposed(chunk);
+                if (res?.error) throw new Error(res.error);
+                confirmed.push(...asList<number>(res?.confirmed));
+                skipped += res?.skipped ?? 0;
+                Object.assign(failed, res?.failed ?? {});
+                onProgress?.(Math.min(at + chunk.length, appids.length), appids.length);
+            }
+            const out = { confirmed, skipped, failed };
+            if (confirmed.length === 0) return out;
+            // The games are the user's now: fetch them in one run (as one Yes fetches one game).
+            try {
+                await markDone();
+                await deps.fetchGames(confirmed);
+            } catch (e) {
+                logger.warn(`Library Setup: ${confirmed.length} validated, their fetch failed:`, e);
+                return { ...out, fetchError: String((e as Error)?.message ?? e) };
+            }
+            return out;
         },
     };
 }

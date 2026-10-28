@@ -259,6 +259,8 @@ export interface SyncProgress {
     current: number;
     currentGame: string;
     phase: "idle" | "scraping" | "complete";
+    /** Games whose fetch failed in this run (per-game lines go to the plugin log via report). */
+    failed: number;
 }
 
 export interface GameRecord {

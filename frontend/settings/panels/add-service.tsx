@@ -46,7 +46,7 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
     const done = (text: string) => {
         backend.logEvent("sources", `${selected} added`);
         setMsg(`✓ ${text}`);
-        ctx.ingest.trigger(250);
+        ctx.ingest.trigger(250, "services");
         onAdded?.(); // the opener re-reads, so the source leaves its list of what can still be added
     };
     const fail = (text: string) => {

@@ -48,6 +48,7 @@ import { createFeatureSwitches, type FeatureId } from "./safety/features";
 import { beginBoot, watchBoot } from "./safety/boot";
 import { lookupStored, toShortcutId, type ShortcutId } from "./kernel/appid";
 import { isFallbackMetadata, type GameMetadata } from "./kernel/record";
+import { achCanAnswer, webCanAnswer } from "./domain/sync-scope";
 import { createExtensionRegistry, type SteamCartridgesAPI } from "./kernel/extensions";
 import { createImageBin } from "./kernel/image-bin";
 import { createMediaBin } from "./kernel/media-bin";
@@ -293,6 +294,35 @@ const fetchedInSession = new Set<ShortcutId>();
 onSettingChange((key) => {
     if (key === "services") fetchedInSession.clear();
 });
+/** The accounts the backend holds (GetStatus, no network): a fallback record counts as missing in a sync walk
+ * only when a source both picked and credentialed can answer it (ADR-0096). Refreshed before every walk. */
+let webCreds = { igdb: false, screenscraper: false };
+let achCreds = { ra: false };
+/** What achievements could answer at the first walk of this session (sync-scope achCanAnswer): a source or account
+ *  added later puts settled "unsupported" games back on the list; an unchanged setup leaves them alone. */
+let achBaseline: { services: { retroachievementsEnabled?: boolean; emulatorsEnabled?: boolean }; creds: { ra: boolean } } | null = null;
+async function refreshWebCreds(): Promise<void> {
+    try {
+        const st = await backend.getStatus();
+        webCreds = { igdb: !!st?.has_twitch, screenscraper: !!st?.has_screenscraper };
+        achCreds = { ra: !!st?.has_retroachievements };
+        achBaseline ??= {
+            services: { retroachievementsEnabled: setting("services").retroachievementsEnabled, emulatorsEnabled: setting("services").emulatorsEnabled },
+            creds: { ...achCreds },
+        };
+    } catch {
+        /* keep the last answer; the backend stays the source of truth */
+    }
+}
+/** Did achievements gain an answerer since the session's first walk (a source turned on, an account saved)? */
+function achGained(): boolean {
+    if (!achBaseline) return false;
+    const s = setting("services");
+    return (
+        achCanAnswer({ retroachievementsEnabled: s.retroachievementsEnabled, emulatorsEnabled: s.emulatorsEnabled }, achCreds) &&
+        !achCanAnswer(achBaseline.services, achBaseline.creds)
+    );
+}
 /** The background job (app/ingest.ts, plan M7b): only new shortcuts at start-up; "sync now" from the panel. */
 const ingest = createIngest({
     backend,
@@ -301,6 +331,7 @@ const ingest = createIngest({
         await routing.ensureProfiles();
         await routing.waitForCollections();
         await preloaded;
+        await refreshWebCreds();
     },
     routeOf: (appid) => routing.getBucket(appid),
     isAllowed: (appid) => routing.serviceAllowed("all", appid),
@@ -308,17 +339,21 @@ const ingest = createIngest({
     allowWeb: (appid) => setting("services").igdbEnabled !== false && routing.serviceAllowed("igdb", appid),
     allowScreenscraper: (appid) => setting("services").screenscraperEnabled !== false && routing.serviceAllowed("screenscraper", appid),
     hardcore: () => setting("raHardcoreMode"),
+    report: (message) => backend.logEvent("sync", message),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     artwork,
     needsFetch: (appid) => {
         if (fetchedInSession.has(appid)) return false;
         const r = records.store.get(appid);
-        // A fallback (empty) record counts as missing once a web source can look the game up (set up after it was added).
-        const webSource = setting("services").igdbEnabled !== false || setting("services").screenscraperEnabled !== false;
-        const hasMeta = !!r?.metadata?.data && !(webSource && isFallbackMetadata(r.metadata.data as GameMetadata));
+        // A fallback (empty) record counts as missing only when a web source picked and credentialed can look the
+        // game up (an account set up after it was saved). Otherwise the walk leaves settled games alone (ADR-0096).
+        // Same for achievements no source could answer ("unsupported", ach_service _resolve): settled unless an
+        // answerer was added since the session's first walk (then they are asked again, once).
+        const hasMeta = !!r?.metadata?.data && !(webCanAnswer(setting("services"), webCreds) && isFallbackMetadata(r.metadata.data as GameMetadata));
         const hasAch =
             ((r?.achievements?.data as any)?.schema?.total ?? 0) > 0 ||
-            r?.achievements?.source === "none";
+            r?.achievements?.source === "none" ||
+            (r?.achievements?.status === "unsupported" && !achGained());
         return !hasMeta || !hasAch;
     },
     onDone: (appid) => {
@@ -334,7 +369,7 @@ const librarySetup = createLibrarySetup({
     // The confirmed game is fetched, then its Game Info is filled in from what matched it (a Steam match reads Steam's own store item) so the
     // onboarding shows every field filled, for the user to check or just confirm (ADR-0100).
     fetchGames: async (appids) => {
-        await ingest.startSync({ forceAll: true, onlyAppids: appids });
+        await ingest.startSync({ forceAll: true, onlyAppids: appids, reason: "confirmed" });
         for (const appid of appids) {
             const id = toShortcutId(appid);
             if (id === undefined) continue;
@@ -727,7 +762,7 @@ async function init() {
 
     logger.info("Ready. Non-Steam games now use Steam's own detail sections.");
     // Automatically start background sync for un-scraped games after startup
-    features.run("background-sync", () => ingest.triggerSync(3000));
+    features.run("background-sync", () => ingest.triggerSync(3000, "startup"));
 }
 
 export default definePlugin(() => {

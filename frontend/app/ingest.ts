@@ -32,6 +32,8 @@ export interface IngestDeps {
     schedule?(fn: () => void, ms: number): void;
     /** Check if an existing shortcut is missing achievements or metadata. */
     needsFetch?(appid: ShortcutId): boolean;
+    /** One line per sync in the plugin log users share (ClientLog): why it started, what it walked, when it is done. */
+    report?: (message: string) => void;
     /** Called when a shortcut has been successfully fetched. */
     onDone?(appid: ShortcutId): void;
     /** Artwork resolver: writes cover-arts and icon to Steam native components when data is fetched. */
@@ -41,9 +43,10 @@ export interface IngestDeps {
 }
 
 export interface Ingest {
-    startSync(options?: { forceAll?: boolean; onlyAppids?: number[] }): Promise<void>;
+    /** `reason` names the trigger in the log (startup, rules, services, confirmed, fetch-now): the first thing a "why is it fetching" report needs. */
+    startSync(options?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void>;
     /** Debounced startSync(): queued whenever settings or rules change. */
-    triggerSync(delayMs?: number): void;
+    triggerSync(delayMs?: number, reason?: string): void;
     getSyncProgress(): SyncProgress;
     onSyncProgress(fn: (p: SyncProgress) => void): () => void;
 }
@@ -62,11 +65,11 @@ function pausedIn(res: { paused?: Record<string, number> } | undefined): boolean
 }
 
 export function createIngest(deps: IngestDeps): Ingest {
-    let progress: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: "", phase: "idle" };
+    let progress: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: "", phase: "idle", failed: 0 };
     const listeners = new Set<(p: SyncProgress) => void>();
     let running = false;
     /** Runs requested while one was running, merged into one follow-up (scope is kept, not dropped). */
-    let pending: { forceAll: boolean; only: Set<number> | null; waiters: (() => void)[] } | null = null;
+    let pending: { forceAll: boolean; only: Set<number> | null; waiters: (() => void)[]; reason: string } | null = null;
     let debounce: ReturnType<typeof setTimeout> | null = null;
 
     function setProgress(update: Partial<SyncProgress>): void {
@@ -80,12 +83,14 @@ export function createIngest(deps: IngestDeps): Ingest {
         }
     }
 
-    /** One shortcut. `stop` = a source is paused: end the run and leave this one for later. */
-    async function ingestOne(item: { appid: number; name: string }, force: boolean): Promise<{ stop: boolean; done: boolean }> {
+    /** One shortcut. `stop` = a source is paused: end the run and leave this one for later. `errors` names the
+     *  parts that failed, so the run reports them to the plugin log instead of swallowing them (logger.warn is
+     *  stripped from prod builds). */
+    async function ingestOne(item: { appid: number; name: string }, force: boolean): Promise<{ stop: boolean; done: boolean; errors: string[] }> {
         const appid = item.appid as ShortcutId;
         const route = deps.routeOf(appid);
-        if (route.via === "pending") return { stop: false, done: false }; // collections not ready: try next run
-        if (route.bucket === "none") return { stop: false, done: true }; // ADR-0035: no network for it
+        if (route.via === "pending") return { stop: false, done: false, errors: [] }; // collections not ready: try next run
+        if (route.bucket === "none") return { stop: false, done: true, errors: [] }; // ADR-0035: no network for it
 
         const base = {
             title: item.name,
@@ -98,10 +103,16 @@ export function createIngest(deps: IngestDeps): Ingest {
         };
 
         let identity: Part<Identity> | undefined;
+        const errors: string[] = [];
+        const noteError = (part: string, res: { parts?: Record<string, { status?: string; message?: string }> }) => {
+            const p = res?.parts?.[part];
+            if (p?.status === "error" && p?.message) errors.push(`${part}: ${p.message}`);
+        };
         if (route.bucket === "steam-store") {
             const res = await deps.backend.ensureFresh(appid, ["identity"], base, BACKGROUND);
-            if (pausedIn(res)) return { stop: true, done: false };
+            if (pausedIn(res)) return { stop: true, done: false, errors };
             identity = res.parts?.identity as Part<Identity> | undefined;
+            noteError("identity", res as never);
         }
 
         // A Steam match's own metadata is read from Steam when its page is opened (never persisted), so
@@ -111,25 +122,28 @@ export function createIngest(deps: IngestDeps): Ingest {
         const parts: ("metadata" | "achievements")[] = native ? ["achievements"] : ["metadata", "achievements"];
         for (const part of parts) {
             const res = await deps.backend.ensureFresh(appid, [part], { ...base, identity }, BACKGROUND);
-            if (pausedIn(res)) return { stop: true, done: false };
+            if (pausedIn(res)) return { stop: true, done: false, errors };
+            noteError(part, res as never);
         }
         if (deps.artwork) {
             try {
                 await deps.artwork.ensure(appid, route, identity, BACKGROUND);
             } catch (e) {
-                logger.warn(`Ingest artwork failed for ${appid}:`, e);
+                errors.push(`artwork: ${String((e as Error)?.message ?? e)}`);
             }
         }
-        return { stop: false, done: true };
+        return { stop: false, done: true, errors };
     }
 
-    async function startSync(options?: { forceAll?: boolean; onlyAppids?: number[] }): Promise<void> {
+    async function startSync(options?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void> {
+        const reason = options?.reason ?? "sync";
         if (running) {
             const only = options?.onlyAppids ? new Set(options.onlyAppids) : null;
-            if (!pending) pending = { forceAll: options?.forceAll === true, only, waiters: [] };
+            if (!pending) pending = { forceAll: options?.forceAll === true, only, waiters: [], reason };
             else {
                 pending.forceAll ||= options?.forceAll === true;
                 pending.only = pending.only && only ? new Set([...pending.only, ...only]) : null;
+                pending.reason = reason;
             }
             // A per-game scan (audit panel) resolves when its follow-up run ends; plain requests are debounced re-runs.
             if (!only) return;
@@ -147,11 +161,14 @@ export function createIngest(deps: IngestDeps): Ingest {
             // before Library Setup existed; a per-game run (the setup window, the audit panel) only needs the consent.
             if (setup?.done === false || (setup?.onboarded === false && !options?.onlyAppids)) {
                 logger.info("Ingest: Library Setup has not run yet; nothing is fetched.");
-                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0 });
+                deps.report?.(`sync skip (${reason}): setup not run`);
+                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0, failed: 0 });
                 return;
             }
 
             let items: { appid: number; name: string }[];
+            let newCount = 0,
+                missingCount = 0;
             if (force || options?.onlyAppids) {
                 const only = options?.onlyAppids ? new Set(options.onlyAppids) : null;
                 items = deps.shortcuts().filter((s) => (!only || only.has(s.appid)) && deps.isAllowed(s.appid as ShortcutId));
@@ -169,26 +186,43 @@ export function createIngest(deps: IngestDeps): Ingest {
                               deps.needsFetch!(s.appid as ShortcutId),
                       )
                     : [];
+                newCount = newItems.length;
+                missingCount = missingItems.length;
                 items = [...newItems, ...missingItems];
             }
 
             if (items.length === 0) {
-                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0 });
+                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0, failed: 0 });
+                deps.report?.(`sync idle (${reason}): nothing to walk`);
                 return;
             }
 
             logger.info(`Ingest: ${items.length} shortcut(s)${force ? " (forced)" : ""}...`);
-            setProgress({ isSyncing: true, total: items.length, current: 0, currentGame: items[0]?.name ?? "", phase: "scraping" });
+            deps.report?.(
+                force || options?.onlyAppids
+                    ? `sync start (${reason}, forced): ${items.length} games`
+                    : `sync start (${reason}): ${items.length} to walk (${newCount} new, ${missingCount} missing)`,
+            );
+            setProgress({ isSyncing: true, total: items.length, current: 0, currentGame: items[0]?.name ?? "", phase: "scraping", failed: 0 });
 
+            let walked = 0;
+            let failed = 0;
             for (const [i, item] of items.entries()) {
-                setProgress({ current: i + 1, currentGame: item.name });
-                let outcome = { stop: false, done: false };
+                walked++;
+                setProgress({ current: i + 1, currentGame: item.name, failed });
+                let outcome = { stop: false, done: false, errors: [] as string[] };
                 try {
                     outcome = await ingestOne(item, force);
                 } catch (e) {
-                    logger.warn(`Ingest failed for ${item.appid}:`, e);
+                    outcome = { stop: false, done: false, errors: [String((e as Error)?.message ?? e)] };
+                }
+                if (outcome.errors.length > 0) {
+                    failed++;
+                    setProgress({ failed });
+                    deps.report?.(`sync game "${item.name}": ${outcome.errors[0]}`);
                 }
                 if (outcome.stop) {
+                    deps.report?.(`sync paused (${reason}): a source is rate-limited; stops at ${item.name}, resumes next run`);
                     logger.warn("A source is paused (rate limit or repeated errors); ingest stops and resumes next run.");
                     break;
                 }
@@ -200,7 +234,8 @@ export function createIngest(deps: IngestDeps): Ingest {
                 await deps.sleep(PAUSE_MS);
             }
 
-            setProgress({ isSyncing: false, phase: "complete" });
+            setProgress({ isSyncing: false, phase: "complete", failed });
+            deps.report?.(`sync done (${reason}): walked ${walked} of ${items.length}${failed > 0 ? `, ${failed} failed` : ""}`);
             // Back to idle after a few seconds.
             const idle = setTimeout(() => {
                 if (!running) setProgress({ phase: "idle" });
@@ -208,13 +243,14 @@ export function createIngest(deps: IngestDeps): Ingest {
             idle.unref?.(); // never hold a Node test process open
         } catch (e) {
             logger.error("Ingest failed:", e);
-            setProgress({ isSyncing: false, phase: "idle" });
+            deps.report?.(`sync error (${reason}): ${String((e as Error)?.message ?? e)}`);
+            setProgress({ isSyncing: false, phase: "idle", failed: 0 });
         } finally {
             running = false;
             if (pending) {
                 const next = pending;
                 pending = null;
-                const again = { forceAll: next.forceAll, onlyAppids: next.only ? [...next.only] : undefined };
+                const again = { forceAll: next.forceAll, onlyAppids: next.only ? [...next.only] : undefined, reason: next.reason };
                 (deps.schedule ?? ((fn, ms) => void setTimeout(fn, ms)))(() => void startSync(again).finally(() => next.waiters.forEach((w) => w())), 1000);
             }
         }
@@ -222,11 +258,11 @@ export function createIngest(deps: IngestDeps): Ingest {
 
     return {
         startSync,
-        triggerSync(delayMs = 500) {
+        triggerSync(delayMs = 500, reason = "sync") {
             if (debounce) clearTimeout(debounce);
             debounce = setTimeout(() => {
                 debounce = null;
-                void startSync();
+                void startSync({ reason });
             }, delayMs);
         },
         getSyncProgress: () => progress,

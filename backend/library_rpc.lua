@@ -30,4 +30,10 @@ M.ValidateGame = method("ValidateGame", function(data)
   return library.validate(need(data, "appid"), need(data, "answer"), data.collections)
 end, { user_action = true })
 
+--- { appids = [...] } -> { confirmed = [...], skipped = n, failed = { [appid] = err } }. The window fetches the
+--- confirmed games after; answered games and games with nothing proposed are skipped.
+M.ValidateAllProposed = method("ValidateAllProposed", function(data)
+  return library.validate_all(type(data.appids) == "table" and data.appids or {})
+end, { user_action = true })
+
 return M

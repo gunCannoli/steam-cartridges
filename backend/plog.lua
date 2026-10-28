@@ -21,6 +21,7 @@ M.deps = {
 
 local installed = false
 local writes = 0
+local errors = 0
 local original = nil
 
 local function log_path()
@@ -118,7 +119,8 @@ end
 ---@param level string
 ---@param msg any
 function M.write(level, msg)
-  if not installed then return end -- nothing is written before main.lua installs the log (offline tests stay clean)
+  if not installed then return end
+  if level == "ERROR" then errors = errors + 1 end -- nothing is written before main.lua installs the log (offline tests stay clean)
   pcall(function()
     local path = log_path()
     writes = writes + 1
@@ -164,6 +166,7 @@ end
 --- Test hook.
 function M._reset()
   known, known_at = {}, 0
+  errors = 0
   if installed and original ~= nil then package.loaded["logger"] = original end
   installed, writes, original = false, 0, nil
 end
@@ -196,6 +199,8 @@ function M.tail(max_bytes)
 end
 
 function M.path() return log_path() end
+--- ERROR lines written this session (the unload summary reports it).
+function M.error_count() return errors end
 
 --- Remove the log (both files). Used by Settings > Support > Clear.
 function M.clear()

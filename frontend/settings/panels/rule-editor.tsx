@@ -120,7 +120,7 @@ export function RuleEditorWindow({ index, closeModal }: { index?: number; closeM
         if (index !== undefined && copy[index]) copy[index] = rule;
         else copy.push(rule);
         setRules(copy);
-        ctx.ingest.trigger(100);
+        ctx.ingest.trigger(100, "rules");
         closeModal?.();
     };
 

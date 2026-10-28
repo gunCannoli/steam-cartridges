@@ -120,7 +120,7 @@ export function GameForm({ appid, library, single = false }: { appid: number; li
                         description="Looks the game up again in every source"
                         buttonLabel="Fetch now"
                         disabled={busy}
-                        onClick={() => run(() => ctx.ingest.start({ forceAll: true, onlyAppids: [appid] }), "Looked up again.", "Looking the game up in every source...")}
+                        onClick={() => run(() => ctx.ingest.start({ forceAll: true, onlyAppids: [appid], reason: "fetch-now" }), "Looked up again.", "Looking the game up in every source...")}
                     />
                     <ButtonRow
                         label={ignored ? "Stop ignoring" : "Ignore issues"}

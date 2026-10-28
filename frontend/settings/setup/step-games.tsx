@@ -65,6 +65,8 @@ export function GamesStep({
     const [query, setQuery] = useState("");
     const [appid, setAppid] = useState<number | undefined>();
     const [notes, setNotes] = useState<Notes>({});
+    const [confirming, setConfirming] = useState(false);
+    const [bulkMsg, setBulkMsg] = useState<string | undefined>();
     const [sweep, setSweep] = useState<{ current: number; total: number; name: string } | undefined>();
     const closed = useRef(false);
     const refreshed = useRef(new Set<number>());
@@ -107,7 +109,10 @@ export function GamesStep({
         try {
             const row = await ctx.setup.detect(id);
             if (row.error) note(id, row.error);
-            else {
+            else if (row.no_sources) {
+                put(row);
+                note(id, "No source searched it: turn on a source in step 1 (Metadata), then Find matches again.");
+            } else {
                 put(row);
                 note(id, undefined);
             }
@@ -125,6 +130,34 @@ export function GamesStep({
         }
         setSweep(undefined);
         setSearched(true);
+    }
+
+    /** Confirm every proposal in the list at once (reversing decision 6): chunked calls validate them (one call per ten games: Millennium drops the caller after 30 s), one run fetches them, then the list is re-read. */
+    async function confirmAll(): Promise<void> {
+        if (proposed.length === 0 || confirming || sweep) return;
+        setConfirming(true);
+        setBulkMsg(undefined);
+        try {
+            const total = proposed.length;
+            const res = await ctx.setup.validateAll(
+                proposed.map((r) => r.appid),
+                (done) => setBulkMsg(`Confirming ${done} of ${total}...`),
+            );
+            for (const [id, err] of Object.entries(res.failed ?? {})) note(Number(id), String(err));
+            setBulkMsg(
+                res.fetchError
+                    ? `Confirmed ${res.confirmed.length} games, but their fetch failed: ${res.fetchError}`
+                    : `Confirmed ${res.confirmed.length} game${res.confirmed.length === 1 ? "" : "s"} and fetching them.`,
+            );
+            const next = await ctx.setup.scan();
+            if (!closed.current && !next.error) setRows(scopeOnly ? next.games.filter((g) => scopeOnly(g.appid)) : next.games);
+            else if (next.error) setListError(next.error);
+            await library.refresh();
+        } catch (e) {
+            setBulkMsg(String((e as Error)?.message ?? e));
+        } finally {
+            if (!closed.current) setConfirming(false);
+        }
     }
 
     /** The user's answer; then the next game that needs them, in the list's order. */
@@ -157,6 +190,7 @@ export function GamesStep({
     const shown = (rows ?? []).filter((r) => (matchesFilter(r, filter) && matchesQuery(r, query)) || r.appid === appid).sort(compareNames);
     const waiting = (rows ?? []).filter((r) => askOf(r) === "detect").length;
     const needsYou = (rows ?? []).filter((r) => matchesFilter(r, "needs-you")).length;
+    const proposed = (rows ?? []).filter((r) => askOf(r) === "answer");
     const chosen = rows?.find((r) => r.appid === appid);
     // Onboarding: nothing to answer until the games were looked up (the list waits, greyed out).
     const locked = gateOnFind && waiting > 0 && !searched;
@@ -191,7 +225,7 @@ export function GamesStep({
                 <ItemRow>
                     <Field
                         label={`Games to set up: ${needsYou}`}
-                        description="Click Find matches to look every game up on your sources. Then confirm each proposed match below; nothing is saved until you confirm."
+                        description="Click Find matches to look every game up on your sources. Then confirm each proposed match below, or all at once; nothing is saved until you confirm."
                         disabled={!!sweep || waiting === 0}
                         bottomSeparator="none"
                     >
@@ -200,6 +234,21 @@ export function GamesStep({
                         </DialogButton>
                     </Field>
                 </ItemRow>
+                {proposed.length > 0 && (
+                    <ItemRow>
+                        <Field
+                            label={`Confirm all proposed (${proposed.length})`}
+                            description="Confirms every proposed match at once, then fetches the games. Games with nothing proposed still need you."
+                            disabled={confirming || !!sweep}
+                            bottomSeparator="none"
+                        >
+                            <DialogButton disabled={confirming || !!sweep} onClick={() => void confirmAll()} style={BUTTON_STYLE}>
+                                {confirming ? "Confirming..." : `Confirm ${proposed.length} game${proposed.length === 1 ? "" : "s"}`}
+                            </DialogButton>
+                        </Field>
+                    </ItemRow>
+                )}
+                {bulkMsg && <ActionRow message={bulkMsg} />}
                 {rows === undefined && !listError && <ActionRow message="Reading your library..." />}
                 {sweep && <ActionRow message={`Looking up ${sweep.current} of ${sweep.total}: ${sweep.name}...`} />}
                 {listError && <ActionRow message={listError} />}

@@ -3,7 +3,7 @@
   "name": "steam-cartridges",
   "common_name": "Steam Cartridges",
   "description": "Makes non-Steam games feel native: Steam's own activity page from your captures, plus optional metadata and artwork.",
-  "version": "0.6.1-beta",
+  "version": "0.6.2-beta",
   "useBackend": true,
   "backendType": "lua"
 }

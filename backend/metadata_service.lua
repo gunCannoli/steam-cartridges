@@ -31,6 +31,7 @@ M.deps = {
   igdb_by_id = nil,       -- fun(appid, igdb_id, title) -> meta|nil, err ; nil = igdb.fetch_by_id (a linked game's refresh)
   screenscraper_by_id = nil, -- fun(appid, ss_id, title) -> meta|nil, err ; nil = screenscraper_media.jeu_by_id, mapped
   appdetails_fetch = nil, -- nil = appdetails.fetch
+  web_creds = nil,          -- fun() -> { igdb = bool, screenscraper = bool } ; nil = the accounts on disk (web_config, no network)
   provided = nil,         -- fun(appid) -> pushed record | nil ; nil = provided_store.get (ADR-0067)
   shortcut_info = nil,    -- nil = registry.shortcut (the shortcuts.vdf entry)
   now = function() return os.time() end,
@@ -305,6 +306,37 @@ local function is_fallback(rec)
 end
 M.is_fallback = is_fallback
 
+--- Which web sources could answer a lookup right now: the accounts on disk, never the network. A source that
+--- is off or has no account is never asked (ADR-0096).
+local function web_creds()
+  if M.deps.web_creds then return M.deps.web_creds() or {} end
+  local ok, web_config = pcall(require, "web_config")
+  if not ok then return {} end
+  local function has(get)
+    local ok_v, v = pcall(get)
+    return ok_v and v and true or false
+  end
+  return {
+    igdb = has(web_config.get_twitch_credentials),
+    screenscraper = has(web_config.get_screenscraper_credentials),
+  }
+end
+
+--- What the web tier could answer when a fallback was saved (or now): "igdb=0/1,ss=0/1". A source that gains an
+--- account changes the signature, so the games saved before it are asked again.
+function M.answer_signature()
+  local c = web_creds()
+  return "igdb=" .. (c.igdb and "1" or "0") .. ",ss=" .. (c.screenscraper and "1" or "0")
+end
+
+--- A saved fallback is due when the web tier can answer more than when it was saved, else on the normal 24 h
+--- cadence like any other record. A fallback from before the stamp asks once.
+function M.fallback_due(appid, rec, now)
+  local stamped = type(rec) == "table" and rec.answer_sig
+  if stamped ~= M.answer_signature() then return true end
+  return fresh().is_stale(appid, "metadata", { status = "ok" }, now)
+end
+
 --- The Game Info fields a source may leave empty that another can fill (titles and player flags never mix).
 M.GAP_FIELDS = { "description", "developers", "publishers", "release_date", "genres", "franchises" }
 
@@ -433,10 +465,12 @@ function M.ensure(appid, ctx)
     -- as soon as the copy is known (the store comes first).
     local due = ctx.force or fresh().is_stale(appid, "metadata", { status = "ok", source = "local_db" }, now_ms())
       or (use_store and local_rec.store_source ~= pushed.source)
-      -- An empty fallback record is asked again whenever a source may be, at most every 30 min (the error TTL), not
-      -- after 24 h: adding IGDB or ScreenScraper must reach the games that were added before it.
+      -- An empty fallback record is asked again when the web tier can answer more than when it was saved (an
+      -- account was added: the signature changed), else on the normal 24 h cadence. Re-asking every 30 min kept a
+      -- setup with no accounts re-fetching its whole library on every sync (ADR-0096: a source with no account is
+      -- never asked).
       or (is_fallback(local_rec) and (ctx.allowWeb or ctx.allowScreenscraper)
-        and fresh().is_stale(appid, "metadata", { status = "error" }, now_ms()))
+        and M.fallback_due(appid, local_rec, now_ms()))
     if not (due and can_fetch) then
       -- The view's paint (ADR-0060) shows the record now and flags it when a source would refresh it.
       local stale = (ctx.noNetwork and due and (ctx.allowWeb or ctx.allowScreenscraper)) and true or nil
@@ -446,6 +480,11 @@ function M.ensure(appid, ctx)
     return { status = "pending", checkedAt = now_ms() }
   end
 
+  -- Why a settled game is fetched again, in the log (a quiet skip needs no line: the sync summary covers it).
+  if local_rec and is_fallback(local_rec) and (ctx.allowWeb or ctx.allowScreenscraper)
+    and local_rec.answer_sig ~= M.answer_signature() then
+    note("answer-sig changed for " .. tostring(appid) .. " (a source gained an account): asking again")
+  end
   local info = shortcut_info(appid)
   note(string.format("fetch for %s (%q): bucket=%s via=%s allowWeb=%s allowScreenscraper=%s force=%s store=%s",
     tostring(appid), title, tostring(route.bucket), tostring(route.via), tostring(ctx.allowWeb),
@@ -485,8 +524,13 @@ function M.ensure(appid, ctx)
   end
 
   if local_rec then
-    -- A refresh that found nothing keeps what we have and comes due again after the short error TTL.
+    -- A refresh that found nothing keeps what we have and comes due again after the short error TTL. A fallback
+    -- kept this way stamps what was tried, so it settles instead of asking every 30 min (M.fallback_due).
     fresh().touch(appid, "metadata", now_ms(), "error")
+    if is_fallback(local_rec) and local_rec.answer_sig ~= M.answer_signature() then
+      local_rec.answer_sig = M.answer_signature()
+      metadata_db.set(appid, local_rec)
+    end
     return { status = "ok", data = local_rec, source = "local_db", checkedAt = now_ms() }
   end
 
@@ -500,6 +544,7 @@ function M.ensure(appid, ctx)
 
   note("no source had " .. tostring(appid) .. " (" .. title .. "): saving the empty fallback record")
   local fallback = fallback_record(appid, title)
+  fallback.answer_sig = M.answer_signature()
   metadata_db.set(appid, fallback)
   fresh().touch(appid, "metadata", now_ms())
   return { status = "ok", data = fallback, source = "fallback", checkedAt = now_ms() }

@@ -71,8 +71,10 @@ export function SyncProgressBar() {
                     }}
                 >
                     {progress.phase === "complete"
-                        ? `✓ Scrape & mirror complete (${progress.total} games)`
-                        : `🔄 Scraping & Mirroring: ${progress.current} / ${progress.total} games (${percent}%)`}
+                        ? progress.failed > 0
+                            ? `✓ Walk done: ${progress.total} games, ${progress.failed} failed (see the plugin log)`
+                            : `✓ Scrape & mirror complete (${progress.total} games)`
+                        : `🔄 Scraping & Mirroring: ${progress.current} / ${progress.total} games (${percent}%)${progress.failed > 0 ? `, ${progress.failed} failed` : ""}`}
                 </span>
                 {progress.isSyncing && progress.currentGame ? (
                     <span

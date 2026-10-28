@@ -117,6 +117,7 @@ ClientLog = LOG_RPC.ClientLog
 LibraryScan   = LIBRARY_RPC.LibraryScan
 LibraryDetect = LIBRARY_RPC.LibraryDetect
 ValidateGame  = LIBRARY_RPC.ValidateGame
+ValidateAllProposed = LIBRARY_RPC.ValidateAllProposed
 
 local function on_load()
   -- Resolve paths eagerly so a misconfigured install shows up in the log at
@@ -133,15 +134,27 @@ local function on_load()
   logger:info("self-check: cwd=" .. tostring(ok_cwd and cwd or "unavailable")
     .. ", data_dir=" .. tostring(data_dir.path()))
 
-  -- What a bug report needs first: where things are and which services are set up (yes/no, never a value).
+  -- What a bug report needs first: which plugin this is, where things are and which services are set up (yes/no, never a value).
   local plog = require("plog")
   local function yn(v) return v and "yes" or "no" end
   local ok_v, mver = pcall(function() return millennium.version() end)
-  plog.event("startup", string.format("os=%s millennium=%s steam=%s data_dir=%s log=%s", require("platform").os_name(),
+  local ok_pv, pv = pcall(function() return require("plugin_version").get() end)
+  if not ok_pv or type(pv) ~= "table" then pv = { name = "unknown", version = "unknown" } end
+  plog.event("startup", string.format("plugin=%s %s os=%s millennium=%s steam=%s data_dir=%s log=%s",
+    tostring(pv.name), tostring(pv.version), require("platform").os_name(),
     tostring(ok_v and mver or "unknown"), tostring(paths and paths.root), data_dir.path(), plog.path()))
-  plog.event("startup", string.format("credentials: igdb=%s screenscraper=%s steamgriddb=%s retroachievements=%s; shortcuts=%s",
+  -- RetroAchievements also works through an emulator login, not just .env: the status is read once for both lines.
+  local ok_emu, emu_status = pcall(function() return require("retroachievements").get_emulator_status() end)
+  if not ok_emu or type(emu_status) ~= "table" then emu_status = {} end
+  local emu_list = emu_status.emulators or emu_status
+  if type(emu_list) ~= "table" then emu_list = {} end
+  local ra_login = yn(config.get_retroachievements_credentials())
+  for _, e in ipairs(emu_list) do
+    if type(e) == "table" and e.authenticated then ra_login = "yes" end
+  end
+  plog.event("startup", string.format("credentials: igdb=%s screenscraper=%s steamgriddb=%s retroachievements=%s ra_login=%s; shortcuts=%s",
     yn(config.get_twitch_credentials()), yn(config.get_screenscraper_credentials()), yn(config.get_api_key()),
-    yn(config.get_retroachievements_credentials()),
+    yn(config.get_retroachievements_credentials()), ra_login,
     tostring(paths and paths.shortcuts and #(require("shortcuts").parse(paths.shortcuts) or {}) or "unknown")))
 
   -- Can the data folder be written? Settings, answers and fetched data all live there; the path comes from
@@ -158,9 +171,10 @@ local function on_load()
   -- (booleans and counts only: no name, key, path or rule text).
   pcall(function()
     local parts = {}
-    local status = require("retroachievements").get_emulator_status() or {}
-    for _, e in ipairs(status.emulators or status) do
-      parts[#parts + 1] = string.format("%s=%s", tostring(e.name):gsub("[^%w]+", ""):lower(), e.authenticated and "signed-in" or e.detected and "found" or "not-found")
+    for _, e in ipairs(emu_list) do
+      if type(e) == "table" then
+        parts[#parts + 1] = string.format("%s=%s", tostring(e.name):gsub("[^%w]+", ""):lower(), e.authenticated and "signed-in" or e.detected and "found" or "not-found")
+      end
     end
     plog.event("startup", "emulators: " .. table.concat(parts, ", "))
   end)
@@ -171,13 +185,10 @@ local function on_load()
     end
     plog.event("startup", "native ports (games launching each): " .. table.concat(parts, ", "))
   end)
+  -- Every option in the settings panel, as flags and counts (settings_summary.lua: no pattern, name, key or path).
   pcall(function()
-    local v = require("settings_store").get_all()
-    local on = {}
-    for k, x in pairs(type(v.services) == "table" and v.services or {}) do if x == true and k ~= "rpcs3Enabled" then on[#on + 1] = (k:gsub("Enabled$", "")) end end
-    table.sort(on)
-    local rules = type(v.routingRules) == "table" and #v.routingRules or 0
-    plog.event("startup", string.format("configuration: sources on=[%s], routing rules=%d", table.concat(on, ","), rules))
+    local lines = require("settings_summary").lines(require("settings_store").get_all())
+    for _, line in ipairs(lines) do plog.event("startup", line) end
   end)
 
   -- Keys an earlier version saved as plain text are protected now (ADR-0099); the log says which store is in use.
@@ -186,16 +197,50 @@ local function on_load()
     plog.event("startup", string.format("credentials store: %s (%d protected now, %d already, %d plain)", r.store == "none" and "none: plain text" or r.store, r.protected, r.already, r.plain))
   end)
 
-  -- Why a library can look empty: is the file there, how many shortcuts, and how many had no appid of their own (Linux tools).
+  -- Why a library can look empty: is the file there, did it read, how many shortcuts, and how many had no appid of their own (Linux tools).
   do
     local sp = paths and paths.shortcuts
     local okf, there = pcall(function() return sp and require("fs").is_file(sp) end)
-    local list = (okf and there and require("shortcuts").parse(sp)) or {}
+    local list, read_err = {}, nil
+    if okf and there then
+      local okp, parsed, perr = pcall(require("shortcuts").parse, sp)
+      if okp and type(parsed) == "table" then list = parsed
+      elseif not okp then read_err = tostring(parsed)
+      else read_err = tostring(perr or "unreadable") end
+    end
     local derived = 0
-    for _, e in ipairs(list) do if e.appid_derived then derived = derived + 1 end end
-    plog.event("startup", string.format("shortcuts file: %s (%s); entries=%d, without an appid of their own=%d",
-      tostring(sp), okf and there and "found" or "NOT FOUND", #list, derived))
+    for _, e in ipairs(list) do if type(e) == "table" and e.appid_derived then derived = derived + 1 end end
+    plog.event("startup", string.format("shortcuts file: %s (%s); entries=%d, without an appid of their own=%d%s",
+      tostring(sp), okf and there and "found" or "NOT FOUND", #list, derived,
+      read_err and ("; READ ERROR: " .. read_err) or ""))
   end
+
+  -- What the plugin holds from earlier runs (counts only, never a title, id or value): a report answers
+  -- "mapped but empty" vs "never fetched" without opening the data files. `new` seeds the known-shortcuts
+  -- file on the first run, exactly as its first caller would.
+  pcall(function()
+    local function count(t) local n = 0 if type(t) == "table" then for _ in pairs(t) do n = n + 1 end end return n end
+    local function len(v) return type(v) == "table" and #v or 0 end
+    local st = require("steam_store_store").get_state()
+    local new = require("registry").new_shortcuts()
+    plog.event("startup", string.format("stored: mappings=%d, suggestions=%d, rejected=%d, achievements=%d, proposals=%d, choices=%d; new since last run=%d",
+      count(type(st) == "table" and st.mappings), count(type(st) == "table" and st.suggestions),
+      count(type(st) == "table" and st.rejected), len(require("achievements_store").shortcut_keys()),
+      len(require("proposals_store").keys()), count(require("choices_store").all()), len(new)))
+  end)
+
+  -- Stored health (freshness.json): per part, how many games last ended in error vs unsupported. Counts only.
+  pcall(function()
+    local parts = { "identity", "metadata", "artwork", "media", "achievements" }
+    local counts = require("fresh_policy").error_counts(parts)
+    local cells = {}
+    for _, part in ipairs(parts) do
+      local c = type(counts) == "table" and counts[part] or nil
+      cells[#cells + 1] = string.format("%s: %d error, %d unsupported",
+        part, type(c) == "table" and c.error or 0, type(c) == "table" and c.unsupported or 0)
+    end
+    plog.event("startup", "stored health: " .. table.concat(cells, "; "))
+  end)
 
   -- A migration failure logs and continues.
   local ok_m, err_m = pcall(migrate.run)
@@ -238,6 +283,23 @@ local function on_frontend_loaded()
 end
 
 local function on_unload()
+  -- The session in one line: how many requests each source answered, which sources are paused, and how many
+  -- errors were logged. Counts and source names only.
+  pcall(function()
+    local stats = require("net").stats()
+    local calls, paused = {}, {}
+    if type(stats) == "table" and type(stats.http_calls) == "table" then
+      for src, n in pairs(stats.http_calls) do calls[#calls + 1] = tostring(src) .. "=" .. tostring(n) end
+    end
+    table.sort(calls)
+    if type(stats) == "table" and type(stats.paused) == "table" then
+      for src in pairs(stats.paused) do paused[#paused + 1] = tostring(src) end
+    end
+    table.sort(paused)
+    require("plog").event("shutdown", string.format("requests: %s; paused: %s; errors logged: %d",
+      #calls > 0 and table.concat(calls, ", ") or "none",
+      #paused > 0 and table.concat(paused, ", ") or "none", require("plog").error_count()))
+  end)
   logger:info("Backend unloading.")
 end
 

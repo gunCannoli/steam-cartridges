@@ -189,6 +189,28 @@ function M.keys()
   return out
 end
 
+--- How many games last ended each part in "error" vs "unsupported" (freshness.json): counts only, for the
+--- startup health line. `parts` names the parts to count; unknown entries are skipped, never throw.
+---@param parts string[]
+---@return table<string, { error: integer, unsupported: integer }>
+function M.error_counts(parts)
+  local out = {}
+  for _, part in ipairs(type(parts) == "table" and parts or {}) do
+    if type(part) == "string" then out[part] = { error = 0, unsupported = 0 } end
+  end
+  local all = load().parts
+  if type(all) ~= "table" then return out end
+  for _, entry in pairs(all) do
+    if type(entry) == "table" then
+      for part, c in pairs(out) do
+        local st = entry[part .. "_status"]
+        if st == "error" then c.error = c.error + 1 elseif st == "unsupported" then c.unsupported = c.unsupported + 1 end
+      end
+    end
+  end
+  return out
+end
+
 --- Forget one part's check, so it counts as never checked (and any remembered unsupported / error with it).
 function M.forget_part(appid, part)
   local entry = load().parts[key(appid)]
