@@ -3,10 +3,11 @@
 // proposed). Each game is answered by the user, one at a time, inline: Yes / No on a proposal, a manual link (platform and
 // the Game Data editor's links) after No or when nothing fits, then an achievement source or "No achievements". There is
 // no bulk validate (decision 6). A Yes or a link fetches that game. Reads the app only through usePanelContext().
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DialogButton, Dropdown, Field } from "@steambrew/client";
 import { ActionRow, BLOCK_GAP, Blocks, Card, CONTROL_GAP, FullWidthRows, ItemRow, TextRows, BUTTON_STYLE } from "../components";
 import { usePanelContext } from "../context";
+import { backend } from "../../ports/backend";
 import { GameForm } from "../game-editor/game-form";
 import { useLibraryIssues, type LibraryIssues } from "../game-editor/library-issues";
 import {
@@ -43,13 +44,16 @@ type Notes = Record<number, string>;
 /** `autoDetect`: Refresh library (plan § 7.5) looks up every game that was never answered as soon as the list is read. */
 export function GamesStep({
     autoDetect = false,
-    scopeOnly,
+    scope,
+    excluded = 0,
     onPending,
     gateOnFind = false,
 }: {
     autoDetect?: boolean;
-    /** First run (ADR-0088): list only the games this says the rules put in scope; the rest are counted in the header. */
-    scopeOnly?: (appid: number) => boolean;
+    /** The rules' in-scope games (the window's scope set); the list shows only these, the rest are counted in the header (plan phase 6). Undefined (Refresh library) shows every game. A set, not a predicate, so a late rules read re-filters the list instead of freezing the first render's answer. */
+    scope?: ReadonlySet<number>;
+    /** Games the scan read that are out of scope (the header's count). */
+    excluded?: number;
     /** The games still waiting to be set up in what the list shows (for the onboarding log line). */
     onPending?: (pending: number) => void;
     /** Onboarding: the list waits (greyed out) until the matches were looked up, so the user answers with the proposals in front of them. */
@@ -86,50 +90,72 @@ export function GamesStep({
             .scan()
             .then((res) => {
                 if (closed.current) return;
-                const games = scopeOnly ? res.games.filter((g) => scopeOnly(g.appid)) : res.games;
-                setRows(games);
+                // Raw rows: the scope filter is derived at render (a late rules read re-filters; a mount-time filter froze).
+                setRows(res.games);
                 setPlatforms(res.platforms);
                 setListError(res.error);
                 // The first game the list shows (it is sorted by name), not the first the scan returned.
+                const games = scope ? res.games.filter((g) => scope.has(g.appid)) : res.games;
                 const sorted = [...games].sort(compareNames);
                 const first = sorted.find((g) => matchesFilter(g, "needs-you"));
-                if (!first) setFilter("all"); // nothing waits for the user: show every game, not an empty list
+                if (!first && games.length > 0) setFilter("all"); // nothing waits for the user: show every game, not an empty list
                 setAppid((first ?? sorted[0])?.appid);
                 if (autoDetect) void detectAll(games);
             })
-            .catch((e) => setListError(String(e?.message ?? e)));
+            .catch((e) => {
+                const msg = String(e?.message ?? e);
+                backend.logEvent("setup", `games list scan failed: ${msg.slice(0, 120)}`);
+                setListError(msg);
+            });
         return () => {
             closed.current = true; // the window closed: a running Detect stops after its current game
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    async function detect(id: number): Promise<void> {
+    async function detect(id: number): Promise<"proposed" | "link" | "no-sources" | "error"> {
         note(id, "Looking the game up...");
         try {
             const row = await ctx.setup.detect(id);
-            if (row.error) note(id, row.error);
-            else if (row.no_sources) {
+            if (row.error) {
+                note(id, row.error);
+                return "error";
+            }
+            if (row.no_sources) {
                 put(row);
                 note(id, "No source searched it: turn on a source in step 1 (Metadata), then Find matches again.");
-            } else {
-                put(row);
-                note(id, undefined);
+                return "no-sources";
             }
+            put(row);
+            note(id, undefined);
+            return askOf(row) === "answer" ? "proposed" : "link";
         } catch (e) {
-            note(id, String((e as Error)?.message ?? e));
+            const msg = String((e as Error)?.message ?? e);
+            note(id, msg);
+            backend.logEvent("setup", `detect ${id} failed: ${msg.slice(0, 120)}`);
+            return "error";
         }
     }
 
-    async function detectAll(list: SetupGame[] | undefined = rows): Promise<void> {
+    async function detectAll(list: SetupGame[] | undefined = visible): Promise<void> {
         const todo = (list ?? []).filter((r) => askOf(r) === "detect");
+        const tally = { proposed: 0, link: 0, nosources: 0, errors: 0 };
         for (const [i, game] of todo.entries()) {
             if (closed.current) break;
             setSweep({ current: i + 1, total: todo.length, name: game.name });
-            await detect(game.appid);
+            const out = await detect(game.appid);
+            if (out === "proposed") tally.proposed++;
+            else if (out === "link") tally.link++;
+            else if (out === "no-sources") tally.nosources++;
+            else tally.errors++;
         }
         setSweep(undefined);
         setSearched(true);
+        if (todo.length > 0)
+            backend.logEvent(
+                "setup",
+                `Find matches: ${todo.length} looked up, ${tally.proposed} proposed, ${tally.link} need a link, ${tally.nosources} no sources, ${tally.errors} errors`,
+            );
     }
 
     /** Confirm every proposal in the list at once (reversing decision 6): chunked calls validate them (one call per ten games: Millennium drops the caller after 30 s), one run fetches them, then the list is re-read. */
@@ -144,17 +170,22 @@ export function GamesStep({
                 (done) => setBulkMsg(`Confirming ${done} of ${total}...`),
             );
             for (const [id, err] of Object.entries(res.failed ?? {})) note(Number(id), String(err));
+            const failedN = Object.keys(res.failed ?? {}).length;
+            const summary = `confirmed ${res.confirmed.length} games${failedN > 0 ? `, ${failedN} failed` : ""}${res.fetchError ? `, fetch failed: ${res.fetchError.slice(0, 100)}` : ""}`;
+            backend.logEvent("setup", summary);
             setBulkMsg(
                 res.fetchError
                     ? `Confirmed ${res.confirmed.length} games, but their fetch failed: ${res.fetchError}`
                     : `Confirmed ${res.confirmed.length} game${res.confirmed.length === 1 ? "" : "s"} and fetching them.`,
             );
             const next = await ctx.setup.scan();
-            if (!closed.current && !next.error) setRows(scopeOnly ? next.games.filter((g) => scopeOnly(g.appid)) : next.games);
+            if (!closed.current && !next.error) setRows(next.games);
             else if (next.error) setListError(next.error);
             await library.refresh();
         } catch (e) {
-            setBulkMsg(String((e as Error)?.message ?? e));
+            const msg = String((e as Error)?.message ?? e);
+            backend.logEvent("setup", `confirm-all failed: ${msg.slice(0, 120)}`);
+            setBulkMsg(msg);
         } finally {
             if (!closed.current) setConfirming(false);
         }
@@ -174,8 +205,8 @@ export function GamesStep({
             note(row.appid, warnings.length > 0 ? warnings.join(" ") : `✓ ${DONE[answerKind(a)]}`);
             await library.refresh();
             // A warning (a failed fetch) keeps the game on screen so it can be read; otherwise a confirmed game is done and the list moves on.
-            if (warnings.length === 0 && !matchesFilter(next, "needs-you") && rows) {
-                const order = rows.filter((r) => matchesFilter(r, filter));
+            if (warnings.length === 0 && !matchesFilter(next, "needs-you")) {
+                const order = visible.filter((r) => matchesFilter(r, filter));
                 const at = order.findIndex((r) => r.appid === row.appid);
                 const after = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))].find(
                     (r) => r.appid !== row.appid && matchesFilter(r, "needs-you"),
@@ -183,15 +214,21 @@ export function GamesStep({
                 setAppid(after?.appid); // the next game that needs the user, or none: a confirmed game is done here
             }
         } catch (e) {
-            note(row.appid, String((e as Error)?.message ?? e));
+            const msg = String((e as Error)?.message ?? e);
+            note(row.appid, msg);
+            backend.logEvent("setup", `answer ${row.appid} failed: ${msg.slice(0, 120)}`);
         }
     }
 
-    const shown = (rows ?? []).filter((r) => (matchesFilter(r, filter) && matchesQuery(r, query)) || r.appid === appid).sort(compareNames);
-    const waiting = (rows ?? []).filter((r) => askOf(r) === "detect").length;
-    const needsYou = (rows ?? []).filter((r) => matchesFilter(r, "needs-you")).length;
-    const proposed = (rows ?? []).filter((r) => askOf(r) === "answer");
-    const chosen = rows?.find((r) => r.appid === appid);
+    // What the list shows: the scope's games (derived each render, so a late rules read re-filters).
+    const visible = useMemo(() => (scope ? (rows ?? []).filter((r) => scope.has(r.appid)) : (rows ?? [])), [rows, scope]);
+    const visibleSorted = useMemo(() => [...visible].sort(compareNames), [visible]);
+    const shown = visible.filter((r) => (matchesFilter(r, filter) && matchesQuery(r, query)) || r.appid === appid).sort(compareNames);
+    const waiting = visible.filter((r) => askOf(r) === "detect").length;
+    const needsYou = visible.filter((r) => matchesFilter(r, "needs-you")).length;
+    const proposed = visible.filter((r) => askOf(r) === "answer");
+    // The picked game, or the list's first when the pick is not shown (a scope that arrived after the scan).
+    const chosen = visible.find((r) => r.appid === appid) ?? visibleSorted.find((r) => matchesFilter(r, filter)) ?? visibleSorted[0];
     // Onboarding: nothing to answer until the games were looked up (the list waits, greyed out).
     const locked = gateOnFind && waiting > 0 && !searched;
     useEffect(() => onPending?.(needsYou), [needsYou]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -224,12 +261,12 @@ export function GamesStep({
             <Card>
                 <ItemRow>
                     <Field
-                        label={`Games to set up: ${needsYou}`}
+                        label={excluded > 0 ? `Games to set up: ${needsYou} (${excluded} out of scope)` : `Games to set up: ${needsYou}`}
                         description="Click Find matches to look every game up on your sources. Then confirm each proposed match below, or all at once; nothing is saved until you confirm."
                         disabled={!!sweep || waiting === 0}
                         bottomSeparator="none"
                     >
-                        <DialogButton disabled={!!sweep || waiting === 0} onClick={() => void detectAll(rows)} style={BUTTON_STYLE}>
+                        <DialogButton disabled={!!sweep || waiting === 0} onClick={() => void detectAll(visible)} style={BUTTON_STYLE}>
                             {sweep ? "Looking up..." : waiting > 0 ? `Find matches for ${waiting} game${waiting === 1 ? "" : "s"}` : "All looked up"}
                         </DialogButton>
                     </Field>
@@ -252,6 +289,9 @@ export function GamesStep({
                 {rows === undefined && !listError && <ActionRow message="Reading your library..." />}
                 {sweep && <ActionRow message={`Looking up ${sweep.current} of ${sweep.total}: ${sweep.name}...`} />}
                 {listError && <ActionRow message={listError} />}
+                {rows !== undefined && visible.length === 0 && excluded > 0 && (
+                    <ActionRow message="No game is in scope of your rules: add a rule in step 3 (Rules) to set games up." />
+                )}
             </Card>
             <div
                 style={{ display: "flex", flex: 1, minHeight: 0, gap: BLOCK_GAP, ...(locked ? { opacity: 0.4, pointerEvents: "none" } : {}) }}
@@ -272,7 +312,7 @@ export function GamesStep({
                             <Dropdown
                                 rgOptions={SETUP_FILTERS.map((f) => ({
                                     data: f.id,
-                                    label: `${f.label} (${(rows ?? []).filter((r) => matchesFilter(r, f.id)).length})`,
+                                    label: `${f.label} (${visible.filter((r) => matchesFilter(r, f.id)).length})`,
                                 }))}
                                 selectedOption={filter}
                                 onChange={(o) => setFilter(o.data as SetupFilter)}

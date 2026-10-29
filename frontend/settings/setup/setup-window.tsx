@@ -3,8 +3,8 @@
 // is the list of games the user validates (step-games.tsx). Opened by the Library Setup block (panels/library-setup.tsx)
 // through ctx.dialog. Nothing is fetched until the user detects or validates a game in step 4.
 //
-// Onboarding (ADR-0088): until the user finishes or skips, Next needs one source on, the Rules step needs the games
-// waiting to be set up at 150 or fewer (domain/onboarding.ts), and step 4 lists only the games the rules put in scope.
+// Onboarding (ADR-0088): until the user finishes or skips, Next needs one source on. Step 4 lists only the games
+// the rules put in scope (onboarding and later alike; Refresh library is the exception and shows every game).
 import { useEffect, useMemo, useState } from "react";
 import { DialogButton, Field, PanelSection } from "@steambrew/client";
 import { ActionRow, BLOCK_GAP, Blocks, BUTTON_STYLE, Card, COLUMN_STYLE, CONTROL_GAP, ItemRow, SettingsModal } from "../components";
@@ -124,7 +124,13 @@ export function LibrarySetupWindow({
             <Timeline step={step} visited={visited} reach={reach} onStep={go} />
             <div style={{ flex: 1, minHeight: 0, overflowY: last ? "hidden" : "auto", overflowX: "hidden" }}>
                 {last ? (
-                    <GamesStep gateOnFind={limited && !refresh} autoDetect={refresh} scopeOnly={limited && !refresh ? (appid) => ctx.routing.serviceAllowed("all", appid) : undefined} onPending={setGamesPending} />
+                    <GamesStep
+                        gateOnFind={limited && !refresh}
+                        autoDetect={refresh}
+                        scope={!refresh ? scope : undefined}
+                        excluded={!refresh ? rows.length - counts.inScope : 0}
+                        onPending={setGamesPending}
+                    />
                 ) : (
                     <div style={{ ...COLUMN_STYLE, maxWidth: 900, margin: "0 auto", gap: BLOCK_GAP }}>
                         <StepIntro step={step} counts={step === 2 ? counts : null} />

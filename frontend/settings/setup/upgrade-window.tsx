@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { DialogButton, Field, PanelSection } from "@steambrew/client";
 import { ActionRow, Blocks, BUTTON_STYLE, Card, ItemRow, ToggleRow, WindowFrame } from "../components";
 import { usePanelContext } from "../context";
+import { backend } from "../../ports/backend";
 import { LibrarySetupWindow } from "./setup-window";
 
 /** The prompt's share of the screen: a small window (steam/modal.ts gives scales under 0.5 a 700 x 480 floor). */
@@ -35,7 +36,9 @@ export function UpgradeOnboardingWindow({ onDone, closeModal }: { onDone?: () =>
                 keepMetadata: keep.metadata,
             });
         } catch (e) {
-            setMsg(String((e as Error)?.message ?? e));
+            const msg = String((e as Error)?.message ?? e);
+            backend.logEvent("onboarding", `start over failed: ${msg.slice(0, 120)}`);
+            setMsg(msg);
             setBusy(false);
             return;
         }
@@ -51,7 +54,7 @@ export function UpgradeOnboardingWindow({ onDone, closeModal }: { onDone?: () =>
         try {
             await ctx.setup.skipUpgrade();
         } catch {
-            /* the prompt is asked again next time */
+            backend.logEvent("onboarding", "skip answer failed; the prompt is asked again next time");
         }
         onDone?.();
         closeModal?.();

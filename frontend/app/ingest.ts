@@ -90,7 +90,10 @@ export function createIngest(deps: IngestDeps): Ingest {
         const appid = item.appid as ShortcutId;
         const route = deps.routeOf(appid);
         if (route.via === "pending") return { stop: false, done: false, errors: [] }; // collections not ready: try next run
-        if (route.bucket === "none") return { stop: false, done: true, errors: [] }; // ADR-0035: no network for it
+        if (route.bucket === "none") {
+            deps.report?.(`sync skip "${item.name}" (bucket none)`);
+            return { stop: false, done: true, errors: [] }; // ADR-0035: no network for it
+        }
 
         const base = {
             title: item.name,

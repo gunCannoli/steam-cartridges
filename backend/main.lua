@@ -287,17 +287,22 @@ local function on_unload()
   -- errors were logged. Counts and source names only.
   pcall(function()
     local stats = require("net").stats()
-    local calls, paused = {}, {}
+    local calls, failed, paused = {}, {}, {}
     if type(stats) == "table" and type(stats.http_calls) == "table" then
       for src, n in pairs(stats.http_calls) do calls[#calls + 1] = tostring(src) .. "=" .. tostring(n) end
     end
     table.sort(calls)
+    if type(stats) == "table" and type(stats.failed) == "table" then
+      for src, n in pairs(stats.failed) do failed[#failed + 1] = tostring(src) .. "=" .. tostring(n) end
+    end
+    table.sort(failed)
     if type(stats) == "table" and type(stats.paused) == "table" then
       for src in pairs(stats.paused) do paused[#paused + 1] = tostring(src) end
     end
     table.sort(paused)
-    require("plog").event("shutdown", string.format("requests: %s; paused: %s; errors logged: %d",
+    require("plog").event("shutdown", string.format("requests: %s; failed: %s; paused: %s; errors logged: %d",
       #calls > 0 and table.concat(calls, ", ") or "none",
+      #failed > 0 and table.concat(failed, ", ") or "none",
       #paused > 0 and table.concat(paused, ", ") or "none", require("plog").error_count()))
   end)
   logger:info("Backend unloading.")

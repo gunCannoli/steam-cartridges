@@ -56,8 +56,10 @@ function M.http_get(url)
   if M.is_offline() then return nil, "offline" end
   local net = require("net")
   M.acquire()
+  -- `user_agent` as a top-level key: Millennium's binding ignores the header form (knowledgebase "libcurl").
   local res, err = net.get(url, {
     source = "steam-store",
+    user_agent = M.USER_AGENT,
     headers = { ["Accept"] = "application/json", ["User-Agent"] = M.USER_AGENT },
     timeout = M.TIMEOUT,
   })

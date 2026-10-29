@@ -6,6 +6,7 @@ import { DialogButton, Dropdown, Field } from "@steambrew/client";
 import { useSetting } from "../settings";
 import { ruleMatches, type ConditionType, type RoutingRule, type RuleAction, type ServiceTarget } from "../../domain/routing/policy";
 import { usePanelContext } from "../context";
+import { backend } from "../../ports/backend";
 import { BUTTON_STYLE, Card, CONTROL_GAP, FullWidthRows, ItemRow, TextRows, ToggleRow, WindowFrame } from "../components";
 
 type RuleKind = "only" | "exclude" | "advanced";
@@ -120,6 +121,8 @@ export function RuleEditorWindow({ index, closeModal }: { index?: number; closeM
         if (index !== undefined && copy[index]) copy[index] = rule;
         else copy.push(rule);
         setRules(copy);
+        // Shape and reach only in the log: never the rule's name or pattern (user data).
+        backend.logEvent("rules", `${index === undefined ? "added" : "edited"} ${rule.action}/${rule.conditionType} for ${rule.service}, matching ${matchCount} games (${copy.length} rules)`);
         ctx.ingest.trigger(100, "rules");
         closeModal?.();
     };

@@ -56,7 +56,8 @@ end
 ---@param opts? { user_agent?: string, max_bytes?: number }
 function M.get(url, opts)
   local lib = load()
-  if not lib then return nil, "unavailable" end
+  -- WinINet is Windows-only: on Linux there is no binary download yet (images fall back to the frontend's fetch).
+  if not lib then return nil, "not supported on this OS (WinINet is Windows-only)" end
   opts = opts or {}
   local session = lib.InternetOpenA(opts.user_agent or "steam-cartridges/1.0", OPEN_PRECONFIG, nil, nil, 0)
   if session == nil then return nil, "open failed" end

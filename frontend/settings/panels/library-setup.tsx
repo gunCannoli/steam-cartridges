@@ -11,6 +11,7 @@ import { onSettingChange } from "../settings";
 import { LibrarySetupWindow } from "../setup/setup-window";
 import { UPGRADE_SCALE, UpgradeOnboardingWindow } from "../setup/upgrade-window";
 import { waitingCounts, waitingTotal } from "../../domain/library-setup";
+import { backend } from "../../ports/backend";
 
 /** The setup window's share of the screen (plan Q4: 60%, tuned after the first look). */
 const SETUP_SCALE = 0.6;
@@ -40,8 +41,21 @@ export function LibrarySetupSection({ onOnboarded }: { onOnboarded?: (onboarded:
         void ctx.setup
             .scan()
             // Only the games the rules put in scope wait for the user: the others are left alone (ADR-0089).
-            .then((res) => setWaiting(res.error ? 0 : waitingTotal(waitingCounts(res.games.filter((g) => ctx.routing.serviceAllowed("all", g.appid))))))
-            .catch(() => setWaiting(0));
+            .then((res) => {
+                if (res.error) {
+                    setWaiting(0);
+                    backend.logEvent("setup", `scan failed: ${res.error.slice(0, 120)}`);
+                    return;
+                }
+                const inScope = res.games.filter((g) => ctx.routing.serviceAllowed("all", g.appid));
+                const c = waitingCounts(inScope);
+                setWaiting(waitingTotal(c));
+                backend.logEvent("setup", `scan: ${res.games.length} games, ${inScope.length} in scope, ${waitingTotal(c)} to set up (fresh ${c.fresh}, achievements ${c.achievements})`);
+            })
+            .catch((e) => {
+                setWaiting(0);
+                backend.logEvent("setup", `scan RPC failed: ${String(e?.message ?? e).slice(0, 120)}`);
+            });
     };
     useEffect(read, []); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => onLibraryChanged(read), []); // eslint-disable-line react-hooks/exhaustive-deps

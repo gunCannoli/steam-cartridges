@@ -113,8 +113,11 @@ RPC.GetDiagnostics = method("GetDiagnostics", function(_)
     shortcuts        = #entries,
     games_with_media = games_with_media,
     screenshots      = total_shots,
-    -- M7a: outgoing requests per source since the backend started, and sources currently paused.
+    -- M7a: outgoing requests per source since the backend started, failed ones, the last transport
+    -- failure per source, and sources currently paused.
     http_calls       = require("net").stats().http_calls,
+    http_failed      = require("net").stats().failed,
+    http_last_error  = require("net").stats().last_error,
     paused           = require("net").stats().paused,
     -- F2: what the last ScreenScraper name search did (no account, no address).
     ss_search        = require("screenscraper_media").last_search,

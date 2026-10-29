@@ -67,16 +67,20 @@ end
 
 --- Hash only, never title alone: unlocking needs a supported hash, so a title match would attach achievements that can
 --- never unlock (visual-only). A ROM whose hash maps to nothing proposes no set at all, and without a hashable ROM
---- there is no proposal either (same rule as get_or_fetch).
+--- there is no proposal either (same rule as get_or_fetch). No hit: nil + why (the [detect] log line).
 local function ra_lookup(entry)
-  if M.deps.ra then return M.deps.ra(entry) end
+  if M.deps.ra then
+    local hit = M.deps.ra(entry)
+    if hit then return hit end
+    return nil, "miss"
+  end
   local ra = require("retroachievements")
   local rom = ra.extract_rom_path(entry.exe, entry.launch_options)
-  if not rom then return nil end
+  if not rom then return nil, "no-rom" end
   local md5 = ra.compute_rom_md5(rom)
-  if not md5 then return nil end
+  if not md5 then return nil, "hash-fail" end
   local id = ra.get_game_id_by_md5(md5)
-  if not id then return nil end
+  if not id then return nil, "unmapped" end
   local console = ra.detect_console_id(entry.exe, entry.launch_options)
   return { id = tonumber(id), title = ra.game_title(console, id), by = "hash" }
 end
@@ -91,35 +95,64 @@ end
 --- account is never asked: Detect asked ScreenScraper with no account and the backend died (seen live 2026-10-27, ADR-0096).
 local function source_on(flag, has_account)
   local ok, services = pcall(function() return require("settings_store").get_all().services end)
-  if not ok or type(services) ~= "table" or services[flag] ~= true then return false end
+  if not ok or type(services) ~= "table" or services[flag] ~= true then return false, "off" end
   if has_account then
     local ok_a, has = pcall(has_account)
-    return ok_a and has and true or false
+    if ok_a and has then return true end
+    return false, "no-account"
   end
   return true
 end
 
 local function steam_lookup(title)
-  if M.deps.steam then searched_web = true; return M.deps.steam(title) end
-  if not source_on("steamStoreEnabled") then return nil end
+  if M.deps.steam then
+    searched_web = true
+    local hit = M.deps.steam(title)
+    if hit then return hit end
+    return nil, "miss"
+  end
+  local on, why = source_on("steamStoreEnabled")
+  if not on then return nil, why end
   searched_web = true
   local search = require("steam_store_search")
-  return search.proposal(search.search(title, nil, nil)) -- no store: Detect writes no negative cache
+  local res = search.search(title, nil, nil) -- no store: Detect writes no negative cache
+  if type(res) == "table" and res.error then return nil, "error:" .. tostring(res.error):sub(1, 60) end
+  local hit = search.proposal(res)
+  if hit then return hit end
+  return nil, "miss"
 end
 
 local function igdb_lookup(appid, title, info, names)
-  if M.deps.igdb then searched_web = true; return M.deps.igdb(appid, title, info, names) end
-  if not source_on("igdbEnabled", function() return require("web_config").get_twitch_credentials() end) then return nil end
+  if M.deps.igdb then
+    searched_web = true
+    local meta = M.deps.igdb(appid, title, info, names)
+    if meta then return meta end
+    return nil, "miss"
+  end
+  local on, why = source_on("igdbEnabled", function() return require("web_config").get_twitch_credentials() end)
+  if not on then return nil, why end
   searched_web = true
-  return require("web_igdb").fetch_game_metadata(appid, title, info, names)
+  local meta = require("web_igdb").fetch_game_metadata(appid, title, info, names)
+  if meta then return meta end
+  return nil, "miss" -- the [net] lines beside this one carry a transport cause, if there was one
 end
 
 local function screenscraper_lookup(appid, title, info)
-  if M.deps.screenscraper then searched_web = true; return M.deps.screenscraper(appid, title, info) end
-  if not source_on("screenscraperEnabled", function() return require("web_config").get_screenscraper_credentials() end) then return nil end
+  if M.deps.screenscraper then
+    searched_web = true
+    local meta = M.deps.screenscraper(appid, title, info)
+    if meta then return meta end
+    return nil, "miss"
+  end
+  local on, why = source_on("screenscraperEnabled", function() return require("web_config").get_screenscraper_credentials() end)
+  if not on then return nil, why end
   searched_web = true
-  local jeu = require("screenscraper_media").jeu_for(appid, title, info)
-  if not jeu then return nil end
+  local jeu, err = require("screenscraper_media").jeu_for(appid, title, info)
+  if not jeu then
+    if err == "no-credentials" then return nil, "no-account" end
+    if err == "request-failed" then return nil, "error:request-failed" end
+    return nil, "miss"
+  end
   return require("metadata_service").screenscraper_to_metadata(jeu, appid, title)
 end
 
@@ -194,37 +227,67 @@ end
 
 --- Every shortcut, offline. `collections`: { ["<appid>"] = { collection names } } from the app (Steam's collections).
 function M.scan(collections)
+  local counts = {} -- rows by status, for the [scan] log line
   collections = type(collections) == "table" and collections or {}
   local out = {}
   for _, e in ipairs(entries()) do
-    out[#out + 1] = row(e, collections[tostring(e.appid)])
+    local r = row(e, collections[tostring(e.appid)])
+    out[#out + 1] = r
+    counts[r.status or "?"] = (counts[r.status or "?"] or 0) + 1
   end
   -- The manual link's platform list (the Steam one first, as `steam`).
   local list = {}
   for _, p in ipairs(platforms.LIST) do
     if p.id ~= "pc" then list[#list + 1] = { id = p.id, name = p.name } end
   end
+  pcall(function()
+    local parts = {}
+    for status, n in pairs(counts) do parts[#parts + 1] = status .. " " .. n end
+    table.sort(parts)
+    require("plog").event("scan", #out .. " games" .. (#parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or ""))
+  end)
   return { games = out, platforms = list }
+end
+
+--- One line per looked-up game in the plugin log ([detect]): the verdict and what each source said (a hit, a
+--- miss, skipped and why, or the error). Find-matches reports of "nothing was fetched" had no evidence until this
+--- (October 2026, Linux). Never throws.
+local function log_detect(appid, title, verdict_text, attempts, result)
+  pcall(function()
+    local middle = #attempts > 0 and (table.concat(attempts, ", ") .. " => ") or ""
+    require("plog").event("detect", string.format("%s (%s): %s; %s%s",
+      tostring(title), tostring(appid), tostring(verdict_text), middle, tostring(result)))
+  end)
 end
 
 --- Look one game up and store what to propose. Lookups only: no record, no link, no artwork, nothing to Steam.
 function M.detect(appid, collection_names)
   local e, missing = entry_or_missing(appid)
-  if not e then return { error = missing } end
+  if not e then
+    log_detect(appid, "?", "no entry", {}, "missing: " .. tostring(missing))
+    return { error = missing }
+  end
   appid = tonumber(appid)
   searched_web = false
   local title = e.name or ""
   local v = verdict.verdict(title, e, nil, nil, collection_names)
   if v.state == "conflict" then
     proposals.set_proposal(appid, false, M.deps.now())
+    log_detect(appid, title, "conflict", {}, "conflict: a manual link")
     return row(e, collection_names)
   end
 
   local p = { platform = v.platform, state = v.state }
+  local attempts = {} -- what each source said, for the [detect] log line
 
   -- RetroAchievements first: a ROM hash names the game exactly, and its title is IGDB's second name.
-  local ok_ra, ra = pcall(ra_lookup, e)
-  if ok_ra and ra and not proposals.is_rejected(appid, "ra:" .. tostring(ra.id)) then
+  local ok_ra, ra, ra_why = pcall(ra_lookup, e)
+  local ra_taken = ok_ra and ra and not proposals.is_rejected(appid, "ra:" .. tostring(ra.id))
+  if not ok_ra then attempts[#attempts + 1] = "ra=error:" .. tostring(ra):sub(1, 60)
+  elseif ra == nil then attempts[#attempts + 1] = "ra=" .. tostring(ra_why or "miss")
+  elseif proposals.is_rejected(appid, "ra:" .. tostring(ra.id)) then attempts[#attempts + 1] = "ra=rejected:" .. tostring(ra.id)
+  else attempts[#attempts + 1] = "ra=hit:" .. tostring(ra.id) end
+  if ra_taken then
     p.ra_game_id, p.ra_title, p.ra_by = ra.id, ra.title, ra.by
     local ok_i, info = pcall(ra_info, e, ra.id)
     if ok_i and type(info) == "table" then
@@ -235,9 +298,15 @@ function M.detect(appid, collection_names)
   end
 
   -- Steam: only where no console signal says otherwise (a tag, an emulator, a ROM, a folder, a collection).
+  if v.state ~= "unknown" and v.state ~= "steam" then attempts[#attempts + 1] = "steam=skipped:console" end
   if v.state == "unknown" or v.state == "steam" then
-    local ok_s, hit = pcall(steam_lookup, v.title)
-    if ok_s and hit and not proposals.is_rejected(appid, "steam:" .. tostring(hit.appid)) then
+    local ok_s, hit, hit_why = pcall(steam_lookup, v.title)
+    local steam_taken = ok_s and hit and not proposals.is_rejected(appid, "steam:" .. tostring(hit.appid))
+    if not ok_s then attempts[#attempts + 1] = "steam=error:" .. tostring(hit):sub(1, 60)
+    elseif hit == nil then attempts[#attempts + 1] = "steam=" .. tostring(hit_why or "miss")
+    elseif proposals.is_rejected(appid, "steam:" .. tostring(hit.appid)) then attempts[#attempts + 1] = "steam=rejected:" .. tostring(hit.appid)
+    else attempts[#attempts + 1] = "steam=hit:" .. tostring(hit.appid) end
+    if steam_taken then
       p.steam_appid, p.steam_name, p.steam_kind = hit.appid, hit.name, hit.kind
       -- The hit names the game only: its store details (year, developer, genre) join the proposal,
       -- like the RetroAchievements facts above, so the user confirms with the facts in front of them.
@@ -257,20 +326,37 @@ function M.detect(appid, collection_names)
     local info = {}
     for k, val in pairs(e) do info[k] = val end
     info.platform = v.platform
-    local ok_i, meta = pcall(igdb_lookup, appid, title, info, p.ra_title and { p.ra_title } or nil)
-    if ok_i and meta and meta.igdb_id and not proposals.is_rejected(appid, "igdb:" .. tostring(meta.igdb_id)) then
+    local ok_i, meta, meta_why = pcall(igdb_lookup, appid, title, info, p.ra_title and { p.ra_title } or nil)
+    local igdb_taken = ok_i and meta and meta.igdb_id and not proposals.is_rejected(appid, "igdb:" .. tostring(meta.igdb_id))
+    if not ok_i then attempts[#attempts + 1] = "igdb=error:" .. tostring(meta):sub(1, 60)
+    elseif meta == nil then attempts[#attempts + 1] = "igdb=" .. tostring(meta_why or "miss")
+    elseif meta.igdb_id and proposals.is_rejected(appid, "igdb:" .. tostring(meta.igdb_id)) then attempts[#attempts + 1] = "igdb=rejected:" .. tostring(meta.igdb_id)
+    elseif meta.igdb_id then attempts[#attempts + 1] = "igdb=hit:" .. tostring(meta.igdb_id)
+    else attempts[#attempts + 1] = "igdb=miss" end
+    if igdb_taken then
       p.igdb_id, p.igdb_name, p.year = meta.igdb_id, meta.matched_title, year_of(meta.release_date) or p.year
       p.platforms, p.genres, p.franchises, p.developers = meta.platform_names or meta.platforms, meta.genres or p.genres, meta.franchises, meta.developers or p.developers
       p.themes, p.game_modes, p.perspectives = meta.themes, meta.game_mode_names, meta.perspectives
+      attempts[#attempts + 1] = "ss=skipped:igdb-hit"
     else
-      local ok_ss, ss = pcall(screenscraper_lookup, appid, title, e)
-      if ok_ss and ss and ss.ss_id and not proposals.is_rejected(appid, "ss:" .. tostring(ss.ss_id)) then
+      local ok_ss, ss, ss_why = pcall(screenscraper_lookup, appid, title, e)
+      local ss_taken = ok_ss and ss and ss.ss_id and not proposals.is_rejected(appid, "ss:" .. tostring(ss.ss_id))
+      if not ok_ss then attempts[#attempts + 1] = "ss=error:" .. tostring(ss):sub(1, 60)
+      elseif ss == nil then attempts[#attempts + 1] = "ss=" .. tostring(ss_why or "miss")
+      elseif ss.ss_id and proposals.is_rejected(appid, "ss:" .. tostring(ss.ss_id)) then attempts[#attempts + 1] = "ss=rejected:" .. tostring(ss.ss_id)
+      elseif ss.ss_id then attempts[#attempts + 1] = "ss=hit:" .. tostring(ss.ss_id)
+      else attempts[#attempts + 1] = "ss=miss" end
+      if ss_taken then
         p.ss_id, p.ss_name, p.year = ss.ss_id, ss.matched_title or ss.title, year_of(ss.release_date) or p.year
         p.platforms, p.genres, p.franchises, p.developers = ss.platforms, ss.genres or p.genres, ss.franchises, ss.developers or p.developers
       end
     end
   end
 
+  if p.steam_appid then
+    attempts[#attempts + 1] = "igdb=skipped:steam-hit"
+    attempts[#attempts + 1] = "ss=skipped:steam-hit"
+  end
   p.title = p.steam_name or p.igdb_name or p.ss_name or p.ra_title
   p.signals = signal_lines(v)
   -- No console signal and IGDB lists the game on Windows: it is a PC game (IGDB's release list is the evidence).
@@ -286,6 +372,8 @@ function M.detect(appid, collection_names)
   proposals.set_proposal(appid, p.title and p or false, M.deps.now())
   local out = row(e, collection_names)
   if p.title == nil and not searched_web then out.no_sources = true end
+  log_detect(appid, title, tostring(p.state) .. "/" .. tostring(p.platform), attempts,
+    p.title and ("proposed \"" .. tostring(p.title) .. "\"") or (not searched_web and "no-sources" or "needs-link"))
   return out
 end
 
@@ -380,9 +468,19 @@ end
 ---   { no_achievements = true }   the game has no achievements (final)
 ---   { skip = true }              leave the game alone: never fetched
 ---   { reset = true }             forget the answer (the game waits again)
+--- A refused answer, in the log: { error } answers are silent otherwise, and the window only shows them on the card.
+local function log_validate_error(appid, err)
+  pcall(function()
+    require("plog").event("setup", "validate " .. tostring(appid) .. " failed: " .. tostring(err):sub(1, 120))
+  end)
+end
+
 function M.validate(appid, answer, collection_names)
   local e, missing = entry_or_missing(appid)
-  if not e then return { error = missing } end
+  if not e then
+    log_validate_error(appid, "missing: " .. tostring(missing))
+    return { error = missing }
+  end
   appid = tonumber(appid)
   answer = type(answer) == "table" and answer or {}
   local now = M.deps.now()
@@ -390,9 +488,9 @@ function M.validate(appid, answer, collection_names)
 
   if answer.yes then
     local p = proposals.proposal(appid)
-    if type(p) ~= "table" then return { error = "nothing proposed for this game" } end
+    if type(p) ~= "table" then log_validate_error(appid, "nothing proposed for this game") return { error = "nothing proposed for this game" } end
     local choice, err, warns = apply_proposal(appid, p, e)
-    if not choice then return { error = err } end
+    if not choice then log_validate_error(appid, err) return { error = err } end
     warnings = warns
     choices.set(appid, choice, now)
     proposals.clear_proposal(appid)
@@ -414,7 +512,7 @@ function M.validate(appid, answer, collection_names)
     forget_parts(appid)
   elseif answer.no_achievements then
     local r = require("ach_service").set_source(appid, "none")
-    if r.error then return { error = r.error } end
+    if r.error then log_validate_error(appid, r.error) return { error = r.error } end
     local choice = choices.get(appid) or current_links(appid)
     choice.achievements = "none"
     choices.set(appid, choice, now)
@@ -423,6 +521,7 @@ function M.validate(appid, answer, collection_names)
   elseif answer.reset then
     choices.forget(appid)
   else
+    log_validate_error(appid, "no answer")
     return { error = "no answer" }
   end
 

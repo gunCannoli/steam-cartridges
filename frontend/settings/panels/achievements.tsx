@@ -31,7 +31,7 @@ export function AchievementsSection() {
         backend
             .getRetroStatus()
             .then(setRetroStatus)
-            .catch(() => {});
+            .catch((e) => backend.logEvent("sources", `achievements status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     };
 
     useEffect(() => {
@@ -39,7 +39,7 @@ export function AchievementsSection() {
         backend
             .getNativePortsStatus()
             .then((res) => setPorts(res.ports ?? []))
-            .catch(() => {});
+            .catch((e) => backend.logEvent("sources", `native ports status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     }, []);
 
     const activeRaUser =
@@ -60,6 +60,7 @@ export function AchievementsSection() {
         if (id === "retroachievements") setServices({ ...services, retroachievementsEnabled: false });
         else if (id === "native_ports") setServices({ ...services, nativePortsEnabled: false });
         else setServices({ ...services, emulatorsEnabled: false, rpcs3Enabled: false });
+        backend.logEvent("sources", `${id} removed`);
         ctx.ingest.trigger(250, "services");
     };
 

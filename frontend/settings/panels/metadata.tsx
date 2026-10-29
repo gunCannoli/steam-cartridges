@@ -30,7 +30,7 @@ export function MetadataSection() {
         backend
             .getStatus()
             .then(setStatus)
-            .catch(() => {});
+            .catch((e) => backend.logEvent("sources", `status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     };
 
     useEffect(() => {
@@ -52,6 +52,7 @@ export function MetadataSection() {
         else if (id === "screenscraper") setServices({ ...services, screenscraperEnabled: false });
         else if (id === "igdb") setServices({ ...services, igdbEnabled: false });
         else setServices({ ...services, steamgriddbEnabled: false });
+        backend.logEvent("sources", `${id} removed`);
         ctx.ingest.trigger(250, "services");
     };
 

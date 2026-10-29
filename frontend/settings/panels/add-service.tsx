@@ -51,6 +51,7 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
     };
     const fail = (text: string) => {
         setMsg(text);
+        backend.logEvent("sources", `${selected} add failed: ${text.slice(0, 120)}`);
         setSaving(false);
     };
 

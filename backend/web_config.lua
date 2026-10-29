@@ -227,18 +227,21 @@ function config.protect_existing()
   return { store = store.store(), protected = protected, plain = plain, already = already }
 end
 
---- Save key-value pairs into data_dir .env
+--- Save key-value pairs into data_dir .env. Key names only in the log, never values.
 function config.save_credentials(map)
   if type(map) ~= "table" then return false end
   local env_path = data_dir.file(".env")
   local current = parse_env_all(env_path) or {} -- protected values stay as the tokens they are
+  local saved, cleared = {}, {}
   for k, v in pairs(map) do
     local key = tostring(k):lower():gsub("%s", "")
     local val = tostring(v or ""):gsub("^%s+", ""):gsub("%s+$", "")
     if #val > 0 then
       current[key] = val
+      saved[#saved + 1] = key
     else
       current[key] = nil
+      cleared[#cleared + 1] = key
     end
   end
   config._protect_map(current)
@@ -253,6 +256,19 @@ function config.save_credentials(map)
   cached_env = nil
   cached_key = nil -- the SteamGridDB key may have changed (re-read on next use)
   pcall(function() require("plog").forget_known() end) -- the log scrubs the saved values: pick up the new ones
+  pcall(function()
+    local plog = require("plog")
+    if ok == false then
+      plog.write("ERROR", "[credentials] could not write " .. env_path)
+    else
+      table.sort(saved)
+      table.sort(cleared)
+      local parts = {}
+      if #saved > 0 then parts[#parts + 1] = "saved: " .. table.concat(saved, ", ") end
+      if #cleared > 0 then parts[#parts + 1] = "cleared: " .. table.concat(cleared, ", ") end
+      if #parts > 0 then plog.event("credentials", table.concat(parts, "; ") .. " (" .. require("secret_store").store() .. ")") end
+    end
+  end)
   return ok ~= false
 end
 

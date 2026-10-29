@@ -10,7 +10,7 @@
 
 local M = {}
 
-M.MAX_BYTES  = 512 * 1024 -- the file is rotated past this
+M.MAX_BYTES  = 2 * 1024 * 1024 -- beta verbosity: reports need depth more than disk (was 512 KiB)
 M.CHECK_EVERY = 100       -- writes between size checks
 
 --- Injectable for tests. nil = the real dependency.

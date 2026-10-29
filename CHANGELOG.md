@@ -7,6 +7,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.3-beta] - 2026-10-28
+
+### Added
+
+- **Verbose beta logging across the whole new-user flow.** Every step leaves a line in the plugin log: boot
+  (`ready` with the installed-surfaces count, plus safe mode, legacy-plugin, sections and preload failures);
+  rules added/edited/deleted (shape and match count, never names or patterns); sources added/removed and
+  status-read failures; credential saves (key names and the store, never values); every scan (`N games, M in
+  scope, W to set up (fresh F, achievements A)`); every Find-matches sweep (looked up / proposed / need a link /
+  no sources / errors); every refused answer with its error; settings-plumbing failures (config API, backend
+  copy, heal, live subscribe). The log keeps 2 MiB before rotating (was 512 KiB) so beta reports keep their depth.
+
+### Fixed
+
+- **Library Setup step 4 lists only the games your rules put in scope — also after onboarding.** Reopening the
+  window used to list every shortcut (72 instead of 30 in the report), because the scope filter only applied
+  during onboarding. The header counts the out-of-scope rest (`Games to set up: N (M out of scope)`), and says
+  so when no game is in scope. Only **Refresh library** still shows every game.
+- **Every Detect now says what each source answered.** One `[detect]` line per game in the plugin log names the
+  verdict and each source's outcome — a hit, a miss, skipped and why (`off`, `no-account`, `console`,
+  `steam-hit`), a rejection, or the error — instead of failing silently. A "Find matches did nothing" report
+  now has evidence for every game.
+- **Transport failures name their kind and what to check.** A request with no HTTP response is classified
+  (`[dns]`, `[refused]`, `[timeout]`, `[tls]`, `[http-module]`), and the first failure per source logs the
+  likely cause — a firewall blocking outbound HTTPS, DNS, a proxy — instead of a bare error. A missing
+  `http` module (the prime suspect for the Linux "nothing fetched" report) is an ordinary logged failure,
+  never a silent throw; the shutdown summary and `GetDiagnostics` carry per-source failure counts.
+- **Steam store search sends its User-Agent the way Millennium's binding reads it** (top-level `user_agent`;
+  the header form is ignored by libcurl), and the Linux binary-download error says plainly it is Windows-only.
+
 ## [0.6.2-beta] - 2026-10-28
 
 ### Added

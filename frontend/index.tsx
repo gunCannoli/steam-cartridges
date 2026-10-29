@@ -582,6 +582,7 @@ async function init() {
         const boot = beginBoot(window.localStorage);
         if (boot.safeMode) {
             features.setSafeMode(true);
+            backend.logEvent("boot", `safe mode on (${boot.unclean} unclean starts)`);
             logger.error(
                 `Safe mode: the last ${boot.unclean} starts did not finish cleanly; only sections and captures are on.`,
             );
@@ -597,6 +598,7 @@ async function init() {
         const list = (window as any).PLUGIN_LIST ?? {};
         for (const name of LEGACY_PLUGINS) {
             if (list[name]) {
+                backend.logEvent("boot", `legacy plugin "${name}" loaded alongside; disable it`);
                 logger.error(
                     `Legacy plugin "${name}" is still loaded next to steam-cartridges; disable it (sections and hooks would be installed twice).`,
                 );
@@ -613,6 +615,7 @@ async function init() {
     runner.register(createSectionsSurface(surfaceDeps));
     runner.installAll();
     if (features.isEnabled("sections") && !runner.status().find((s) => s.id === "sections")?.installed) {
+        backend.logEvent("boot", "sections restore failed");
         logger.error(
             "Could not restore Steam's app detail sections; summaries are unavailable.",
         );
@@ -688,7 +691,10 @@ async function init() {
     // Not awaited: a failure here must not affect activity (ADR-0010).
     // Controller support loads once (above); its onLoaded re-derives the badges, so nothing waits for it here.
     features.run("game-info", async () => {
-        await routing.ensureProfiles().catch((e) => logger.warn("Loading auto-routing profiles failed:", e));
+        await routing.ensureProfiles().catch((e) => {
+            logger.warn("Loading auto-routing profiles failed:", e);
+            backend.logEvent("boot", "auto-routing profiles load failed");
+        });
         view.init();
         bus.on("shortcut.viewed", ({ appid }) => void view.onSourceView(appid));
     });
@@ -700,19 +706,26 @@ async function init() {
     features.run("game-info", () => {
         preloads.push(metadata.preload().catch((e) => {
             features.reportError("game-info", e);
+            backend.logEvent("boot", "game-info preload failed");
             logger.error("Game Info preload failed; activity is unaffected.", e);
         }));
     });
     features.run("achievements", () => {
         preloads.push(achievements.preload().catch((e) => {
             features.reportError("achievements", e);
+            backend.logEvent("boot", "achievements preload failed");
             logger.error("Achievements preload failed; a game's page still loads them.", e);
         }));
         // Steam rebuilds its progress cache from its own file after login, which drops what we wrote before
         // it: write again whenever the cache map appears or is replaced (bounded; ADR-0045).
         watchProgressCache(() => achievements.rerenderAll());
         // Which shortcuts an extension reported (ADR-0067): their achievements are pushed, never polled.
-        preloads.push(provided.preload().catch((e) => logger.warn("Pushed-games preload failed.", e)));
+        preloads.push(
+            provided.preload().catch((e) => {
+                logger.warn("Pushed-games preload failed.", e);
+                backend.logEvent("boot", "pushed-games preload failed");
+            }),
+        );
     });
     void Promise.allSettled(preloads).then(() => markPreloaded());
 
@@ -761,12 +774,19 @@ async function init() {
     installLifecycleSensor(bus);
 
     logger.info("Ready. Non-Steam games now use Steam's own detail sections.");
+    {
+        const st = runner.status();
+        backend.logEvent("boot", `ready (${st.filter((s) => s.installed).length}/${st.length} surfaces installed)`);
+    }
     // Automatically start background sync for un-scraped games after startup
     features.run("background-sync", () => ingest.triggerSync(3000, "startup"));
 }
 
 export default definePlugin(() => {
-    init().catch((e) => logger.error("Plugin init failed.", e));
+    init().catch((e) => {
+        logger.error("Plugin init failed.", e);
+        backend.logEvent("boot", `init failed: ${String((e as Error)?.message ?? e).slice(0, 120)}`);
+    });
 
     // Guardrail: Ensure Settings panel and Plugin list are indexed under both "steam-cartridges"
     // and "steam-cartridges-dev" so Millennium can always resolve the settings page.

@@ -2,6 +2,7 @@
 import { Field, PanelSection } from "@steambrew/client";
 import { useSetting } from "../settings";
 import { usePanelContext } from "../context";
+import { backend } from "../../ports/backend";
 import { Blocks, ButtonRow, CONTROL_GAP, IconButton, ItemRow } from "../components";
 import { RuleEditorWindow } from "./rule-editor";
 
@@ -18,9 +19,11 @@ export function RulesSection() {
     };
 
     const handleDelete = (index: number) => {
+        const gone = rules[index];
         const copy = [...rules];
         copy.splice(index, 1);
         setRules(copy);
+        if (gone) backend.logEvent("rules", `deleted ${gone.action}/${gone.conditionType} (${copy.length} rules left)`);
         ctx.ingest.trigger(100, "rules");
     };
 

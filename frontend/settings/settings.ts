@@ -120,22 +120,28 @@ const config = pluginConfig as unknown as ConfigApi;
 async function readStored(): Promise<Record<string, unknown>> {
     const name = pluginName();
     let first: Record<string, unknown> = {};
+    let threw: unknown = null;
     try {
         const answer = await config.getAll(name);
         if (hasKeys(answer)) return answer;
         first = answer && typeof answer === 'object' ? (answer as Record<string, unknown>) : {};
     } catch (error) {
+        threw = error;
         logger.warn('Configuration API getAll failed; trying the FFI.', error);
     }
     const ffi = (Reflect.get(globalThis, 'MILLENNIUM_API') as { ffi?: Ffi } | undefined)?.ffi;
     if (ffi) {
         try {
             const answer = await ffi('core', 'PluginConfig_GetAll')(name);
-            if (hasKeys(answer)) return answer;
+            if (hasKeys(answer)) {
+                if (threw) backend.logEvent('settings', 'config API getAll threw, FFI answered');
+                return answer;
+            }
         } catch (error) {
             logger.warn('PluginConfig_GetAll failed.', error);
         }
     }
+    if (threw) backend.logEvent('settings', 'config API getAll threw and FFI gave nothing');
     return first;
 }
 
@@ -146,6 +152,7 @@ async function readMirror(): Promise<Record<string, unknown>> {
         return res?.values && typeof res.values === 'object' ? res.values : {};
     } catch (error) {
         logger.warn('Could not read the settings copy from the backend.', error);
+        backend.logEvent('settings', 'backend copy unreadable, config API only');
         return {};
     }
 }
@@ -153,9 +160,13 @@ async function readMirror(): Promise<Record<string, unknown>> {
 async function writeMirror(change: { values?: Record<string, unknown>; remove?: string[] }): Promise<void> {
     try {
         const res = await backend.saveSettings(change);
-        if (res?.error) logger.warn(`Settings copy not saved: ${res.error}`);
+        if (res?.error) {
+            logger.warn(`Settings copy not saved: ${res.error}`);
+            backend.logEvent('settings', `backend copy not saved: ${String(res.error).slice(0, 100)}`);
+        }
     } catch (error) {
         logger.warn('Settings copy not saved.', error);
+        backend.logEvent('settings', 'backend copy not saved (RPC failed)');
     }
 }
 
@@ -180,7 +191,7 @@ async function sync(): Promise<void> {
             try {
                 await config.set(name, key, merged.values[key]);
             } catch {
-                /* the copy still holds it; the next start tries again */
+                backend.logEvent('settings', `heal of ${key} failed; the copy still holds it`);
             }
         }
     }
@@ -210,7 +221,7 @@ export async function initSettings(): Promise<void> {
     try {
         subscribePluginConfig((key, value) => apply(key, value));
     } catch {
-        /* our own writes go through write(), which syncs */
+        backend.logEvent('settings', 'live subscribe unavailable; own writes still sync');
     }
 }
 
