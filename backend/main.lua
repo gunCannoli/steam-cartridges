@@ -191,10 +191,26 @@ local function on_load()
     for _, line in ipairs(lines) do plog.event("startup", line) end
   end)
 
+  -- What this host is and offers (distro, Flatpak, Steam Deck, curl / secret-tool / libcurl): answers the open Linux questions from a shared log.
+  pcall(function()
+    plog.event("host", require("host_tools").report())
+    local plat = require("platform")
+    if not plat.is_windows() then
+      local roots = plat.user_roots()
+      plog.event("host", string.format("user folders searched for emulator files: %d (config, data, Documents, home, Flatpak apps)", #roots))
+    end
+  end)
+
   -- Keys an earlier version saved as plain text are protected now (ADR-0099); the log says which store is in use.
   pcall(function()
     local r = require("web_config").protect_existing()
     plog.event("startup", string.format("credentials store: %s (%d protected now, %d already, %d plain)", r.store == "none" and "none: plain text" or r.store, r.protected, r.already, r.plain))
+    if r.store == "none" and not require("platform").is_windows() then
+      plog.event("startup", "credentials stay plain text in the .env: no secret-tool on this system. Install libsecret-tools (Debian/Ubuntu) or libsecret (Arch/Fedora) and restart Steam to keep them in the keyring")
+      -- A plain-text key file must at least be private to its owner.
+      local okp, perr = require("host_tools").private_file(require("data_dir").file(".env"))
+      plog.event("startup", okp and "the .env is now readable by its owner only (chmod 600)" or ("could not restrict the .env to its owner: " .. tostring(perr)))
+    end
   end)
 
   -- Why a library can look empty: is the file there, did it read, how many shortcuts, and how many had no appid of their own (Linux tools).

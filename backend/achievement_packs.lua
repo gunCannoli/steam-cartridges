@@ -95,7 +95,8 @@ function M.check_path(t)
   local _, stars = t:gsub("%*", "")
   if stars > 1 then return "has more than one *" end
   if stars == 1 and not ("/" .. norm(t) .. "/"):find("/%*/") then return "uses * inside a name; * must be a whole folder name" end
-  local probe = io_.expand((t:gsub("{game}", "X:/folder")))
+  -- A placeholder folder to test "is a full path": is_absolute accepts a drive or a leading "/".
+  local probe = io_.expand((t:gsub("{game}", "X:/folder"))) -- os-ok
   if not is_absolute(probe) then return "is not a full path (start with {game}, a drive or %APPDATA%)" end
   return nil
 end

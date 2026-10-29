@@ -202,6 +202,15 @@ local function init_keychain_ffi()
   return false
 end
 
+--- One log line per distinct message (the lookups run for every game): the sensors below say where RetroArch's login came from, and why not.
+local noted = {}
+local function note_once(msg)
+  if noted[msg] then return end
+  noted[msg] = true
+  pcall(function() require("plog").event("retroarch", msg) end)
+end
+M._reset_notes = function() noted = {} end
+
 -- In-memory cache for decrypted keychain credentials across shortcut lookups
 local _cached_keychain_user = nil
 local _cached_keychain_token = nil
@@ -405,6 +414,8 @@ function M.get_retroarch_config(override_dir)
   end
 
   if not cfg_path then
+    note_once(string.format("retroarch.cfg not found (%d places tried, os=%s): set RetroArch's folder in the shortcut's exe, or add your RetroAchievements key in Settings",
+      #candidates, require("platform").os_name()))
     return nil, "retroarch.cfg not found"
   end
 
@@ -445,13 +456,21 @@ function M.get_retroarch_config(override_dir)
   end
 
   -- RetroArch 1.19+ encrypted keychain fallback if plaintext credentials not in retroarch.cfg
+  conf.cred_source = (conf.username and conf.token) and "cfg" or "none"
   if not conf.username or not conf.token then
+    -- Sensor: does this RetroArch keep its login in an encrypted keychain, and can this OS open it? (Windows CNG + registry only: H3.)
+    conf.keychain_present = file_exists(base_dir .. "/retroarch-keychain.cfg") and file_exists(base_dir .. "/retroarch-keychain.key")
     local k_user, k_token = read_retroarch_keychain(base_dir)
     if k_user and #k_user > 0 and k_token and #k_token > 0 then
       conf.username = k_user
       conf.token = k_token
+      conf.cred_source = "keychain"
     end
   end
+  note_once(string.format("retroarch login: source=%s; retroarch.cfg found; keychain files %s%s; os=%s",
+    conf.cred_source, conf.keychain_present == nil and "not needed" or (conf.keychain_present and "present" or "absent"),
+    (conf.cred_source ~= "cfg" and conf.keychain_present and not require("platform").is_windows()) and " but cannot be opened on this OS (Windows-only decryption)" or "",
+    require("platform").os_name()))
 
   if conf.username and conf.token then
     _cached_ra_confs[conf.base_dir] = conf
@@ -1534,10 +1553,19 @@ function M.get_emulator_status()
 
   local emu_dirs = M.emulator_dirs()
 
+  --- Linux: the first of `rels` under any user root (any case, XDG, Flatpak), so an emulator is "detected" by its settings or
+  --- data folder (the Windows spellings above are exact and never match there). Nothing on Windows.
+  local plat = require("platform")
+  local function linux_find(rels)
+    if plat.is_windows() then return nil end
+    return plat.locate(rels, file_exists)[1]
+  end
+
   -- 1. RetroArch
   local ra_dir = emu_dirs["retroarch"]
   local ra_conf = M.get_retroarch_config(ra_dir)
-  local ra_detected = (ra_conf ~= nil) or (ra_dir and file_exists(ra_dir .. "/retroarch.exe")) or file_exists(appdata .. "/RetroArch/retroarch.exe")
+  local ra_detected = (ra_conf ~= nil) or (ra_dir and file_exists(ra_dir .. "/retroarch.exe")) or (ra_dir and file_exists(ra_dir .. "/retroarch"))
+    or file_exists(appdata .. "/RetroArch/retroarch.exe") or false
   local ra_auth = (ra_conf and ra_conf.username and #ra_conf.username > 0 and ra_conf.token and #ra_conf.token > 0) or false
   table.insert(list, {
     name = "RetroArch",
@@ -1545,6 +1573,9 @@ function M.get_emulator_status()
     path = ra_conf and ra_conf.cfg_path or (ra_dir),
     username = ra_conf and ra_conf.username or nil,
     authenticated = ra_auth,
+    -- Shown in the emulator list: why a RetroArch that is there reads "not signed in" on this OS.
+    note = (ra_conf and not ra_auth and ra_conf.keychain_present and not plat.is_windows())
+      and "Its login is in RetroArch's encrypted keychain, which this plugin can open on Windows only. Add your RetroAchievements key under Add source." or nil,
   })
 
   -- 2. DuckStation
@@ -1552,7 +1583,8 @@ function M.get_emulator_status()
     emu_dirs["duckstation"] and (emu_dirs["duckstation"] .. "/settings.ini"),
     userprofile .. "/Documents/DuckStation/settings.ini",
     appdata .. "/DuckStation/settings.ini",
-    localappdata .. "/DuckStation/settings.ini"
+    localappdata .. "/DuckStation/settings.ini",
+    linux_find({ "DuckStation/settings.ini" })
   )
   local duck_found, duck_user, duck_auth, duck_p = false, nil, false, nil
   for _, p in ipairs(duck_paths) do
@@ -1584,7 +1616,8 @@ function M.get_emulator_status()
     emu_dirs["pcsx2"] and (emu_dirs["pcsx2"] .. "/inis/PCSX2.ini"),
     userprofile .. "/Documents/PCSX2/inis/PCSX2.ini",
     appdata .. "/PCSX2/inis/PCSX2.ini",
-    localappdata .. "/PCSX2/inis/PCSX2.ini"
+    localappdata .. "/PCSX2/inis/PCSX2.ini",
+    linux_find({ "PCSX2/inis/PCSX2.ini" })
   )
   local pcsx2_found, pcsx2_user, pcsx2_auth, pcsx2_p = false, nil, false, nil
   for _, p in ipairs(pcsx2_paths) do
@@ -1618,7 +1651,8 @@ function M.get_emulator_status()
     emu_dirs["primehack"] and (emu_dirs["primehack"] .. "/User/Config/RetroAchievements.ini"),
     emu_dirs["primehack"] and (emu_dirs["primehack"] .. "/User/Config/Dolphin.ini"),
     appdata .. "/Dolphin Emulator/Config/RetroAchievements.ini",
-    userprofile .. "/Documents/Dolphin Emulator/Config/RetroAchievements.ini"
+    userprofile .. "/Documents/Dolphin Emulator/Config/RetroAchievements.ini",
+    linux_find({ "Dolphin Emulator/Config/RetroAchievements.ini", "Dolphin Emulator/Config/Dolphin.ini", "dolphin-emu/RetroAchievements.ini", "dolphin-emu/Dolphin.ini" })
   )
   local dol_found, dol_user, dol_auth, dol_p = false, nil, false, nil
   for _, p in ipairs(dol_paths) do
@@ -1648,7 +1682,8 @@ function M.get_emulator_status()
   -- 5. PPSSPP
   local ppsspp_paths = present(
     emu_dirs["ppsspp"] and (emu_dirs["ppsspp"] .. "/memstick/PSP/SYSTEM/ppsspp.ini"),
-    appdata .. "/PPSSPP/PSP/SYSTEM/ppsspp.ini"
+    appdata .. "/PPSSPP/PSP/SYSTEM/ppsspp.ini",
+    linux_find({ "PPSSPP/PSP/SYSTEM/ppsspp.ini" })
   )
   local ppsspp_found, ppsspp_user, ppsspp_auth, ppsspp_p = false, nil, false, nil
   for _, p in ipairs(ppsspp_paths) do
@@ -1680,7 +1715,8 @@ function M.get_emulator_status()
     emu_dirs["rpcs3"] and (emu_dirs["rpcs3"] .. "/dev_hdd0/home/00000001/trophy"),
     appdata .. "/rpcs3/dev_hdd0/home/00000001/trophy",
     emu_dirs["rpcs3"] and (emu_dirs["rpcs3"] .. "/rpcs3.exe"),
-    appdata .. "/rpcs3/rpcs3.exe"
+    appdata .. "/rpcs3/rpcs3.exe",
+    linux_find({ "rpcs3/dev_hdd0/home/00000001/trophy", "rpcs3/config.yml" })
   )
   local rpcs3_found, rpcs3_p = false, nil
   for _, p in ipairs(rpcs3_paths) do
@@ -1707,7 +1743,8 @@ function M.get_emulator_status()
     localappdata .. "/shadps4/user/trophy",
     emu_dirs["shadps4"] and (emu_dirs["shadps4"] .. "/shadps4.exe"),
     appdata .. "/shadps4/shadps4.exe",
-    localappdata .. "/shadps4/shadps4.exe"
+    localappdata .. "/shadps4/shadps4.exe",
+    linux_find({ "shadPS4/user/trophy", "shadPS4/home/1000/trophy", "shadPS4/user/config.toml" })
   )
   local shad_found, shad_p = false, nil
   for _, p in ipairs(shad_paths) do

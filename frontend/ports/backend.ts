@@ -159,6 +159,8 @@ export interface EmulatorStatusItem {
     path?: string;
     username?: string;
     authenticated: boolean;
+    /** Why a found emulator reads "not signed in" on this OS (e.g. RetroArch's keychain is Windows-only), with what to do. */
+    note?: string;
 }
 
 export interface RetroStatusResponse {

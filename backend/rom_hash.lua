@@ -456,13 +456,20 @@ end
 
 -- ------------------------------------------------------------------------------------------------------ entry point
 
+--- The path an `.m3u` entry names: absolute as written, otherwise relative to the playlist's folder, joined with "/" (Windows accepts it;
+--- a backslash join never resolves on Linux). Public so a test can see the string, which the file system cannot show on Windows.
+function M.m3u_entry_path(dir, entry)
+  if entry:match("^%a:[\\/]") or entry:match("^[\\/]") then return entry end
+  return dir .. "/" .. entry
+end
+
 local function resolve_m3u(path)
   local text = read_all(path) or ""
   local dir = path:match("^(.*)[\\/][^\\/]*$") or "."
   for line in text:gmatch("[^\r\n]+") do
     local t = line:gsub("^%s+", ""):gsub("%s+$", "")
     if t ~= "" and t:sub(1, 1) ~= "#" then
-      local full = (t:match("^%a:[\\/]") or t:match("^[\\/]")) and t or (dir .. "\\" .. t)
+      local full = M.m3u_entry_path(dir, t)
       if file_size(full) then return full end
     end
   end

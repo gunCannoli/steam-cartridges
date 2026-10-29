@@ -133,7 +133,7 @@ export function AchievementsSection() {
                                 <ItemRow key={emu.name}>
                                     <Field
                                         label={emu.name}
-                                        description={emu.authenticated ? `Signed in as ${emu.username}` : emu.detected ? "Found, not signed in" : "Not found"}
+                                        description={emu.authenticated ? `Signed in as ${emu.username}` : emu.detected ? (emu.note ? `Found, not signed in. ${emu.note}` : "Found, not signed in") : "Not found"}
                                     >
                                         <span style={{ color: emu.detected ? "#a4d007" : "#8b929a" }}>{emu.detected ? "✓" : "✗"}</span>
                                     </Field>

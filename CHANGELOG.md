@@ -7,6 +7,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.4-beta] - 2026-10-29
+
+### Added
+
+- **Linux downloads images and manuals.** ScreenScraper media, manuals and RetroAchievements badges used to fail on Linux
+  ("WinINet is Windows-only"). They now go through `curl` when it is installed; the address (which carries your ScreenScraper
+  account) is sent to curl on its input, never on a command line. Without curl the log names it.
+- **The start-up log says how to keep keys encrypted on Linux** when no `secret-tool` is installed.
+- **A `[host]` line at start-up** says what this machine offers: distro, Flatpak, Steam Deck, desktop, and whether `curl`, `wget`,
+  `secret-tool`, `flatpak-spawn` and libcurl are there (tool names and yes / no only). Send it with a report and the next step is clear.
+- **A failed download names its reason.** `curl` failures in the log read `curl exit 6: could not resolve host (dns)` (also refused,
+  timeout, TLS), and a missing curl inside Flatpak says so.
+- **RetroArch's login source is logged** (`[retroarch] login: source=cfg|keychain|none`, keychain files present or not), and the
+  Emulator Status window explains, on Linux, that RetroArch's encrypted keychain cannot be read and to add your RetroAchievements key.
+- **On Linux your keys file is private to you** (`chmod 600` on the `.env` after every save) when no keyring is available.
+
+### Removed
+
+- `silent_exec.lua`, an unused Windows-only process launcher (`cmd.exe`, kernel32).
+
+### Fixed
+
+- **Linux: multi-disc `.m3u` playlists with relative entries** now resolve (the entry was joined with a backslash, so the disc was
+  never found and its hash never computed).
+- **Linux: the emulator list shows what you have installed.** DuckStation, PCSX2, Dolphin, PPSSPP, RPCS3 and shadPS4 were looked
+  up only under their Windows spellings, so they read "not detected"; they are now found in any capitalisation under
+  `~/.config`, `~/.local/share` and Flatpak folders.
+- **Linux: the Windows emulator-log list is no longer probed** (it could only point at paths that do not exist there).
+
 ## [0.6.3-beta] - 2026-10-28
 
 ### Added

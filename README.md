@@ -99,6 +99,19 @@ For your screenshots and recordings as "{Username} captured" cards in the Activi
 - **Your data stays local:** the plugin stores its records (Game Info, matches, credentials) in
   `millennium/config/steam-cartridges` inside your Steam folder; nothing is sent anywhere except the lookups above.
 
+## Linux and Steam Deck
+
+The plugin runs on Linux (native Steam, Flatpak, Steam Deck). Two small system tools unlock the parts that need them; the plugin
+does not crash without them, and the log names what is missing:
+
+- **`curl`** (on every mainstream distro and SteamOS): downloads the images and manuals ScreenScraper serves and the
+  RetroAchievements badges. Without it those images are skipped.
+- **`secret-tool`** (package `libsecret-tools` on Debian/Ubuntu, `libsecret` on Arch and Fedora): keeps your keys in your desktop
+  keyring. Without it your keys stay as plain text in the plugin's `.env` file, and the log's `[startup]` line says so.
+
+Emulator settings and logs are looked up in the usual Linux places (`~/.config`, `~/.local/share`, Flatpak's `~/.var/app/*`),
+whatever the capitalisation. Linux support is new and still being verified on real machines: please send the log if something is off. Its `[host]` line names your distro, whether Steam runs in Flatpak, and which of the tools above are present.
+
 ## Reporting a problem
 
 Send the log file: `<your Steam folder>\millennium\config\steam-cartridges\steam-cartridges.log`.

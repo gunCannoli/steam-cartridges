@@ -260,7 +260,9 @@ function M.log_paths(game_title, sc_match, exe_dir)
       add(exe_dir .. rel)
     end
   end
-  for _, p in ipairs({
+  -- Windows keeps its exact old list: the saved read offsets are keyed by these spellings (ADR-0054).
+  -- os-ok: begin (backslash spellings, Windows only)
+  for _, p in ipairs(require("platform").is_windows() and {
     appdata .. "\\RetroArch\\logs\\retroarch.log",
     userprofile .. "\\Documents\\DuckStation\\duckstation.log",
     appdata .. "\\duckstation\\duckstation.log",
@@ -275,7 +277,8 @@ function M.log_paths(game_title, sc_match, exe_dir)
     localappdata .. "\\rpcs3\\RPCS3.log",
     appdata .. "\\shadps4\\user\\log\\shadps4.log",
     localappdata .. "\\shadps4\\user\\log\\shadps4.log",
-  }) do
+  } or {}) do
+  -- os-ok: end
     add(p)
   end
   -- Linux: each log in whatever spelling and root it lives (case, XDG config/data, Flatpak).

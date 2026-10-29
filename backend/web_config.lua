@@ -218,6 +218,7 @@ function config.protect_existing()
     for k, v in pairs(current) do table.insert(lines, k .. "=" .. v) end
     table.sort(lines)
     local ok = utils.write_file(env_path, table.concat(lines, "\n") .. "\n")
+    if ok ~= false then pcall(function() require("host_tools").private_file(env_path) end) end
     if ok ~= false and legacy_key then
       pcall(fs.remove, key_path)
     end
@@ -251,6 +252,7 @@ function config.save_credentials(map)
   end
   table.sort(lines)
   local ok = utils.write_file(env_path, table.concat(lines, "\n") .. "\n")
+  if ok ~= false then pcall(function() require("host_tools").private_file(env_path) end) end -- chmod 600 on Linux; a no-op on Windows
   -- Drop the cache instead of setting it to `current`: `current` is the data folder's .env alone, and the next read
   -- must merge the legacy .env again (it may hold the only ScreenScraper account, so GetStatus said none after a save).
   cached_env = nil
