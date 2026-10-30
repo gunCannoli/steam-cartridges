@@ -127,7 +127,12 @@ export function GamesStep({
                 return "no-sources";
             }
             put(row);
-            note(id, undefined);
+            const issues = (row.source_issues as string[] | undefined) ?? [];
+            if (issues.length > 0) {
+                // A source that failed is not a "no match": say so and what to do, and count it in the sweep's log line.
+                note(id, `⚠ ${issues.join(" ")}`);
+                backend.logEvent("setup", `game ${id}: ${issues.length} source(s) did not answer`);
+            } else note(id, undefined);
             return askOf(row) === "answer" ? "proposed" : "link";
         } catch (e) {
             const msg = String((e as Error)?.message ?? e);

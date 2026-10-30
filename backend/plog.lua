@@ -104,6 +104,24 @@ local function stamp()
   return os.date("%Y-%m-%d %H:%M:%S", t)
 end
 
+--- The start-up and host lines of this session (already redacted), kept in memory. A log that rotated, or a copy cut to its last
+--- part, loses its head, and the head says which OS, Steam, Flatpak and tools the rest was run on: the pinned lines are written
+--- again at the top of a fresh file after a rotation and put in front of a shared tail that no longer holds them.
+local pinned, pinned_seen = {}, {}
+M.PIN_AREAS = { startup = true, host = true }
+M.PIN_MAX = 40
+
+local function pin(text)
+  if pinned_seen[text] or #pinned >= M.PIN_MAX then return end
+  pinned_seen[text] = true
+  pinned[#pinned + 1] = text
+end
+
+local function pinned_block(title)
+  if #pinned == 0 then return "" end
+  return stamp() .. " [INFO] ---- " .. title .. " ----\n" .. table.concat(pinned, "\n") .. "\n"
+end
+
 local function rotate_if_big(path)
   local f = io.open(path, "rb")
   if not f then return end
@@ -112,6 +130,8 @@ local function rotate_if_big(path)
   if size and size > M.MAX_BYTES then
     os.remove(path .. ".1")
     os.rename(path, path .. ".1")
+    local nf = io.open(path, "ab")
+    if nf then nf:write(pinned_block("session header, repeated after a rotation")); nf:close() end
   end
 end
 
@@ -129,8 +149,11 @@ function M.write(level, msg)
     if not f then return end
     local text = M.redact(msg):gsub("[\r\n]+", " | ")
     if #text > 2000 then text = text:sub(1, 2000) .. "...(" .. #text .. " chars)" end
-    f:write(stamp(), " [", level, "] ", text, "\n")
+    local line = stamp() .. " [" .. level .. "] " .. text
+    f:write(line, "\n")
     f:close()
+    local area = text:match("^%[([%w_%-]+)%]")
+    if level == "EVENT" and area and M.PIN_AREAS[area] then pin(line) end
   end)
 end
 
@@ -167,6 +190,7 @@ end
 function M._reset()
   known, known_at = {}, 0
   errors = 0
+  pinned, pinned_seen = {}, {}
   if installed and original ~= nil then package.loaded["logger"] = original end
   installed, writes, original = false, 0, nil
 end
@@ -194,6 +218,10 @@ function M.tail(max_bytes)
     body = body:sub(-max_bytes)
     local nl = body:find("\n", 1, true)
     if nl then body = body:sub(nl + 1) end
+  end
+  -- The head of the session is gone from this part: put it back in front, said plainly.
+  if #pinned > 0 and not body:find(pinned[1], 1, true) then
+    body = pinned_block("session header (from this session's start, the log below was cut)") .. body
   end
   return body
 end

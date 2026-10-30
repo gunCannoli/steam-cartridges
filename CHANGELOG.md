@@ -7,6 +7,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.6-beta] - 2026-10-30
+
+### Fixed
+
+- **Switch and other consoles without a RetroAchievements id searched ScreenScraper wrongly.** The Linux 0.6.5-beta log showed every
+  such game sending a request ScreenScraper always refuses (HTTP 400, "systemeid obligatoire"), then a name search with no console,
+  so Pokemon Violet, Sword, Scarlet and Brilliant Diamond found nothing. Detect now passes the decided platform, the name search runs
+  on that console's ScreenScraper id (Switch 225), and a game with no ROM hash skips the refused request.
+
+### Added
+
+- **A cut or rotated log keeps its head.** The start-up and `[host]` lines (OS, distro, Flatpak, Steam Deck, curl / secret-tool / libcurl,
+  versions, which accounts are set) are kept in memory and written again at the top of a fresh file after a rotation, and put in front
+  of a shared tail that no longer holds them. A report with only the middle of a run no longer hides which box it came from.
+- **RetroAchievements 401 says why.** One line per session tells whether the stored login looks damaged (a space or quote at an edge, a
+  control or non-ASCII character, a token that is not 16 letters and digits, a missing part) or is well formed and was refused by
+  RetroAchievements (token reset, password changed, other account), with the matching advice. Lengths and character classes only; no
+  user name or token, and the old `%q` user name in the warning is gone.
+- **A source that fails is no longer shown as "no match".** When ScreenScraper, RetroAchievements, IGDB or Steam's store fails for a
+  game, Find matches shows a warning on that game that names the source and the cause: "ScreenScraper timed out. Its server may be
+  busy; try this game again in a minute", "RetroAchievements looks offline (its server answered with an error). Nothing is wrong on
+  your side; try again later", or a network, firewall or certificate hint. The `[detect]` line says how many sources did not answer.
+- **Find matches ends with a network summary** in the log: per source, requests sent, failed, paused and the kind of the last failure.
+
 ## [0.6.5-beta] - 2026-10-30
 
 ### Changed

@@ -118,9 +118,16 @@ function M.jeu_for(appid, title, info)
   local md5 = rom_path and ra.compute_rom_md5(rom_path) or nil
   local console_id = info and ra.detect_console_id(info.exe, info.launch_options) or nil
   local system_id = console_id and M.SS_SYSTEM[console_id] or nil
+  -- A console with no RetroAchievements id (Switch, PS3): the platform Detect decided carries ScreenScraper's id.
+  if not system_id and info and info.platform then
+    local plat = require("platforms").BY_ID[info.platform]
+    if plat and plat.ss and info.platform ~= "steam" and info.platform ~= "pc" then system_id = plat.ss end
+  end
   local has_title = type(title) == "string" and title ~= ""
   -- No ROM and no console (a PC game, a fan game): jeuInfos has nothing to match on, so look the game up by name.
   if not rom_path and has_title and not system_id then return M.search_jeu(appid, title, nil) end
+  -- jeuInfos answers 400 ("systemeid obligatoire") for a name with no hash, and finds nothing without a ROM: search.
+  if has_title and not md5 and (not rom_path or not system_id) then return M.search_jeu(appid, title, system_id) end
   local jeu, err = M.fetch_jeu(appid, rom_path, system_id, nil, md5, title)
   -- No ROM match (a ROM name or dump ScreenScraper does not know), or no ROM file: look the title up on that console.
   if not jeu and has_title and err ~= "no-credentials" then return M.search_jeu(appid, title, system_id) end

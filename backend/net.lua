@@ -105,6 +105,24 @@ function M.stats()
   return { http_calls = http_calls, failed = fail_counts, last_error = last_err, paused = still }
 end
 
+--- One line for the log at the end of a run: per source, requests sent, failed, paused, and the kind of the last transport failure.
+--- Counts and kinds only. Empty when nothing was sent.
+function M.summary()
+  local s = M.stats()
+  local names = {}
+  for source in pairs(s.http_calls) do names[#names + 1] = source end
+  table.sort(names)
+  local parts = {}
+  for _, source in ipairs(names) do
+    local part = string.format("%s=%d sent/%d failed", source, s.http_calls[source] or 0, s.failed[source] or 0)
+    if s.paused[source] then part = part .. "/paused" end
+    local kind = (s.last_error[source] or ""):match("^%[([%w%-]+)%]")
+    if kind then part = part .. " (last: " .. kind .. ")" end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts, "; ")
+end
+
 --- No HTTP response at all (a throw, nil, or status 0): the network or the binding failed, as opposed to the
 --- server answering with an error status. Only these get the "what to check" hint (a 500 reached the server).
 local function is_transport_failure(res)
@@ -156,6 +174,7 @@ local function record(source, res)
     return
   end
   local bad = not res or not status or status == 0 or status >= 500
+  if status and status >= 500 then last_transport[source] = ("[offline] HTTP " .. status):sub(1, 160) end -- the server answered with an error: it is down or broken
   if bad then
     failed[source] = (failed[source] or 0) + 1
     failures[source] = (failures[source] or 0) + 1

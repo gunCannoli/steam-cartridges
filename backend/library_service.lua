@@ -268,6 +268,51 @@ local function log_detect(appid, title, verdict_text, attempts, result)
   end)
 end
 
+-- What went wrong, in the user's words, by the kind the network layer recorded (net.lua: classify, or "offline" for an HTTP 5xx).
+local ISSUE_TEXT = {
+  timeout = "timed out. Its server may be busy; try this game again in a minute.",
+  offline = "looks offline (its server answered with an error). Nothing is wrong on your side; try again later.",
+  dns = "could not be reached: its address did not resolve. Check your connection, VPN or DNS, then try again.",
+  refused = "refused the connection. A firewall may be blocking it, or the service is down; try again later.",
+  tls = "could not be reached securely (a proxy or old certificates on this system).",
+  ["http-module"] = "could not be reached: Millennium's network module is missing.",
+  transport = "did not answer (network problem or the service is down). Try again in a minute.",
+}
+local ISSUE_SOURCES = {
+  { "ScreenScraper", { "screenscraper" } },
+  { "RetroAchievements", { "retroachievements" } },
+  { "IGDB", { "igdb" } },
+  { "Steam's store", { "steam-store", "steam-web", "steam-appdetails" } },
+}
+
+local function failed_counts()
+  local ok, s = pcall(function() return require("net").stats() end)
+  return ok and s or { failed = {}, last_error = {} }
+end
+
+--- What to tell the user for each source whose requests failed while one game was looked up (`before`: net.stats() taken
+--- first). A failure is never shown as a plain "no match": the sentence names the source and the cause (timeout, offline, ...).
+local function source_issues(before)
+  local after = failed_counts()
+  local out = {}
+  for _, s in ipairs(ISSUE_SOURCES) do
+    local rose, last = false, nil
+    for _, key in ipairs(s[2]) do
+      if (after.failed[key] or 0) > ((before.failed or {})[key] or 0) then
+        rose = true
+        last = after.last_error[key] or last
+      end
+    end
+    if rose then
+      local kind = type(last) == "string" and last:match("^%[([%w%-]+)%]") or "transport"
+      out[#out + 1] = s[1] .. " " .. (ISSUE_TEXT[kind] or ISSUE_TEXT.transport)
+    end
+  end
+  return out
+end
+
+M._source_issues = source_issues -- test seam
+
 --- Look one game up and store what to propose. Lookups only: no record, no link, no artwork, nothing to Steam.
 function M.detect(appid, collection_names)
   local e, missing = entry_or_missing(appid)
@@ -277,6 +322,7 @@ function M.detect(appid, collection_names)
   end
   appid = unsigned(appid)
   searched_web = false
+  local net_before = failed_counts()
   local title = e.name or ""
   local v = verdict.verdict(title, e, nil, nil, collection_names)
   if v.state == "conflict" then
@@ -347,7 +393,7 @@ function M.detect(appid, collection_names)
       p.themes, p.game_modes, p.perspectives = meta.themes, meta.game_mode_names, meta.perspectives
       attempts[#attempts + 1] = "ss=skipped:igdb-hit"
     else
-      local ok_ss, ss, ss_why = pcall(screenscraper_lookup, appid, title, e)
+      local ok_ss, ss, ss_why = pcall(screenscraper_lookup, appid, title, info)
       local ss_taken = ok_ss and ss and ss.ss_id and not proposals.is_rejected(appid, "ss:" .. tostring(ss.ss_id))
       if not ok_ss then attempts[#attempts + 1] = "ss=error:" .. tostring(ss):sub(1, 60)
       elseif ss == nil then attempts[#attempts + 1] = "ss=" .. tostring(ss_why or "miss")
@@ -380,8 +426,11 @@ function M.detect(appid, collection_names)
   proposals.set_proposal(appid, p.title and p or false, M.deps.now())
   local out = row(e, collection_names)
   if p.title == nil and not searched_web then out.no_sources = true end
-  log_detect(appid, title, tostring(p.state) .. "/" .. tostring(p.platform), attempts,
-    p.title and ("proposed \"" .. tostring(p.title) .. "\"") or (not searched_web and "no-sources" or "needs-link"))
+  local issues = source_issues(net_before)
+  if #issues > 0 then out.source_issues = issues end
+  local result = p.title and ("proposed \"" .. tostring(p.title) .. "\"") or (not searched_web and "no-sources" or "needs-link")
+  if #issues > 0 then result = result .. string.format(" [%d source(s) did not answer: the window asks the user to try again]", #issues) end
+  log_detect(appid, title, tostring(p.state) .. "/" .. tostring(p.platform), attempts, result)
   return out
 end
 

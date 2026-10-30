@@ -111,6 +111,8 @@ export interface SetupGame {
     status?: "validated" | "existing" | "skipped" | "conflict" | "not-detected" | "needs-link" | "proposed";
     /** Detect ran no web metadata lookup (no source picked/credentialed): the window says so instead of silent "Needs a link". */
     no_sources?: boolean;
+    /** Sources that failed to answer for this game (a timeout, no network): the window asks the user to try again instead of showing a plain miss. */
+    source_issues?: WireList<string>;
     choice?: SetupChoice;
     proposal?: SetupProposal;
     metadata?: { title?: string; igdb_id?: number; ss_id?: number };

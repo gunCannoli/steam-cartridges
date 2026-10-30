@@ -72,7 +72,7 @@ export const VALIDATE_ALL_CHUNK = 10;
 
 /** Lua sends an empty list as `{}`: the window reads plain arrays. */
 function normalize(row: SetupGame): SetupGame {
-    return { ...row, signals: asList<string>(row.signals), warnings: row.warnings === undefined ? undefined : asList<string>(row.warnings) };
+    return { ...row, signals: asList<string>(row.signals), warnings: row.warnings === undefined ? undefined : asList<string>(row.warnings), source_issues: row.source_issues === undefined ? undefined : asList<string>(row.source_issues) };
 }
 
 export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {

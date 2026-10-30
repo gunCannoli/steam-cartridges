@@ -211,6 +211,51 @@ local function note_once(msg)
 end
 M._reset_notes = function() noted = {} end
 
+--- What a stored login looks like, never what it says: lengths and character classes only, so the line is safe to share.
+--- A RetroAchievements token is 16 letters and digits; a user name has no space, quote, control or non-ASCII character.
+--- Returns the description and whether both parts are well formed.
+---@param user string|nil
+---@param token string|nil
+---@return string description
+---@return boolean well_formed
+function M.credential_shape(user, token)
+  local function odd(v, what)
+    local f = {}
+    if v:find("^%s") or v:find("%s$") then f[#f + 1] = "space at an edge" end
+    if v:find("%s", 1) and not (v:find("^%s") or v:find("%s$")) then f[#f + 1] = "space inside" end
+    if v:find('["\']') then f[#f + 1] = "quote mark" end
+    if v:find("%c") then f[#f + 1] = "control character" end
+    if v:find("[\128-\255]") then f[#f + 1] = "non-ASCII character (damaged text?)" end
+    if what == "token" and #f == 0 and not v:match("^%w+$") then f[#f + 1] = "symbols (a token is letters and digits)" end
+    if what == "token" and #v ~= 16 then f[#f + 1] = "length is not 16" end
+    if what == "user" and (#v < 2 or #v > 32) then f[#f + 1] = "length out of range" end
+    return f
+  end
+  local function part(v, what)
+    if type(v) ~= "string" or v == "" then return what .. ": missing", false end
+    local f = odd(v, what)
+    if #f == 0 then return string.format("%s: well formed (%d characters)", what, #v), true end
+    return string.format("%s: odd (%d characters; %s)", what, #v, table.concat(f, ", ")), false
+  end
+  local ud, uok = part(user, "user name")
+  local td, tok = part(token, "token")
+  return ud .. "; " .. td, uok and tok
+end
+
+--- RetroAchievements answered 401: say once per session whether the stored login looks damaged or only refused. Never throws.
+local refused_noted = false
+local function note_login_refused(u, t, where)
+  if refused_noted then return end
+  refused_noted = true
+  pcall(function()
+    local shape, ok = M.credential_shape(u, t)
+    local verdict = ok
+      and "the login is well formed, so RetroAchievements itself refused it: the token was reset, the password changed, or this is a different account. Sign in again in RetroArch (or re-enter the key in Settings)"
+      or "the stored login looks damaged or mistyped (see above): re-enter it in Settings, or sign in again in RetroArch"
+    require("plog").event("retroachievements", string.format("login refused (HTTP 401, %s): %s => %s", where, shape, verdict))
+  end)
+end
+
 -- In-memory cache for decrypted keychain credentials across shortcut lookups
 local _cached_keychain_user = nil
 local _cached_keychain_token = nil
@@ -1146,6 +1191,7 @@ function M.game_info(game_id, exe_hint)
   local url = "https://retroachievements.org/dorequest.php?r=patch&g=" .. tostring(gid)
   if #u > 0 and #t > 0 then url = url .. "&u=" .. utils.url_encode(u) .. "&t=" .. utils.url_encode(t) end
   local ok, res = pcall(net.get, url, { source = "retroachievements", user_agent = "RetroArch/1.19.0", headers = { ["User-Agent"] = "RetroArch/1.19.0", ["Accept"] = "application/json" }, timeout = 10 })
+  if ok and res and res.status == 401 then note_login_refused(u, t, "game info from " .. tostring(creds.emulator or "the saved key")) end
   if not ok or not res or res.status ~= 200 or not res.body then return nil end
   local okj, data = pcall(json.decode, res.body)
   local patch = okj and type(data) == "table" and data.Success and data.PatchData or nil
@@ -1303,7 +1349,8 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
 
   if not p_ok or not p_res or p_res.status ~= 200 or not p_res.body then
     if p_res and p_res.status == 401 then
-      logger:warn(string.format("RetroAchievements API returned 401 Unauthorized for user %q (token invalid/stale)", u))
+      logger:warn("RetroAchievements API returned 401 Unauthorized (token invalid/stale)")
+      note_login_refused(u, t, "game patch")
     end
     return nil, "cannot fetch game patch"
   end
@@ -1354,7 +1401,8 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
           end
         end
       elseif u_res and u_res.status == 401 then
-        logger:warn(string.format("RetroAchievements unlocks returned 401 Unauthorized for user %q", u))
+        logger:warn("RetroAchievements unlocks returned 401 Unauthorized")
+        note_login_refused(u, t, "unlocks")
         break
       end
     end
