@@ -33,8 +33,16 @@ local function entries()
   return require("registry").entries()
 end
 
-local function entry_of(appid)
+--- A shortcut's appid above 0x7FFFFFFF reaches the backend signed from CEF (knowledgebase "Signed vs Unsigned 32-bit AppId"),
+--- while shortcuts.vdf entries and every store are keyed unsigned: turn it back before comparing or keying.
+local function unsigned(appid)
   local n = tonumber(appid)
+  if n and n < 0 and n >= -0x80000000 then n = n + 0x100000000 end
+  return n
+end
+
+local function entry_of(appid)
+  local n = unsigned(appid)
   for _, e in ipairs(entries()) do
     if tonumber(e.appid) == n then return e end
   end
@@ -51,7 +59,7 @@ local searched_web = false
 local function entry_or_missing(appid)
   local all = entries()
   for _, e in ipairs(all) do
-    if tonumber(e.appid) == tonumber(appid) then return e end
+    if tonumber(e.appid) == unsigned(appid) then return e end
   end
   if #all == 0 then return nil, "not in the library (no shortcuts read - is this the right Steam user?)" end
   return nil, "not in the library (" .. #all .. " shortcuts read)"
@@ -267,7 +275,7 @@ function M.detect(appid, collection_names)
     log_detect(appid, "?", "no entry", {}, "missing: " .. tostring(missing))
     return { error = missing }
   end
-  appid = tonumber(appid)
+  appid = unsigned(appid)
   searched_web = false
   local title = e.name or ""
   local v = verdict.verdict(title, e, nil, nil, collection_names)
@@ -481,7 +489,7 @@ function M.validate(appid, answer, collection_names)
     log_validate_error(appid, "missing: " .. tostring(missing))
     return { error = missing }
   end
-  appid = tonumber(appid)
+  appid = unsigned(appid)
   answer = type(answer) == "table" and answer or {}
   local now = M.deps.now()
   local warnings
@@ -540,7 +548,7 @@ function M.validate_all(appids)
   local confirmed, skipped, failed = {}, 0, {}
   local seen = {}
   for _, id in ipairs(type(appids) == "table" and appids or {}) do
-    local appid = tonumber(id)
+    local appid = unsigned(id)
     if appid and not seen[appid] then
       seen[appid] = true
       local e = entry_of(appid)

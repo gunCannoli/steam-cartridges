@@ -7,6 +7,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.5-beta] - 2026-10-30
+
+### Changed
+
+- **Setup messages use green, yellow and red.** "Confirmed 1 game and fetching them." showed in red, the colour of an
+  error. A message now starts with a tick (green: done), a warning sign (yellow: done with a catch, or you need to act,
+  like "No game is in scope of your rules") or nothing (red: an error). Confirming now reads "✓ Confirmed 1 game;
+  fetching it now."
+- **The log says more about a fetch.** Each game the sync walks now gets one `[sync] sync game "<name>"` line with its
+  route, whether web and ScreenScraper are on for it, and what each part answered (`identity=ok(steam-store)`,
+  `metadata=unsupported`, ...). Before, only failures were logged, so "it ran and fetched nothing" left no trace. A game
+  with several failed parts now lists all of them, not the first.
+
+### Fixed
+
+- **Find matches on Linux looked up nothing.** Every game answered "not in the library (72 shortcuts read)": Steam hands
+  shortcut ids above 0x7FFFFFFF to the plugin as negative numbers, and the Library Setup window (Find matches, Yes / No,
+  Confirm all) compared them as they came with the unsigned ids in `shortcuts.vdf`. It now turns them back first.
+
 ## [0.6.4-beta] - 2026-10-29
 
 ### Added

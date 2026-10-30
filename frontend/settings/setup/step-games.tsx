@@ -123,7 +123,7 @@ export function GamesStep({
             }
             if (row.no_sources) {
                 put(row);
-                note(id, "No source searched it: turn on a source in step 1 (Metadata), then Find matches again.");
+                note(id, "⚠ No source searched it: turn on a source in step 1 (Metadata), then Find matches again.");
                 return "no-sources";
             }
             put(row);
@@ -175,8 +175,8 @@ export function GamesStep({
             backend.logEvent("setup", summary);
             setBulkMsg(
                 res.fetchError
-                    ? `Confirmed ${res.confirmed.length} games, but their fetch failed: ${res.fetchError}`
-                    : `Confirmed ${res.confirmed.length} game${res.confirmed.length === 1 ? "" : "s"} and fetching them.`,
+                    ? `⚠ Confirmed ${res.confirmed.length} game${res.confirmed.length === 1 ? "" : "s"}, but fetching failed: ${res.fetchError}`
+                    : `✓ Confirmed ${res.confirmed.length} game${res.confirmed.length === 1 ? "" : "s"}; fetching ${res.confirmed.length === 1 ? "it" : "them"} now.`,
             );
             const next = await ctx.setup.scan();
             if (!closed.current && !next.error) setRows(next.games);
@@ -290,7 +290,7 @@ export function GamesStep({
                 {sweep && <ActionRow message={`Looking up ${sweep.current} of ${sweep.total}: ${sweep.name}...`} />}
                 {listError && <ActionRow message={listError} />}
                 {rows !== undefined && visible.length === 0 && excluded > 0 && (
-                    <ActionRow message="No game is in scope of your rules: add a rule in step 3 (Rules) to set games up." />
+                    <ActionRow message="⚠ No game is in scope of your rules: add a rule in step 3 (Rules) to set games up." />
                 )}
             </Card>
             <div

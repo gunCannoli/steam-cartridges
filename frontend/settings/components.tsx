@@ -157,11 +157,11 @@ export function LoadingSpinner() {
 }
 
 /** The last row of a popup: a status message on the left, its buttons on the right. A message ending in "..." is
- *  progress (with Steam's spinner beside it: the work runs in the background), one starting with "✓" success,
- *  anything else an error. */
+ *  progress (with Steam's spinner beside it: the work runs in the background), one starting with "✓" success (green),
+ *  one starting with "⚠" a warning (yellow: it worked, with a catch), anything else an error (red). */
 export function ActionRow({ message, children }: { message?: string; children?: React.ReactNode }) {
     const progress = !!message && message.endsWith("...");
-    const color = !message ? undefined : message.startsWith("✓") ? "#a4d007" : progress ? undefined : "#eb4b4b";
+    const color = !message ? undefined : message.startsWith("✓") ? "#a4d007" : message.startsWith("⚠") ? "#e5a00d" : progress ? undefined : "#eb4b4b";
     const label = message ? (
         <span style={{ color, fontWeight: 400, display: "inline-flex", alignItems: "center", gap: CONTROL_GAP }}>
             {progress && <LoadingSpinner />}

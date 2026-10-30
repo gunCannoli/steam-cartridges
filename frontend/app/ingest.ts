@@ -107,6 +107,13 @@ export function createIngest(deps: IngestDeps): Ingest {
 
         let identity: Part<Identity> | undefined;
         const errors: string[] = [];
+        // What each part answered (ok | empty | unsupported | error | skipped ...), for the one [sync] line per game: a part that
+        // answers "nothing" is not an error, so without this a Linux report of "nothing fetched" has no evidence.
+        const seen: string[] = [];
+        const note = (part: string, res: { parts?: Record<string, { status?: string; source?: string }> }) => {
+            const p = res?.parts?.[part];
+            seen.push(`${part}=${p?.status ?? "none"}${p?.source ? `(${p.source})` : ""}`);
+        };
         const noteError = (part: string, res: { parts?: Record<string, { status?: string; message?: string }> }) => {
             const p = res?.parts?.[part];
             if (p?.status === "error" && p?.message) errors.push(`${part}: ${p.message}`);
@@ -116,6 +123,7 @@ export function createIngest(deps: IngestDeps): Ingest {
             if (pausedIn(res)) return { stop: true, done: false, errors };
             identity = res.parts?.identity as Part<Identity> | undefined;
             noteError("identity", res as never);
+            note("identity", res as never);
         }
 
         // A Steam match's own metadata is read from Steam when its page is opened (never persisted), so
@@ -127,6 +135,7 @@ export function createIngest(deps: IngestDeps): Ingest {
             const res = await deps.backend.ensureFresh(appid, [part], { ...base, identity }, BACKGROUND);
             if (pausedIn(res)) return { stop: true, done: false, errors };
             noteError(part, res as never);
+            note(part, res as never);
         }
         if (deps.artwork) {
             try {
@@ -134,6 +143,11 @@ export function createIngest(deps: IngestDeps): Ingest {
             } catch (e) {
                 errors.push(`artwork: ${String((e as Error)?.message ?? e)}`);
             }
+        }
+        if (errors.length === 0) {
+            deps.report?.(
+                `sync game "${item.name}": bucket=${route.bucket}, web=${base.allowWeb ? "on" : "off"}, screenscraper=${base.allowScreenscraper ? "on" : "off"}, ${seen.join(", ") || "no parts"}`,
+            );
         }
         return { stop: false, done: true, errors };
     }
@@ -222,7 +236,7 @@ export function createIngest(deps: IngestDeps): Ingest {
                 if (outcome.errors.length > 0) {
                     failed++;
                     setProgress({ failed });
-                    deps.report?.(`sync game "${item.name}": ${outcome.errors[0]}`);
+                    deps.report?.(`sync game "${item.name}": ${outcome.errors.join("; ")}`);
                 }
                 if (outcome.stop) {
                     deps.report?.(`sync paused (${reason}): a source is rate-limited; stops at ${item.name}, resumes next run`);
