@@ -21,6 +21,9 @@ local captures    = require("captures")
 
 local RPC = {}
 
+-- Per-session memory of the two diagnostics below (module locals, not globals: test_globals).
+local M_signed_seen, M_error_seen, M_error_count = {}, {}, 0
+
 --- Robust payload decoder handling raw JSON, tables, and nested Millennium { payload = "..." }
 local function decode_payload(payload_json)
   if type(payload_json) == "table" then
@@ -39,6 +42,33 @@ local function decode_payload(payload_json)
   return req
 end
 
+--- CEF and some Millennium builds hand an appid over as a signed int32; every store is keyed unsigned.
+local function normalise_appids(data, name)
+  for _, key in ipairs({ "appid", "shortcut_appid" }) do
+    local n = tonumber(data[key])
+    if n and n < 0 and n >= -0x80000000 then
+      data[key] = n + 0x100000000
+      M_signed_seen[name] = (M_signed_seen[name] or 0) + 1
+      -- One line per method per session: which calls still arrive signed (a Linux-only difference we could not see before).
+      if M_signed_seen[name] == 1 then
+        pcall(function() require("plog").event("rpc", name .. ": appid arrived signed, turned unsigned") end)
+      end
+    end
+  end
+  return data
+end
+
+--- A handler that answers `{ error = "..." }` did not throw, so nothing logged it: a failing call looked like "no result".
+--- One line per method and message per session (the first 40), never the payload.
+local function note_error_answer(name, result)
+  if type(result) ~= "table" or type(result.error) ~= "string" then return end
+  local key = name .. "|" .. result.error:sub(1, 80)
+  if M_error_seen[key] or M_error_count >= 40 then return end
+  M_error_seen[key] = true
+  M_error_count = M_error_count + 1
+  pcall(function() require("plog").event("rpc", name .. " answered an error: " .. result.error:sub(1, 160)) end)
+end
+
 --- Wrap a handler so it decodes/encodes JSON and never throws across the
 --- boundary.
 ---
@@ -55,7 +85,7 @@ local function method(name, func, opts)
   local user_action = type(opts) == "table" and opts.user_action == true
   return function(payload)
     if jit and jit.off then jit.off() end
-    local data = decode_payload(payload) or {}
+    local data = normalise_appids(decode_payload(payload) or {}, name)
 
     local success, result
     if user_action then
@@ -69,6 +99,7 @@ local function method(name, func, opts)
     end
 
     if result == nil then return "null" end
+    note_error_answer(name, result)
     return json.encode(result)
   end
 end

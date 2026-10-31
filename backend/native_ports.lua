@@ -14,8 +14,8 @@
 ---   id          unique, stable ("bloodborne_awakenchan"): kept in the schema and the store
 ---   name        what the user reads ("Bloodborne PC")
 ---   url         the port's home page
----   programs    exe basenames a shortcut may launch, lower case, no extension
----   markers     files that prove the port's folder, relative to it; searched from the exe's folder up two levels,
+---   programs    exe basenames a shortcut may launch, lower case, no extension; a trailing * is a prefix
+---   markers     files ("{exe}" = the launched file) that prove the port's folder, relative to it; searched from the exe's folder up two levels,
 ---               each marker at every level before the next marker
 ---   controller  true: a controller game (full controller support)
 ---   store_match false: never matched to a Steam store app automatically (the game is not sold on Steam)
@@ -159,8 +159,16 @@ function M.program(cmd)
   local s = tostring(cmd or ""):gsub("^%s+", "")
   local first = s:match('^"([^"]*)"') or s:match("^(.-%.[eE][xX][eE])%s") or s:match("^(.-%.[eE][xX][eE])$") or s:match("^(%S*)")
   first = norm(first)
-  local base = (first:match("([^/]*)$") or first):gsub("%.%w+$", ""):lower()
-  return base, (parent(first) or "")
+  local file = first:match("([^/]*)$") or first
+  local base = file:gsub("%.%w+$", ""):lower()
+  return base, (parent(first) or ""), file
+end
+
+--- Whether a definition's `programs` entry names this basename; a trailing `*` is a prefix ("dusklight*" also takes
+--- the versioned AppImage "Dusklight-v2.0.3-linux-x86_64.AppImage").
+local function program_is(entry, base)
+  if entry:sub(-1) == "*" then return base:sub(1, #entry - 1) == entry:sub(1, -2) end
+  return entry == base
 end
 
 --- The definition owning an exe basename, or nil (no file is read). For the emulator lists.
@@ -168,7 +176,7 @@ function M.for_program(base)
   base = tostring(base or ""):lower()
   for _, def in ipairs(M.definitions()) do
     for _, p in ipairs(def.programs or {}) do
-      if p == base then return def end
+      if program_is(p, base) then return def end
     end
   end
   return nil
@@ -176,7 +184,7 @@ end
 
 --- The port a shortcut launches: a `port` (see the top), or nil. `only` limits the search to these definitions.
 function M.find(exe, _launch_options, only)
-  local base, dir = M.program(exe)
+  local base, dir, file = M.program(exe)
   if dir == "" then return nil end
   local dirs = {}
   for _ = 1, 3 do
@@ -187,12 +195,14 @@ function M.find(exe, _launch_options, only)
   for _, def in ipairs(only or M.definitions()) do
     local runs = false
     for _, p in ipairs(def.programs or {}) do
-      if p == base then runs = true break end
+      if program_is(p, base) then runs = true break end
     end
     if runs then
       for _, marker in ipairs(def.markers or {}) do
         for _, d in ipairs(dirs) do
-          if exists(d .. "/" .. marker) then return port_of(def, d) end
+          -- "{exe}": the launched file itself proves the port (a single-file build, an AppImage)
+          local rel = marker == "{exe}" and file or marker
+          if exists(d .. "/" .. rel) then return port_of(def, d) end
         end
       end
     end

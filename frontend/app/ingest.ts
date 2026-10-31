@@ -121,6 +121,7 @@ export function createIngest(deps: IngestDeps): Ingest {
         if (route.bucket === "steam-store") {
             const res = await deps.backend.ensureFresh(appid, ["identity"], base, BACKGROUND);
             if (pausedIn(res)) return { stop: true, done: false, errors };
+            if (res.error) errors.push(`identity: ${res.error}`);
             identity = res.parts?.identity as Part<Identity> | undefined;
             noteError("identity", res as never);
             note("identity", res as never);
@@ -134,12 +135,14 @@ export function createIngest(deps: IngestDeps): Ingest {
         for (const part of parts) {
             const res = await deps.backend.ensureFresh(appid, [part], { ...base, identity }, BACKGROUND);
             if (pausedIn(res)) return { stop: true, done: false, errors };
+            if (res.error) errors.push(`${part}: ${res.error}`);
             noteError(part, res as never);
             note(part, res as never);
         }
         if (deps.artwork) {
             try {
-                await deps.artwork.ensure(appid, route, identity, BACKGROUND);
+                const art = (await deps.artwork.ensure(appid, route, identity, BACKGROUND)) as { status?: string; data?: { source?: string } } | undefined;
+                seen.push(`artwork=${art?.status ?? "none"}${art?.data?.source ? `(${art.data.source})` : ""}`);
             } catch (e) {
                 errors.push(`artwork: ${String((e as Error)?.message ?? e)}`);
             }

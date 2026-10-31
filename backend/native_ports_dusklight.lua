@@ -80,8 +80,8 @@ return {
     id = "dusklight",
     name = "Dusklight",
     url = "https://github.com/TwilitRealm/dusklight",
-    programs = { "dusklight" },
-    markers = { "Dusklight.exe" },
+    programs = { "dusklight*" },
+    markers = { "Dusklight.exe", "{exe}" },
     controller = true,
     store_match = false,
     game = GAME,
@@ -95,6 +95,9 @@ return {
           out[#out + 1] = appdata .. "/TwilitRealm/Dusklight/achievements.json"
           out[#out + 1] = appdata .. "/TwilitRealm/Dusk/achievements.json" -- the build before the rename
         end
+        -- Linux (unconfirmed, no log yet): SDL's per-user data folder, where the game keeps the same files
+        local data = port.getenv("LOCALAPPDATA")
+        if data then out[#out + 1] = port.expand(data) .. "/TwilitRealm/Dusklight/achievements.json" end
         return out
       end,
     },

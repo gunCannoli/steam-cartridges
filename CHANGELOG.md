@@ -7,6 +7,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.7-beta] - 2026-10-31
+
+### Fixed
+
+- **Every backend call now takes a signed appid.** The Linux 0.6.6-beta logs showed Fetch now, the start-up sync and Link doing nothing:
+  each `[sync]` line read `identity=none, metadata=none, achievements=none`, no SteamGridDB, RetroAchievements or Steam request left,
+  and Link answered "not a shortcut". The handlers refuse an appid below 2^31, and a signed one (CEF, some Millennium builds) is
+  below it. The RPC wrapper now turns `appid` and `shortcut_appid` unsigned once, for every method.
+- **More in the log for the next report.** `[rpc] <Method> answered an error: ...` (once per message per session) for a handler that
+  answers `{ error }` instead of throwing, `[rpc] <Method>: appid arrived signed` once per method, `artwork=<status>(<source>)` in the
+  `[sync]` line, and `ra=hash-fail(.rvz)` naming the ROM extension (a compressed disc image cannot be hashed).
+- **A failed `EnsureFresh` is no longer silent.** The sync reported "no parts" as if nothing was found; the call's own error now
+  lands in the plugin log and the window.
+- **Dusklight on Linux** is recognised by its versioned AppImage (`Dusklight-v2.0.3-linux-x86_64.AppImage`: `programs` takes a trailing
+  `*`, a marker may be `{exe}`) and its save file is also looked for in `~/.local/share/TwilitRealm/Dusklight` (a guess from SDL's
+  data folder, not yet confirmed by a Linux log).
+
 ## [0.6.6-beta] - 2026-10-30
 
 ### Fixed
