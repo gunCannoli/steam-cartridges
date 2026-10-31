@@ -108,7 +108,7 @@ end
 --- part, loses its head, and the head says which OS, Steam, Flatpak and tools the rest was run on: the pinned lines are written
 --- again at the top of a fresh file after a rotation and put in front of a shared tail that no longer holds them.
 local pinned, pinned_seen = {}, {}
-M.PIN_AREAS = { startup = true, host = true }
+M.PIN_AREAS = { startup = true, host = true, system = true }
 M.PIN_MAX = 40
 
 local function pin(text)
@@ -183,6 +183,11 @@ function M.install()
     end
   end
   package.loaded["logger"] = tee
+  -- The plugin and its version are the first thing a session writes, and the first thing kept at the top of a rotated or cut log.
+  local ok_v, pv = pcall(function() return require("plugin_version").get() end)
+  local head = "---- " .. ((ok_v and type(pv) == "table" and pv.name) or "plugin") .. " " .. ((ok_v and type(pv) == "table" and pv.version) or "unknown") .. " ----"
+  M.write("INFO", head)
+  pin(stamp() .. " [INFO] " .. head)
   M.write("INFO", "---- log started ----")
 end
 

@@ -143,6 +143,8 @@ local function on_load()
   plog.event("startup", string.format("plugin=%s %s os=%s millennium=%s steam=%s data_dir=%s log=%s",
     tostring(pv.name), tostring(pv.version), require("platform").os_name(),
     tostring(ok_v and mver or "unknown"), tostring(paths and paths.root), data_dir.path(), plog.path()))
+  -- The machine (OS build, CPUs, memory, language): pinned with the other header lines, no name of the user or the PC.
+  pcall(function() plog.event("system", require("host_tools").system()) end)
   -- RetroAchievements also works through an emulator login, not just .env: the status is read once for both lines.
   local ok_emu, emu_status = pcall(function() return require("retroachievements").get_emulator_status() end)
   if not ok_emu or type(emu_status) ~= "table" then emu_status = {} end

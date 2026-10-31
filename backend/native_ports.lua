@@ -285,6 +285,80 @@ M.FORMATS = {
   },
 }
 
+-- ------------------------------------------------------------------------------------------------ discovery
+
+M.DISCOVER_DEPTH = 3     -- folders below a match to look into
+M.DISCOVER_BUDGET = 4000 -- folders listed per search, so a huge home folder cannot stall the observer
+M.DISCOVER_TTL = 60      -- seconds a search answer is reused (the observer asks every few seconds)
+
+local function squash(s) return (tostring(s or ""):lower():gsub("[^%w]", "")) end
+
+local discovered = {}
+
+--- Where a game keeps a file no matter which store, vendor or OS folder it chose: any folder under the user's folders (or the
+--- game's own) whose name contains one of `folders` ("Dusklight" in "TwilitRealm/Dusklight", "dusklight-2"), then any file in it, up
+--- to M.DISCOVER_DEPTH folders down, named one of `files` (any case; a word without a dot such as "achievement" matches any name holding it). Full paths, best first. A guess made by name only: it
+--- never replaces a path a definition names, it comes after them.
+---@param folders string[]
+---@param files string[]
+---@param root string|nil the port's own folder, searched too (portable mode)
+---@return string[]
+function M.discover(folders, files, root)
+  local want, wanted = {}, {}
+  for _, f in ipairs(folders or {}) do if #squash(f) >= 4 then want[#want + 1] = squash(f) end end
+  for _, f in ipairs(files or {}) do wanted[tostring(f):lower()] = true end
+  if #want == 0 or next(wanted) == nil then return {} end
+  local key = table.concat(want, ",") .. "|" .. table.concat((function() local t = {} for k in pairs(wanted) do t[#t + 1] = k end table.sort(t) return t end)(), ",") .. "|" .. tostring(root)
+  local now = (M.deps.now or os.time)()
+  local hit = discovered[key]
+  if hit and now - hit.at < M.DISCOVER_TTL then return hit.paths end
+
+  local out, seen, budget = {}, {}, M.DISCOVER_BUDGET
+  -- "achievements.json" must be that name (any case); a word without a dot ("achievement") matches any file name holding it
+  local function file_matches(name)
+    for w in pairs(wanted) do
+      if w:find(".", 1, true) then
+        if name == w then return true end
+      elseif name:find(w, 1, true) then return true end
+    end
+    return false
+  end
+  local function matches(path)
+    local name = squash((norm(path):match("([^/]*)$")))
+    for _, w in ipairs(want) do if name:find(w, 1, true) then return true end end
+    return false
+  end
+  local function look(dir, depth)
+    if depth > M.DISCOVER_DEPTH or budget <= 0 then return end
+    budget = budget - 1
+    for _, f in ipairs(list_files(dir, "")) do
+      local p = norm(f)
+      if file_matches((p:match("([^/]*)$") or ""):lower()) and not seen[p:lower()] then seen[p:lower()] = true out[#out + 1] = p end
+    end
+    for _, d in ipairs(list_dirs(dir)) do look(norm(d), depth + 1) end
+  end
+  local function scan(dir, levels)
+    if budget <= 0 then return end
+    budget = budget - 1
+    for _, d in ipairs(list_dirs(dir)) do
+      d = norm(d)
+      if matches(d) then look(d, 1)
+      elseif levels > 1 then scan(d, levels - 1) end
+    end
+  end
+  local ok_p, platform = pcall(require, "platform")
+  for _, base in ipairs(ok_p and platform.user_roots() or {}) do scan(norm(base), 2) end
+  if root and root ~= "" then
+    look(norm(root), 2)
+    scan(norm(root), 1)
+  end
+  discovered[key] = { at = now, paths = out }
+  return out
+end
+
+--- Forget what searches found (tests).
+function M.discover_reset() discovered = {} end
+
 --- The port's unlock files: { { path, format } } (each may not exist yet). An achievement pack's format is
 --- "detect": its files are read by unlock_detect.lua, which finds the pack's ids in any layout (ADR-0081).
 function M.unlock_files(port)
@@ -292,7 +366,27 @@ function M.unlock_files(port)
   local format = u and (u.detect and "detect" or u.format)
   if not u or not (format == "detect" or M.FORMATS[format]) then return {} end
   local out = {}
-  for _, p in ipairs(u.files(port) or {}) do out[#out + 1] = { path = norm(p), format = format } end
+  local seen = {}
+  for _, p in ipairs(u.files(port) or {}) do
+    out[#out + 1] = { path = norm(p), format = format }
+    seen[norm(p):lower()] = true
+  end
+  -- After the named paths: any "<game> folder / file" the game wrote somewhere we did not think of (store, OS or version differences).
+  local d = port.def.discover
+  if d then
+    local found = M.discover(d.folders, d.files, port.root)
+    for _, p in ipairs(found) do
+      if not seen[p:lower()] then
+        seen[p:lower()] = true
+        out[#out + 1] = { path = p, format = format }
+        if not M._told then M._told = {} end
+        if not M._told[port.def.id] then
+          M._told[port.def.id] = true
+          pcall(function() require("plog").event("ports", tostring(port.def.id) .. ": an unlock file was found by folder and file name (not at a known path)") end)
+        end
+      end
+    end
+  end
   return out
 end
 

@@ -84,6 +84,8 @@ return {
     markers = { "Dusklight.exe", "{exe}" },
     controller = true,
     store_match = false,
+    -- Any folder named like Dusklight (inside TwilitRealm, a store folder, a Flatpak, a portable copy) holding its achievements file.
+    discover = { folders = { "dusklight" }, files = { "achievements.json", "achievement" } },
     game = GAME,
     unlocks = {
       format = "key_flags_json",

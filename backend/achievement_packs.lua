@@ -38,7 +38,7 @@ M.MAX_BYTES = 1024 * 1024
 M.MAX_ACHIEVEMENTS = 1000
 M.MAX_ICON_BYTES = 512 * 1024
 
-local FIELDS = { id = true, exe = true, files = true, achievements = true, icons = true }
+local FIELDS = { id = true, exe = true, files = true, achievements = true, icons = true, discover = true }
 local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, rarity = true, platinum = true, ra_icon = true }
 
 local io_ = ports.io
@@ -226,6 +226,18 @@ local function exe_entries(pack)
   return out
 end
 
+--- The folder and file names a pack is searched by when its named paths hold nothing: the pack's own `discover` ({ folders, files },
+--- each a name or a list), else a folder called like the pack and a file named like one of its `files`.
+function M.discover_of(pack, names)
+  local function list(v) if type(v) == "string" then return { v } elseif type(v) == "table" then return v end return {} end
+  local d = type(pack.discover) == "table" and pack.discover or {}
+  local folders, files = list(d.folders), list(d.files)
+  if #folders == 0 then folders = { pack.id } end
+  if #files == 0 then files = names end
+  if #files == 0 then return nil end
+  return { folders = folders, files = files }
+end
+
 --- A checked pack as a native ports definition. `file` and `text` are its file and contents; `bundled` when it ships
 --- with the plugin.
 function M.compile(pack, file, text, bundled)
@@ -241,7 +253,14 @@ function M.compile(pack, file, text, bundled)
     if a.platinum then plat = true end
   end
   local files = type(pack.files) == "string" and { pack.files } or pack.files
+  -- Besides the named paths, any folder called like the pack holding a file named like one of its files.
+  local names = {}
+  for _, t in ipairs(files) do
+    local base = tostring(t):gsub("\\", "/"):match("([^/]+)$")
+    if base and not base:find("[%*{}%%]") then names[#names + 1] = base end
+  end
   local def = {
+    discover = M.discover_of(pack, names),
     id = "pack_" .. pack.id,
     name = pack.id,
     exe = exe_entries(pack),

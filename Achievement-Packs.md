@@ -101,6 +101,13 @@ has secret trophies, rarity and the platinum).
 | `%APPDATA%`, `%LOCALAPPDATA%`, `%USERPROFILE%`, any `%NAME%`; `~` | Windows' own folders, as in Explorer's address bar. |
 | `*` as a whole folder name | Any folder there, for a folder per account: `%APPDATA%/Game/*/achievements.json`. |
 
+**Not sure where it is? The plugin also searches.** After the paths above, it looks in your user folders (AppData, `~/.config`,
+`~/.local/share`, Documents, Flatpak apps) and in the game's own folder for any folder whose name contains the pack's `id`, then for a
+file in it (up to three folders down) named like one of your `files`. So a pack `"id": "dusklight"` with
+`"files": ["{game}/data/achievements.json"]` also finds `~/.local/share/AnyStudio/Dusklight-beta/profile/Achievements.json`. To steer it,
+add `"discover": { "folders": ["dusklight", "twilitrealm"], "files": ["achievements"] }`: a folder name part (4 letters or more), and file
+names; a file name with a dot must match whole, one without matches any file name containing it.
+
 List every place the game may use (a portable install, the AppData folder, an older version's folder): all are read, and
 an unlock in any of them counts. A file that does not exist yet is fine; most games create it on the first unlock.
 

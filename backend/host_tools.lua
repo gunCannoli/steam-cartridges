@@ -13,6 +13,8 @@ M.deps = {
   getenv = nil,   -- fun(name) -> string | nil ; nil = platform.getenv
   read = nil,     -- fun(path) -> text | nil ; nil = io.open + read
   load_lib = nil, -- fun(name) -> boolean ; nil = pcall(ffi.load, name)
+  win_info = nil, -- fun() -> { version = "10.0.26200", ram_gb = 16 } ; nil = ntdll / kernel32 through the FFI
+  jit = nil,      -- { os, arch, version } ; nil = the running LuaJIT
 }
 
 local function is_windows()
@@ -92,6 +94,58 @@ function M.distro()
   local text = not is_windows() and read("/etc/os-release") or nil
   local name = text and text:match('PRETTY_NAME="?([^"\r\n]+)') or nil
   return name and name:sub(1, 40) or nil
+end
+
+--- Windows' own version and installed memory through the FFI (ntdll RtlGetVersion, kernel32 GlobalMemoryStatusEx). Best effort: {}.
+local function windows_info()
+  if M.deps.win_info then return M.deps.win_info() or {} end
+  local ok, out = pcall(function()
+    local ffi = require("ffi")
+    ffi.cdef([[
+      typedef struct { unsigned long size, major, minor, build, platform; unsigned short csd[128]; } sc_osver;
+      long RtlGetVersion(sc_osver* info);
+      typedef struct { unsigned long length, load; unsigned long long total, avail, ptotal, pavail, vtotal, vavail, vext; } sc_memstat;
+      int GlobalMemoryStatusEx(sc_memstat* buf);
+    ]])
+    local info = {}
+    local v = ffi.new("sc_osver")
+    v.size = ffi.sizeof("sc_osver")
+    if ffi.load("ntdll").RtlGetVersion(v) == 0 then info.version = string.format("%d.%d.%d", v.major, v.minor, v.build) end
+    local m = ffi.new("sc_memstat")
+    m.length = ffi.sizeof("sc_memstat")
+    if ffi.load("kernel32").GlobalMemoryStatusEx(m) ~= 0 then info.ram_gb = math.floor(tonumber(m.total) / 1073741824 + 0.5) end
+    return info
+  end)
+  return ok and type(out) == "table" and out or {}
+end
+
+local function clean(v, max)
+  return (tostring(v or "unknown"):gsub(" ", "_"):gsub("[^%w%._%+%-]", ""):sub(1, max or 40))
+end
+
+--- One log line about the machine for a report, so a bug can be tied to an OS build, a CPU count or a memory size: the OS and its
+--- version, CPU architecture and count, installed memory (GB), the language code, the LuaJIT build. Nothing that names the user or the
+--- PC: no host name, no user name, no path, no serial.
+function M.system()
+  local j = M.deps.jit or (rawget(_G, "jit") or {})
+  local os_name, version, cpus, ram, lang
+  if is_windows() then
+    local info = windows_info()
+    os_name, version, ram = "windows", info.version, info.ram_gb
+    cpus = tonumber(env("NUMBER_OF_PROCESSORS") or "")
+  else
+    os_name = "linux"
+    version = (read("/proc/sys/kernel/osrelease") or ""):match("^[^\r\n]+")
+    local mem = (read("/proc/meminfo") or ""):match("MemTotal:%s*(%d+)")
+    ram = mem and math.floor(tonumber(mem) / 1048576 + 0.5) or nil
+    local n = 0
+    for _ in (read("/proc/cpuinfo") or ""):gmatch("\nprocessor%s*:") do n = n + 1 end
+    if (read("/proc/cpuinfo") or ""):match("^processor%s*:") then n = n + 1 end
+    cpus = n > 0 and n or nil
+    lang = (env("LANG") or ""):match("^([%a_]+)")
+  end
+  return string.format("system: os=%s %s; arch=%s; cpus=%s; ram_gb=%s; lang=%s; lua=%s",
+    os_name, clean(version), clean(j.arch), cpus or "unknown", ram or "unknown", clean(lang), clean(j.version))
 end
 
 --- One log line: what this host is and which helper tools it has. No path, no user name.

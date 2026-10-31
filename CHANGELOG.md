@@ -9,6 +9,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [0.6.7-beta] - 2026-10-31
 
+### Added
+
+- **Achievement files are found by name, not only by path.** After the known locations, the plugin looks in your user folders (AppData,
+  `~/.config`, `~/.local/share`, Documents, Flatpak apps) and the game's own folder for any folder named like the game (Dusklight:
+  "dusklight") and, in it, a file named like its achievements file, a few folders down. Every achievement pack gets this too (its `id`
+  and file names), and a pack can steer it with `"discover": { "folders": [...], "files": [...] }`. One `[ports]` line says when the search,
+  not a known path, found the file.
+- **The log opens with the plugin and its version, then the machine.** The first line of every session is `---- steam-cartridges <version> ----`
+  (repeated at the top of a rotated or cut log), and a `[system]` line follows with the OS and its build, CPU architecture and count,
+  installed memory, language code and Lua build. No host name, user name, path or serial.
+
 ### Fixed
 
 - **Every backend call now takes a signed appid.** The Linux 0.6.6-beta logs showed Fetch now, the start-up sync and Link doing nothing:
