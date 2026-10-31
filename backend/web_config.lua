@@ -61,17 +61,7 @@ function config.find_legacy_key()
   return read_key_file("sgdb_key.txt")
 end
 
---- A setting whose value is a secret (a key, a password, a token): written to the `.env` as a token of the secure store (secret_store.lua, ADR-0099).
---- A user name or a client id is not secret and stays readable.
-local function is_secret_key(key)
-  local k = tostring(key):lower()
-  for _, word in ipairs({ "secret", "pass", "pw", "api", "token", "key" }) do
-    if k:find(word, 1, true) then return true end
-  end
-  return false
-end
-
---- A `.env` as parsed, with each protected value opened. A value that cannot be opened (another Windows user, another PC) is left out and named once
+--- A `.env` as parsed, with each protected value (a token an earlier version wrote, ADR-0099) opened. A value that cannot be opened (another Windows user, another PC) is left out and named once
 --- in the log: the user adds it again.
 local function reveal_all(map)
   local out = {}
@@ -179,28 +169,8 @@ function config.get_screenscraper_credentials()
   return { user = u, pass = p, dev_user = dev_user, dev_pw = dev_pw }
 end
 
---- Turns every plain secret in `map` into its token (secret_store). A value no store can take stays plain text; returns how many were
---- protected and how many were left plain.
-function config._protect_map(map)
-  local store = require("secret_store")
-  local protected, plain = 0, 0
-  for k, v in pairs(map) do
-    if is_secret_key(k) and not store.is_token(v) then
-      local token, err = store.protect(k, v)
-      if token then
-        map[k] = token
-        protected = protected + 1
-      else
-        plain = plain + 1
-        logger:warn("Could not protect " .. tostring(k) .. " (" .. tostring(err) .. "): it stays plain text.")
-      end
-    end
-  end
-  return protected, plain
-end
-
---- At start-up: the keys an earlier version saved as plain text are protected now, once (ADR-0099), and the old SteamGridDB key file is folded
---- into the `.env`. Returns { store, protected, plain } for the log.
+--- At start-up: the keys an earlier version protected (ADR-0099) are written back as plain text, once (ADR-0103), and the old SteamGridDB key file is
+--- folded into the `.env`. A token that cannot be opened stays as it is and is named in the log. Returns { converted, left } for the log.
 function config.protect_existing()
   local store = require("secret_store")
   local env_path = data_dir.file(".env")
@@ -209,11 +179,20 @@ function config.protect_existing()
   local key_path = data_dir.file("sgdb_key.txt")
   local legacy_key = read_key_file(key_path)
   if legacy_key and not current["steamgriddb_api"] then current["steamgriddb_api"] = legacy_key end
-  local protected, plain = config._protect_map(current)
-  local already = 0
-  for k, v in pairs(current) do if is_secret_key(k) and store.is_token(v) then already = already + 1 end end
-  already = already - protected -- the ones protected just now are not "already"
-  if protected > 0 or legacy_key then
+  local converted, left = 0, 0
+  for k, v in pairs(current) do
+    if store.is_token(v) then
+      local plain, err = store.reveal(v)
+      if plain then
+        current[k] = plain
+        converted = converted + 1
+      else
+        left = left + 1
+        logger:warn("A saved value (" .. tostring(k) .. ") could not be opened: " .. tostring(err) .. ". Add it again in Settings.")
+      end
+    end
+  end
+  if converted > 0 or legacy_key then
     local lines = {}
     for k, v in pairs(current) do table.insert(lines, k .. "=" .. v) end
     table.sort(lines)
@@ -225,7 +204,7 @@ function config.protect_existing()
     cached_env, cached_key = nil, nil
     pcall(function() require("plog").forget_known() end)
   end
-  return { store = store.store(), protected = protected, plain = plain, already = already }
+  return { converted = converted, left = left }
 end
 
 --- Save key-value pairs into data_dir .env. Key names only in the log, never values.
@@ -245,7 +224,6 @@ function config.save_credentials(map)
       cleared[#cleared + 1] = key
     end
   end
-  config._protect_map(current)
   local lines = {}
   for k, v in pairs(current) do
     table.insert(lines, k .. "=" .. v)
@@ -268,7 +246,7 @@ function config.save_credentials(map)
       local parts = {}
       if #saved > 0 then parts[#parts + 1] = "saved: " .. table.concat(saved, ", ") end
       if #cleared > 0 then parts[#parts + 1] = "cleared: " .. table.concat(cleared, ", ") end
-      if #parts > 0 then plog.event("credentials", table.concat(parts, "; ") .. " (" .. require("secret_store").store() .. ")") end
+      if #parts > 0 then plog.event("credentials", table.concat(parts, "; ")) end
     end
   end)
   return ok ~= false

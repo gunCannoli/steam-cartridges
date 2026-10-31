@@ -1,11 +1,8 @@
---- Where the plugin keeps its keys and passwords safe at rest (ADR-0099).
+--- Opens the protected tokens an earlier version wrote to the `.env` (ADR-0099), so they can be turned back into plain text (ADR-0103). Read only:
+--- nothing is protected any more, because the plugin's keys stay on this machine and a locked desktop keyring made Steam ask for a password at every start.
 ---
---- A saved key is not written to the `.env` as text: it is written as a token, `enc:dpapi:<base64>` (Windows: the blob Windows' own DPAPI made for the
---- signed-in user, so another account, or the same file on another PC, cannot open it) or `enc:secret-tool:<name>` (Linux: the secret lives in the
---- desktop's keyring through `secret-tool`, the `.env` only names it). Where neither exists the value stays plain text and the log says so.
----
---- No process is started on Windows (the FFI calls crypt32 directly), so nothing is written to a temp file and no window flashes. On Linux the secret
---- goes to `secret-tool` on its standard input, never on a command line.
+--- A token is `enc:dpapi:<base64>` (Windows: a blob Windows' DPAPI made for the signed-in user) or `enc:secret-tool:<name>` (Linux: the secret lives in the
+--- desktop's keyring and is read through `secret-tool`). This runs once per saved key, only while a token is still in the `.env`.
 ---
 --- An adapter: it knows the operating system's stores, never the plugin's settings or network (the architecture test).
 
@@ -14,27 +11,14 @@ local M = {}
 --- Injectable for tests. nil = the real thing.
 M.deps = {
   windows = nil,     -- boolean ; nil = platform.is_windows()
-  dpapi = nil,       -- { protect = fun(plain) -> blob | nil, err, reveal = fun(blob) -> plain | nil, err } ; nil = crypt32 through the FFI
+  dpapi = nil,       -- { reveal = fun(blob) -> plain | nil, err } ; nil = crypt32 through the FFI
   popen = nil,       -- fun(cmd, mode) -> handle ; nil = io.popen
   have_secret_tool = nil, -- boolean ; nil = look for `secret-tool`
 }
 
--- ------------------------------------------------------------------------------------------------ base64 (the blob is stored as text)
+-- ------------------------------------------------------------------------------------------------ base64 (the blob was stored as text)
 
 local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-function M.b64encode(s)
-  local out = {}
-  for i = 1, #s, 3 do
-    local a, b, c = s:byte(i, i + 2)
-    local n = a * 65536 + (b or 0) * 256 + (c or 0)
-    local c1, c2 = math.floor(n / 262144) % 64, math.floor(n / 4096) % 64
-    local c3, c4 = math.floor(n / 64) % 64, n % 64
-    out[#out + 1] = ALPHABET:sub(c1 + 1, c1 + 1) .. ALPHABET:sub(c2 + 1, c2 + 1)
-      .. (b and ALPHABET:sub(c3 + 1, c3 + 1) or "=") .. (c and ALPHABET:sub(c4 + 1, c4 + 1) or "=")
-  end
-  return table.concat(out)
-end
 
 function M.b64decode(s)
   local index = {}
@@ -65,7 +49,6 @@ local function load_dpapi()
   if not ok_ffi then return nil end
   if not _G.__SC_DPAPI_CDEF then
     pcall(ffi.cdef, "typedef struct { unsigned long cbData; unsigned char* pbData; } SC_DATA_BLOB;")
-    pcall(ffi.cdef, "int CryptProtectData(SC_DATA_BLOB*, const void*, SC_DATA_BLOB*, void*, void*, unsigned long, SC_DATA_BLOB*);")
     pcall(ffi.cdef, "int CryptUnprotectData(SC_DATA_BLOB*, void*, SC_DATA_BLOB*, void*, void*, unsigned long, SC_DATA_BLOB*);")
     pcall(ffi.cdef, "void* LocalFree(void*);")
     _G.__SC_DPAPI_CDEF = true
@@ -88,9 +71,6 @@ local function load_dpapi()
   end
 
   real_dpapi = {
-    protect = function(plain)
-      return run(function(i, o) return crypt.CryptProtectData(i, nil, nil, nil, nil, UI_FORBIDDEN, o) end, plain)
-    end,
     reveal = function(blob)
       return run(function(i, o) return crypt.CryptUnprotectData(i, nil, nil, nil, nil, UI_FORBIDDEN, o) end, blob)
     end,
@@ -132,38 +112,8 @@ end
 
 -- ------------------------------------------------------------------------------------------------ the API
 
---- "dpapi" (Windows), "secret-tool" (Linux with the keyring tool) or "none".
-function M.store()
-  if is_windows() then return dpapi() and "dpapi" or "none" end
-  return have_secret_tool() and "secret-tool" or "none"
-end
-
 function M.is_token(v)
   return type(v) == "string" and v:sub(1, 4) == "enc:"
-end
-
---- The token to write to the `.env` for `plain`, or nil (and why) when no store could take it: the caller then keeps the plain value.
----@param name string the setting's name (a `[%w_]+` word)
----@param plain string
----@return string|nil token
----@return string|nil err
-function M.protect(name, plain)
-  if type(plain) ~= "string" or plain == "" then return nil, "nothing to protect" end
-  local kind = M.store()
-  if kind == "dpapi" then
-    local blob, err = dpapi().protect(plain)
-    if not blob then return nil, err end
-    return "enc:dpapi:" .. M.b64encode(blob)
-  elseif kind == "secret-tool" then
-    if not safe_name(name) then return nil, "unsafe name" end
-    local h = popen('secret-tool store --label="Steam Cartridges ' .. name .. '" service steam-cartridges key ' .. name, "w")
-    if not h then return nil, "secret-tool did not start" end
-    h:write(plain)
-    local ok, _, code = h:close()
-    if ok == nil or ok == false or (code ~= nil and code ~= 0) then return nil, "secret-tool refused the secret" end
-    return "enc:secret-tool:" .. name
-  end
-  return nil, "no secure store on this system"
 end
 
 --- The plain value behind a token, or nil (and why): another Windows user, another PC, a keyring without the entry.

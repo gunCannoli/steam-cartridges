@@ -193,7 +193,7 @@ local function on_load()
     for _, line in ipairs(lines) do plog.event("startup", line) end
   end)
 
-  -- What this host is and offers (distro, Flatpak, Steam Deck, curl / secret-tool / libcurl): answers the open Linux questions from a shared log.
+  -- What this host is and offers (distro, Flatpak, Steam Deck, curl / libcurl): answers the open Linux questions from a shared log.
   pcall(function()
     plog.event("host", require("host_tools").report())
     local plat = require("platform")
@@ -203,15 +203,13 @@ local function on_load()
     end
   end)
 
-  -- Keys an earlier version saved as plain text are protected now (ADR-0099); the log says which store is in use.
+  -- Keys an earlier version protected (ADR-0099) are written back as plain text, once (ADR-0103); the `.env` is private to its owner on Linux.
   pcall(function()
     local r = require("web_config").protect_existing()
-    plog.event("startup", string.format("credentials store: %s (%d protected now, %d already, %d plain)", r.store == "none" and "none: plain text" or r.store, r.protected, r.already, r.plain))
-    if r.store == "none" and not require("platform").is_windows() then
-      plog.event("startup", "credentials stay plain text in the .env: no secret-tool on this system. Install libsecret-tools (Debian/Ubuntu) or libsecret (Arch/Fedora) and restart Steam to keep them in the keyring")
-      -- A plain-text key file must at least be private to its owner.
-      local okp, perr = require("host_tools").private_file(require("data_dir").file(".env"))
-      plog.event("startup", okp and "the .env is now readable by its owner only (chmod 600)" or ("could not restrict the .env to its owner: " .. tostring(perr)))
+    plog.event("startup", string.format("credentials: kept in the .env (%d converted back from a protected store now, %d could not be opened)", r.converted, r.left))
+    local okp, perr = require("host_tools").private_file(require("data_dir").file(".env"))
+    if not require("platform").is_windows() then
+      plog.event("startup", okp and "the .env is readable by its owner only (chmod 600)" or ("could not restrict the .env to its owner: " .. tostring(perr)))
     end
   end)
 

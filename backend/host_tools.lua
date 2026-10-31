@@ -161,7 +161,6 @@ function M.report()
     "session=" .. ((env("XDG_SESSION_TYPE") or "unknown"):sub(1, 12)),
     "curl=" .. yn(M.has("curl")),
     "wget=" .. yn(M.has("wget")),
-    "secret-tool=" .. yn(M.has("secret-tool")),
     "flatpak-spawn=" .. yn(M.has("flatpak-spawn")),
     "libcurl=" .. (M.lib({ "libcurl.so.4", "libcurl.so", "curl" }) and "yes" or "no"),
   }

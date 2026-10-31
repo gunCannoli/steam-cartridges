@@ -32,9 +32,8 @@ continue. Nothing is on by default.
 | ScreenScraper | Game Info, screenshots and manuals; great for retro games | an account |
 | IGDB | Game Info, trailers and artwork; great for retro games | a Twitch Client ID and Secret |
 
-You can change this any time in Settings › Metadata. Saved keys and passwords are encrypted where they rest (your
-Windows account on Windows, your desktop keyring on Linux) and are never written anywhere else; keys saved by an
-earlier version are converted automatically the first time Steam starts after the update.
+You can change this any time in Settings › Metadata. Saved keys and passwords stay on this computer, in the plugin's
+`.env` file, and are sent only to their own service; keys an earlier version encrypted are converted back automatically the first time Steam starts after the update.
 
 ### 2. Achievements
 

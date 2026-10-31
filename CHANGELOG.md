@@ -7,6 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.8-beta] - 2026-10-31
+
+### Changed
+
+- **Saved keys and passwords are kept as plain text in the plugin's data folder again.** The plugin only ever stores them on your own computer
+  and sends each one to its own service, so the extra layer was not worth what it cost. On Linux the keys file is readable by you only.
+- **Keys saved by an earlier version are brought over automatically.** The first time Steam starts after the update, every key the plugin had
+  stored in the keyring (Linux) or protected with your Windows account is moved into the new format. Nothing for you to do. A key that cannot be
+  opened (another Windows user, another PC) is named in the log; add it again in Settings.
+
+### Removed
+
+- **The desktop keyring (`secret-tool`) is no longer used.** It made some Linux setups ask for the keyring password every time Steam started, and the
+  plugin waited for that prompt before it could start. If your keyring is locked, the unlock prompt appears one last time while your keys are brought
+  over, and never again. `secret-tool` is no longer needed and no longer shown in the log's `[host]` line.
+
 ## [0.6.7-beta] - 2026-10-31
 
 ### Added
