@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.9-beta] - 2026-11-06
+
+### Fixed
+
+- **A PlayStation game launched from a `.cue` file now finds its RetroAchievements game.** The plugin hashed the cue sheet's own text, which
+  never matches; it now reads the disc image the cue names (`.bin` / `.iso`, the first `FILE` line, quoted or not, Windows or Linux
+  separators) and hashes that, the same way it already did for a `.bin`, `.iso` or `.m3u` target. A `.m3u` playlist that lists `.cue` files
+  works too. A cue with no `FILE` line or a missing image is reported (`cue_has_no_file_entry`, `cue_file_not_found`) instead of a wrong
+  hash. Reported in [issue #1](https://github.com/gunCannoli/steam-cartridges/issues/1) by lsalazarm99.
+
 ## [0.6.8-beta] - 2026-10-31
 
 ### Changed

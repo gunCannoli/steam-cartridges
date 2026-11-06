@@ -1,6 +1,7 @@
 --- ROM and disc hashing for RetroAchievements, in Lua (no Node.js, no external program). Replaces ra_hasher.js and
 --- gives the same answers for every rule it had:
 ---   .m3u          the first listed file that exists (disc 1)
+---   .cue          the image its first FILE line names (.bin / .iso), hashed by the rules below; never the cue text
 ---   .chd          not hashed: { format = "chd" } (the caller falls back to title matching)
 ---   .iso / .bin   PS1 / PS2: MD5 of the boot executable SYSTEM.CNF names (2048- or 2352-byte sectors); a .bin that
 ---                 is not a disc (a Genesis cartridge) is hashed as a cartridge
@@ -476,6 +477,24 @@ local function resolve_m3u(path)
   return nil
 end
 
+--- The image a `.cue` sheet names on its first FILE line (quoted or not; a UTF-8 BOM and Windows "\" separators
+--- tolerated), as a path, or nil and "file_not_found" | "cue_has_no_file_entry" | "cue_file_not_found".
+function M.resolve_cue(path)
+  local text = read_all(path)
+  if not text then return nil, "file_not_found" end
+  text = text:gsub("^\239\187\191", "")
+  local name
+  for line in text:gmatch("[^\r\n]+") do
+    name = line:match('^%s*[Ff][Ii][Ll][Ee]%s+"([^"]+)"') or line:match("^%s*[Ff][Ii][Ll][Ee]%s+([^%s]+)")
+    if name then break end
+  end
+  if not name then return nil, "cue_has_no_file_entry" end
+  local dir = path:match("^(.*)[\\/][^\\/]*$") or "."
+  local full = M.m3u_entry_path(dir, (name:gsub("\\", "/")))
+  if file_size(full) then return full end
+  return nil, "cue_file_not_found"
+end
+
 --- { md5, size, format? } for a ROM or disc image, or { format = "chd" | "arcade_zip" | "large_disc", md5 = nil }, or
 --- nil and an error ("file_not_found", a zip problem).
 function M.rom_md5(path, depth)
@@ -485,6 +504,13 @@ function M.rom_md5(path, depth)
   if ext == ".m3u" and (depth or 0) < 4 then
     local disc = resolve_m3u(path)
     if disc then return M.rom_md5(disc, (depth or 0) + 1) end
+  end
+  if ext == ".cue" then
+    -- A cue sheet is a manifest, not the disc: hash the image its first FILE line names (the data track).
+    local image, err = M.resolve_cue(path)
+    if not image then return nil, err end
+    if (depth or 0) >= 4 then return nil, "cue_too_deep" end
+    return M.rom_md5(image, (depth or 0) + 1)
   end
   if ext == ".chd" then return { format = "chd", size = size } end
   if ext == ".iso" or ext == ".bin" then
