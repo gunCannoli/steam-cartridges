@@ -814,7 +814,8 @@ function M.compute_rom_md5(rom_path)
     ra_cache.put_md5(rom_path, data.md5)
     return data.md5
   end
-  return nil
+  -- no hash for this file (a CHD that cannot be read, a disc of another console): the reason, so the caller can log it
+  return nil, data.reason or data.format
 end
 
 --- Queries RetroAchievements for the GameID corresponding to a ROM MD5. A definite answer (a game, or none) is kept

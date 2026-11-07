@@ -9,13 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [0.6.9-beta] - 2026-11-06
 
+### Added
+
+- **More disc formats find their RetroAchievements game.** PlayStation, PlayStation 2, PSP and Dreamcast games in `.chd` (CD and DVD CHDs, every compression chdman uses), `.cso`, `.gdi` and `.pbp`
+  files are hashed the way RetroAchievements does, next to `.iso`, `.bin` and `.cue`. Only the parts of a big image the hash needs are read.
+- **The log says why a game could not be hashed**, for example `hash-fail(.chd:chd_codec_cdzs)` (never a file name).
+
 ### Fixed
 
-- **A PlayStation game launched from a `.cue` file now finds its RetroAchievements game.** The plugin hashed the cue sheet's own text, which
-  never matches; it now reads the disc image the cue names (`.bin` / `.iso`, the first `FILE` line, quoted or not, Windows or Linux
-  separators) and hashes that, the same way it already did for a `.bin`, `.iso` or `.m3u` target. A `.m3u` playlist that lists `.cue` files
-  works too. A cue with no `FILE` line or a missing image is reported (`cue_has_no_file_entry`, `cue_file_not_found`) instead of a wrong
-  hash. Reported in [issue #1](https://github.com/gunCannoli/steam-cartridges/issues/1) by lsalazarm99.
+- **PlayStation and PlayStation 2 games now find their RetroAchievements game.** The plugin hashed the boot file's bytes only; RetroAchievements also hashes its name and, for PlayStation, only the
+  size its header gives, so no PlayStation disc ever matched. Now checked against RetroAchievements' own hasher. Hashes remembered from earlier versions are dropped once.
+- **A game launched from a `.cue` file is hashed from the disc image the cue names**, not from the cue's own text (first `FILE` line, quoted or not, Windows or Linux separators). A `.m3u` playlist
+  that lists `.cue` files works too. A cue with no track, no `FILE` line or a missing image is reported in the log instead of producing a wrong hash.
+  Reported in [issue #1](https://github.com/gunCannoli/steam-cartridges/issues/1) by lsalazarm99.
 
 ## [0.6.8-beta] - 2026-10-31
 

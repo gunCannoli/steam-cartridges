@@ -66,9 +66,11 @@ shows that game's achievements with your unlocks.
 ### How the game is found
 
 - **By the ROM's hash**, the way RetroAchievements itself identifies a game: the plugin computes the ROM's
-  RetroAchievements hash locally (no extra tools) and asks which game it belongs to. Cartridges, `.zip` files, PS1 and
-  PS2 discs (`.bin`/`.cue`, `.iso`) and `.m3u` playlists (disc 1) are hashed. A ROM is hashed once and remembered.
-- **By title**, only when the ROM cannot be hashed: `.chd` discs, arcade romsets and very large files. The shortcut's
+  RetroAchievements hash locally (no extra tools) and asks which game it belongs to. Cartridges, `.zip` files,
+  PlayStation, PlayStation 2, PSP and Dreamcast discs (`.cue`/`.bin`, `.iso`, `.chd`, `.cso`, `.gdi`), PSP `.pbp` files
+  and `.m3u` playlists (disc 1) are hashed. A ROM is hashed once and remembered.
+- **By title**, only when the ROM cannot be hashed: discs of other consoles, arcade romsets, and files the plugin
+  cannot read (a `.chd` made by an old version of chdman, or with zstd compression). The shortcut's
   name is matched against RetroAchievements' list for the console, which is guessed from the emulator, core, folder
   or file extension (PS1, PS2, SNES, NES, Game Boy, Game Boy Advance, N64, GameCube, PSP, DS, Genesis, Master System,
   PC Engine, Dreamcast, Saturn, arcade). Name the shortcut after the game.

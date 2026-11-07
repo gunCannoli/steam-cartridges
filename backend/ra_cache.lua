@@ -5,11 +5,13 @@
 --- backend (one call at a time) held every other call.
 ---
 --- <data dir>/ra_cache.json:
----   { version = 1,
+---   { version = 2,
 ---     hashes = { [rom path] = { size = n, mtime = n, md5 = "..." } },   -- valid while the file's size and mtime match
 ---     games  = { [md5] = { id = n | false, at = unix s } } }            -- false = RetroAchievements has no game for
 ---                                                                          it; asked again after MISS_TTL
 --- A network failure is never stored: only a definite answer is.
+--- Version 2 (0.6.10): the PlayStation disc hash now follows RetroAchievements' rule (rom_hash.lua / disc_hash.lua); hashes stored by
+--- version 1 were not that, so they are dropped on first load (GameIDs and game info stay).
 
 local json     = require("json")
 local utils    = require("utils")
@@ -35,12 +37,12 @@ function M._reset() state = nil end
 
 local function load()
   if state then return state end
-  state = { version = 1, hashes = {}, games = {}, info = {} }
+  state = { version = 2, hashes = {}, games = {}, info = {} }
   local text = utils.read_file(path())
   if text and #text > 0 then
     local ok, data = pcall(json.decode, text)
     if ok and type(data) == "table" then
-      if type(data.hashes) == "table" then state.hashes = data.hashes end
+      if type(data.hashes) == "table" and data.version == 2 then state.hashes = data.hashes end
       if type(data.games) == "table" then state.games = data.games end
       if type(data.info) == "table" then state.info = data.info end
     end

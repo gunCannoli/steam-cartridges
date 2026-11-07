@@ -85,9 +85,14 @@ local function ra_lookup(entry)
   local ra = require("retroachievements")
   local rom = ra.extract_rom_path(entry.exe, entry.launch_options)
   if not rom then return nil, "no-rom" end
-  local md5 = ra.compute_rom_md5(rom)
-  -- The extension says why (a compressed disc image such as .rvz cannot be hashed); it is a file type, not a name.
-  if not md5 then return nil, "hash-fail" .. (tostring(rom):match("(%.%w+)$") and ("(" .. tostring(rom):match("(%.%w+)$"):lower() .. ")") or "") end
+  local md5, why = ra.compute_rom_md5(rom)
+  -- The extension says why (a compressed disc image such as .rvz cannot be hashed); it is a file type, not a name. A reason code
+  -- from the hasher (chd_codec_zstd, disc_not_recognized, ...) follows it; only a plain code is logged, never text that could hold a path.
+  if not md5 then
+    local ext = tostring(rom):match("(%.%w+)$")
+    local code = type(why) == "string" and why:match("^[%w_]+$") and why or nil
+    return nil, "hash-fail" .. (ext and ("(" .. ext:lower() .. (code and (":" .. code) or "") .. ")") or "")
+  end
   local id = ra.get_game_id_by_md5(md5)
   if not id then return nil, "unmapped" end
   local console = ra.detect_console_id(entry.exe, entry.launch_options)

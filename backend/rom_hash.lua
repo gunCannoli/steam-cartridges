@@ -1,10 +1,11 @@
 --- ROM and disc hashing for RetroAchievements, in Lua (no Node.js, no external program). Replaces ra_hasher.js and
 --- gives the same answers for every rule it had:
 ---   .m3u          the first listed file that exists (disc 1)
----   .cue          the image its first FILE line names (.bin / .iso), hashed by the rules below; never the cue text
----   .chd          not hashed: { format = "chd" } (the caller falls back to title matching)
----   .iso / .bin   PS1 / PS2: MD5 of the boot executable SYSTEM.CNF names (2048- or 2352-byte sectors); a .bin that
----                 is not a disc (a Genesis cartridge) is hashed as a cartridge
+---   discs         .iso .bin .cue .gdi .cso .chd: RetroAchievements' own PlayStation / PS2 / PSP / Dreamcast hash of the disc
+---                 (disc_hash.lua, after rcheevos), whatever the container; a .bin that is not a disc (a Genesis
+---                 cartridge) is hashed as a cartridge; a disc that cannot be read is { format = "chd" | "disc_unrecognized",
+---                 reason } and the caller falls back to title matching
+---   .pbp          PSP EBOOT: the whole file (first 64 MB), as rcheevos does
 ---   .zip          the first entry with a cartridge extension (else the first entry), stored or deflated; an arcade
 ---                 romset (more than 3 chips, no console ROM) is not hashed: { format = "arcade_zip" }
 ---   other files   up to 100 MB, else { format = "large_disc" }
@@ -82,6 +83,29 @@ function M.md5(s)
   local tail = sub(s, full + 1) .. "\128" .. string.rep("\0", pad) .. table.concat(len)
   for p = 1, #tail, 64 do block(h, tail, p) end
   return le32hex(h[1]) .. le32hex(h[2]) .. le32hex(h[3]) .. le32hex(h[4])
+end
+
+--- A running MD5: `update(string)` any number of times, then `final()` -> 32 lowercase hex digits. For hashing a disc image's
+--- executable sector by sector without holding it in memory.
+function M.md5_stream()
+  local h = { tobit(0x67452301), tobit(0xefcdab89), tobit(0x98badcfe), tobit(0x10325476) }
+  local pending, total = "", 0
+  local self = {}
+  function self.update(s)
+    total = total + #s
+    if pending ~= "" then s, pending = pending .. s, "" end
+    local full = #s - #s % 64
+    for p = 1, full, 64 do block(h, s, p) end
+    pending = sub(s, full + 1)
+  end
+  function self.final()
+    local len = {}
+    for k = 0, 7 do len[k + 1] = char(math.floor(total * 8 / 2 ^ (8 * k)) % 256) end
+    local tail = pending .. "\128" .. string.rep("\0", (55 - total) % 64) .. table.concat(len)
+    for p = 1, #tail, 64 do block(h, tail, p) end
+    return le32hex(h[1]) .. le32hex(h[2]) .. le32hex(h[3]) .. le32hex(h[4])
+  end
+  return self
 end
 
 -- --------------------------------------------------------------------------------------- raw DEFLATE (RFC 1951)
@@ -382,79 +406,6 @@ function M.zip_rom(z)
   return { bytes = bytes, name = chosen.name }
 end
 
--- ------------------------------------------------------------------------------------------------ PS1 / PS2 discs
-
-local function read_at(f, at, n)
-  if not f:seek("set", at) then return nil end
-  return f:read(n)
-end
-
---- Directory entry named `want` (prefix, case-insensitive) in a directory's bytes: sector, length.
-local function find_entry(dir, want)
-  local pos = 1
-  local n = #dir
-  while pos <= n do
-    local len = byte(dir, pos)
-    if not len then break end
-    if len == 0 then
-      local next_sector = math.ceil(pos / 2048) * 2048 + 1
-      if next_sector <= pos or next_sector > n then break end
-      pos = next_sector
-    else
-      local name_len = byte(dir, pos + 32) or 0
-      local name = sub(dir, pos + 33, pos + 32 + name_len):upper()
-      if name:sub(1, #want) == want then return u32(dir, pos + 2), u32(dir, pos + 10) end
-      pos = pos + len
-    end
-  end
-  return nil
-end
-
---- MD5 of the boot executable of an ISO-9660 disc image, or nil. A raw image (2352-byte sectors) is read sector by
---- sector, 2048 bytes of user data each, after a 16-byte (Mode 1) or 24-byte (Mode 2 Form 1, PS1 / PS2) header.
---- ra_hasher.js read raw images as one block from a Mode 1 offset, so it hashed sector headers into a multi-sector exe.
-function M.disc_exe_md5(path)
-  local f = io.open(path, "rb")
-  if not f then return nil end
-  local ok, md5 = pcall(function()
-    local sector, offset
-    for _, try in ipairs({ { 2048, 0 }, { 2352, 24 }, { 2352, 16 } }) do
-      if read_at(f, 16 * try[1] + try[2] + 1, 5) == "CD001" then sector, offset = try[1], try[2] break end
-    end
-    if not sector then return nil end
-    local function read(lba, len)
-      if sector == 2048 then return read_at(f, lba * 2048, len) end
-      local parts, left, k = {}, len, 0
-      while left > 0 do
-        local chunk = read_at(f, (lba + k) * 2352 + offset, math.min(2048, left))
-        if not chunk or #chunk == 0 then return nil end
-        parts[#parts + 1] = chunk
-        left = left - #chunk
-        k = k + 1
-      end
-      return table.concat(parts)
-    end
-    local pvd = read(16, 2048) or ""
-    local root = sub(pvd, 157, 190)
-    local root_lba, root_len = u32(root, 3), u32(root, 11)
-    local dir = read(root_lba, math.min(root_len, 32768)) or ""
-    local cnf_lba, cnf_len = find_entry(dir, "SYSTEM.CNF")
-    if not cnf_lba or cnf_len == 0 then return nil end
-    local cnf = read(cnf_lba, cnf_len) or ""
-    local boot = cnf:match("[Bb][Oo][Oo][Tt]%d*%s*=%s*[Cc][Dd][Rr][Oo][Mm]%d*:\\?([^;\r\n]+)")
-    if not boot then return nil end
-    local exe = (boot:gsub("^%s+", ""):gsub("%s+$", ""):match("([^\\/]+)$") or ""):upper()
-    if exe == "" then return nil end
-    local exe_lba, exe_len = find_entry(dir, exe)
-    if not exe_lba or exe_len == 0 or exe_len > 33554432 then return nil end
-    local bytes = read(exe_lba, exe_len)
-    if not bytes or #bytes ~= exe_len then return nil end
-    return M.md5(bytes)
-  end)
-  f:close()
-  return ok and md5 or nil
-end
-
 -- ------------------------------------------------------------------------------------------------------ entry point
 
 --- The path an `.m3u` entry names: absolute as written, otherwise relative to the playlist's folder, joined with "/" (Windows accepts it;
@@ -477,26 +428,10 @@ local function resolve_m3u(path)
   return nil
 end
 
---- The image a `.cue` sheet names on its first FILE line (quoted or not; a UTF-8 BOM and Windows "\" separators
---- tolerated), as a path, or nil and "file_not_found" | "cue_has_no_file_entry" | "cue_file_not_found".
-function M.resolve_cue(path)
-  local text = read_all(path)
-  if not text then return nil, "file_not_found" end
-  text = text:gsub("^\239\187\191", "")
-  local name
-  for line in text:gmatch("[^\r\n]+") do
-    name = line:match('^%s*[Ff][Ii][Ll][Ee]%s+"([^"]+)"') or line:match("^%s*[Ff][Ii][Ll][Ee]%s+([^%s]+)")
-    if name then break end
-  end
-  if not name then return nil, "cue_has_no_file_entry" end
-  local dir = path:match("^(.*)[\\/][^\\/]*$") or "."
-  local full = M.m3u_entry_path(dir, (name:gsub("\\", "/")))
-  if file_size(full) then return full end
-  return nil, "cue_file_not_found"
-end
-
 --- { md5, size, format? } for a ROM or disc image, or { format = "chd" | "arcade_zip" | "large_disc", md5 = nil }, or
 --- nil and an error ("file_not_found", a zip problem).
+local DISC_EXTS = { [".cue"] = true, [".gdi"] = true, [".iso"] = true, [".bin"] = true, [".cso"] = true, [".chd"] = true }
+
 function M.rom_md5(path, depth)
   local size = file_size(path)
   if not size then return nil, "file_not_found" end
@@ -505,17 +440,28 @@ function M.rom_md5(path, depth)
     local disc = resolve_m3u(path)
     if disc then return M.rom_md5(disc, (depth or 0) + 1) end
   end
-  if ext == ".cue" then
-    -- A cue sheet is a manifest, not the disc: hash the image its first FILE line names (the data track).
-    local image, err = M.resolve_cue(path)
-    if not image then return nil, err end
-    if (depth or 0) >= 4 then return nil, "cue_too_deep" end
-    return M.rom_md5(image, (depth or 0) + 1)
+  if ext == ".pbp" then
+    -- a PSP EBOOT.PBP: RetroAchievements hashes the whole file (its first 64 MB)
+    local f = io.open(path, "rb")
+    if not f then return nil, "file_not_found" end
+    local stream, left = M.md5_stream(), math.min(size, 64 * 1024 * 1024)
+    while left > 0 do
+      local chunk = f:read(math.min(left, 65536))
+      if not chunk or chunk == "" then break end
+      stream.update(chunk)
+      left = left - #chunk
+    end
+    f:close()
+    return { md5 = stream.final(), size = size, format = "pbp" }
   end
-  if ext == ".chd" then return { format = "chd", size = size } end
-  if ext == ".iso" or ext == ".bin" then
-    local md5 = M.disc_exe_md5(path)
-    if md5 then return { md5 = md5, size = size, format = "iso_executable" } end
+  if DISC_EXTS[ext] then
+    local r, why = require("disc_hash").hash(path)
+    if r then
+      r.size = size
+      return r
+    end
+    -- a .bin that holds no disc is a cartridge (Genesis); every other disc image left unread has no usable hash
+    if ext ~= ".bin" then return { format = ext == ".chd" and "chd" or "disc_unrecognized", size = size, reason = why } end
   end
   local bytes
   if ext == ".zip" then
