@@ -7,10 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
-## [0.6.9-beta] - 2026-11-06
+## [0.6.9-beta] - 2026-11-07
 
 ### Added
 
+- **The log now says why a Steam page failed to render.** A report of "An error occurred while rendering this content" (Steam's own error box on a game page) came with a log that said nothing about it:
+  the plugin's warnings and errors went to Steam's console only. New `[render]` lines carry: an error that reached the window, React's own report naming the component that failed and its parents,
+  every `logger.warn` / `logger.error` of the plugin (for example "Could not feed AchievementsFullStore"), and after the first one a `context:` line with the shape of the game being viewed (achievements listed,
+  malformed, without icon; media items; which parts are ok), which features are off and which surfaces had trouble. Numbers and feature names only: no title, path or URL. Repeats are counted, not repeated.
+- **The log header names the Steam client build** (`[system] steam client: build=...`), read from Steam's own package manifest, so a UI report can be tied to a Steam version.
 - **More disc formats find their RetroAchievements game.** PlayStation, PlayStation 2, PSP and Dreamcast games in `.chd` (CD and DVD CHDs, every compression chdman uses), `.cso`, `.gdi` and `.pbp`
   files are hashed the way RetroAchievements does, next to `.iso`, `.bin` and `.cue`. Only the parts of a big image the hash needs are read.
 - **The log says why a game could not be hashed**, for example `hash-fail(.chd:chd_codec_cdzs)` (never a file name).

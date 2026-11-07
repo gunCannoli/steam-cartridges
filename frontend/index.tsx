@@ -1,6 +1,6 @@
 import { definePlugin, IconsModule } from "@steambrew/client";
 import { screenSize, showDialog } from "./steam/modal";
-import { logger } from "./logger";
+import { logger, onLoggerProblem } from "./logger";
 import {
     createCapturesSurface,
     patch as patchLibraryApp,
@@ -46,6 +46,7 @@ import { ownedCandidates } from "./sensors/owned-apps";
 import { loadStoreItem } from "./sensors/store-item";
 import { createFeatureSwitches, type FeatureId } from "./safety/features";
 import { beginBoot, watchBoot } from "./safety/boot";
+import { createRenderDiag, installRenderDiag, summarizeRecord } from "./safety/render-diag";
 import { lookupStored, toShortcutId, type ShortcutId } from "./kernel/appid";
 import { isFallbackMetadata, type GameMetadata } from "./kernel/record";
 import { achCanAnswer, webCanAnswer } from "./domain/sync-scope";
@@ -85,6 +86,30 @@ import {
     installTestHook as installToastTestHook,
     onUnlocked as toastsOnUnlocked,
 } from "./surfaces/toasts";
+
+/**
+ * Render diagnostics (safety/render-diag.ts): what the plugin log lacked when a Steam page showed "An error occurred while
+ * rendering this content". Plugin errors, window errors and React's boundary reports become `[render]` lines, with the shape
+ * of the viewed game's record (numbers only) and which features are off. `records`, `runner` and `features` exist by the
+ * time the first error comes, so the context reads them lazily.
+ */
+let lastViewed: { appid: ShortcutId; mode: string } | undefined;
+const renderDiag = createRenderDiag({
+    send: (tag, message) => backend.logEvent(tag, message),
+    ownMarkers: ["steam-cartridges"],
+    context: () => {
+        const d = features.diagnostics();
+        const off = [...d.disabled, ...d.tripped].filter((x, i, a) => a.indexOf(x) === i);
+        const surfaces = runner.status().filter((s) => !s.installed || s.disabled || s.errors > 0);
+        return [
+            `viewed=${lastViewed ? lastViewed.mode : "none"}`,
+            lastViewed ? summarizeRecord(records.store.get(lastViewed.appid)) : "record=none",
+            `safe-mode=${d.safeMode ? "yes" : "no"}`,
+            `features-off=${off.length ? off.join("|") : "none"}`,
+            `surfaces-with-trouble=${surfaces.length ? surfaces.map((s) => `${s.id}:${s.disabled ? "off" : s.installed ? "ok" : "not-installed"}/${s.errors}err`).join("|") : "none"}`,
+        ].join("; ");
+    },
+});
 
 /** The plugin's one FeatureSwitches instance: the kill switches come from the `disabledFeatures` setting (M0b, M9a). */
 const features = createFeatureSwitches({
@@ -770,6 +795,16 @@ async function init() {
     // ===== Sensors (migration plan M2) =====
     // Installed after every subscriber above: they report the current page and the
     // windows already open immediately.
+    // Render diagnostics: remember the page being viewed, and listen for errors that reach the window or React's boundary.
+    bus.on("shortcut.viewed", ({ appid, mode }) => {
+        lastViewed = { appid, mode };
+    });
+    try {
+        installRenderDiag(renderDiag, { win: window, con: console });
+        onLoggerProblem((level, args) => renderDiag.reportNote(level, args));
+    } catch (e) {
+        backend.logEvent("boot", `render diagnostics unavailable: ${String((e as Error)?.message ?? e).slice(0, 80)}`);
+    }
     installViewSensor(bus);
     installLifecycleSensor(bus);
 

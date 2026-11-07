@@ -148,6 +148,27 @@ function M.system()
     os_name, clean(version), clean(j.arch), cpus or "unknown", ram or "unknown", clean(lang), clean(j.version))
 end
 
+--- One log line: which Steam client build runs (the number Steam writes in its own `package/steam_client_*.manifest`). A UI bug
+--- ("An error occurred while rendering this content") depends on the client build, and nothing else in the log named it. The
+--- manifest name differs per OS (win64, ubuntu12 on Linux and Deck); the first one that has a `"version"` wins. A digit string
+--- only: no path, no user name. Never throws; an unreadable manifest says so.
+---@param root string|nil Steam's install root
+---@return string
+function M.steam_client(root)
+  if type(root) ~= "string" or root == "" then return "steam client: build=unknown (no Steam folder)" end
+  local names = { "steam_client_win64.manifest", "steam_client_win32.manifest", "steam_client_ubuntu12.manifest", "steam_client_osx.manifest" }
+  for _, name in ipairs(names) do
+    local ok_j, path = pcall(function() return require("platform").join(root, "package", name) end)
+    if not ok_j or type(path) ~= "string" then path = root .. "/package/" .. name end
+    local ok_r, text = pcall(read, path)
+    if ok_r and type(text) == "string" then
+      local build = text:sub(1, 600):match('"version"%s+"(%d+)"')
+      if build then return "steam client: build=" .. build:sub(1, 12) .. "; manifest=" .. name:match("^steam_client_([%w]+)%.manifest$") end
+    end
+  end
+  return "steam client: build=unknown (no manifest read)"
+end
+
 --- One log line: what this host is and which helper tools it has. No path, no user name.
 function M.report()
   if is_windows() then return "os=windows" end
