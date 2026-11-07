@@ -156,17 +156,32 @@ end
 ---@return string
 function M.steam_client(root)
   if type(root) ~= "string" or root == "" then return "steam client: build=unknown (no Steam folder)" end
-  local names = { "steam_client_win64.manifest", "steam_client_win32.manifest", "steam_client_ubuntu12.manifest", "steam_client_osx.manifest" }
+  local function join(a, b, c)
+    local ok_j, path = pcall(function() return require("platform").join(a, b, c) end)
+    if ok_j and type(path) == "string" then return path end
+    return a .. "/" .. b .. "/" .. c
+  end
+  -- A beta client names its manifest steam_client_publicbeta_<os>; the release client steam_client_<os>.
+  local names = {}
+  for _, channel in ipairs({ "", "publicbeta_" }) do
+    for _, os_name in ipairs({ "win64", "win32", "ubuntu12", "osx" }) do names[#names + 1] = "steam_client_" .. channel .. os_name .. ".manifest" end
+  end
   for _, name in ipairs(names) do
-    local ok_j, path = pcall(function() return require("platform").join(root, "package", name) end)
-    if not ok_j or type(path) ~= "string" then path = root .. "/package/" .. name end
-    local ok_r, text = pcall(read, path)
+    local ok_r, text = pcall(read, join(root, "package", name))
     if ok_r and type(text) == "string" then
       local build = text:sub(1, 600):match('"version"%s+"(%d+)"')
-      if build then return "steam client: build=" .. build:sub(1, 12) .. "; manifest=" .. name:match("^steam_client_([%w]+)%.manifest$") end
+      if build then return "steam client: build=" .. build:sub(1, 12) .. "; manifest=" .. name:match("^steam_client_([%w_]+)%.manifest$") end
     end
   end
-  return "steam client: build=unknown (no manifest read)"
+  -- No manifest: every Steam log opens with "Client version: <build>" (the number of the client that wrote it).
+  for _, name in ipairs({ "console_log.txt", "connection_log.txt", "stats_log.txt" }) do
+    local ok_r, text = pcall(read, join(root, "logs", name))
+    if ok_r and type(text) == "string" then
+      local build = text:sub(1, 400):match("Client version:%s*(%d+)")
+      if build then return "steam client: build=" .. build:sub(1, 12) .. "; manifest=none (from Steam's own log, may be older than the running client)" end
+    end
+  end
+  return "steam client: build=unknown (no manifest and no Steam log read)"
 end
 
 --- One log line: what this host is and which helper tools it has. No path, no user name.

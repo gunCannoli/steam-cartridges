@@ -10,7 +10,9 @@
 
 local M = {}
 
-M.MAX_BYTES  = 2 * 1024 * 1024 -- beta verbosity: reports need depth more than disk (was 512 KiB)
+M.MAX_BYTES  = 1024 * 1024 -- a session that outgrows this rotates to `.1` (was 2 MiB, 512 KiB before)
+M.FRESH_BYTES = 256 * 1024 -- a start finds the file bigger than this: the old file becomes `.1`, the new session starts clean
+M.FRESH_DAYS  = 2          -- ... or older than this many days (by its first line): a report is about now, not about last week
 M.CHECK_EVERY = 100       -- writes between size checks
 
 --- Injectable for tests. nil = the real dependency.
@@ -135,6 +137,27 @@ local function rotate_if_big(path)
   end
 end
 
+--- At a start: an old or big file is not appended to. It becomes `.1` (the one before), so the file a player sends holds this
+--- session and a recent one, not every session since the install. A short, recent file is kept: a restart to retry a bug must
+--- not hide the session that showed it.
+local function start_fresh_if_stale(path)
+  local f = io.open(path, "rb")
+  if not f then return end
+  local first = f:read("*l") or ""
+  local size = f:seek("end") or 0
+  f:close()
+  local y, mo, d, h, mi, s = first:match("^(%d+)-(%d+)-(%d+) (%d+):(%d+):(%d+)")
+  local age
+  if y then
+    local ok, at = pcall(os.time, { year = tonumber(y), month = tonumber(mo), day = tonumber(d), hour = tonumber(h), min = tonumber(mi), sec = tonumber(s) })
+    if ok and at then age = (M.deps.now or os.time)() - at end
+  end
+  if size > M.FRESH_BYTES or (age and age > M.FRESH_DAYS * 86400) then
+    os.remove(path .. ".1")
+    os.rename(path, path .. ".1")
+  end
+end
+
 --- Append one line. level: "INFO" | "WARN" | "ERROR" | "EVENT".
 ---@param level string
 ---@param msg any
@@ -174,6 +197,7 @@ function M.install()
     local ok, mod = pcall(require, "logger")
     original = ok and mod or nil
   end
+  pcall(function() start_fresh_if_stale(log_path()) end)
   local tee = {}
   for _, level in ipairs({ "info", "warn", "error", "debug" }) do
     tee[level] = function(_, msg)

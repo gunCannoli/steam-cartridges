@@ -2,6 +2,7 @@ import { logger } from "../../logger";
 import { isShortcutAppId } from "../../kernel/appid";
 import type { AchievementSet } from "../../kernel/record";
 import { deps } from "./deps";
+import { simpleEvent } from "./synthetic-event";
 import { achievementDays, type ActivityAchievementDay } from "./achievement-days";
 import { achievementIcon } from "../../steam/achievement-icon";
 import {
@@ -299,30 +300,6 @@ async function playTimeline(
         saveActivityTimestamps(appid, { firstPlayed: firstPlayedTime });
     }
     return { addedTime, firstPlayedTime, hasPlayEvidence };
-}
-
-/** One of Steam's simple activity events (3 ReceivedNewGame, 30 PlayedGameFirstTime) on the screenshot event class. */
-function simpleEvent(V: any, appid: number, type: 3 | 30, id: string, time: number, actor: unknown): any {
-    const ev = Object.create(V ? V.prototype : Object.prototype);
-    ev.eEventType = type;
-    ev.gameid = appid.toString();
-    Object.defineProperty(ev, "appid", { get: () => appid, configurable: true });
-    ev.unUniqueID = id;
-    ev.rtEventTime = time;
-    ev.steamIDActor = actor;
-    ev.steamIDTarget = actor;
-    ev.bIsGameActivity = false;
-    ev.bIsNonSteam = true;
-    ev.BIsValid = () => true;
-    if (type === 3) ev.GetFilteredAppIds = () => [appid];
-    else ev.BIsApplicationOrTool = () => false;
-    ev.commentThreads = [];
-    ev.activeThread = 0;
-    ev.GetActiveCommentThread = () => null;
-    ev.GetParentalFeature = () => 0;
-    ev.BSupportsCommentThreads = () => false;
-    ev.BUserCanDelete = () => false;
-    return ev;
 }
 
 /**

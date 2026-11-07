@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.10-beta] - 2026-11-07
+
+### Changed
+
+- **The log starts fresh instead of growing for ever.** A start finds a log older than 2 days or bigger than 256 KB and moves it to `steam-cartridges.log.1`; the file you send holds this session and a recent one. A short, recent log is kept, so a restart to retry a bug does not hide the session that showed it. The size cap is now 1 MB (it was 2 MB).
+
+### Fixed
+
+- **A Steam beta showed "An error occurred while rendering this content" on a game's page** (`TypeError: Cannot read properties of undefined (reading 'map')` in the Activity feed). The "Added to library" and "Played for the first time" events were built on Steam's screenshot-event class without its constructor; the newer Steam asks that class `screenshots.length > 0` before drawing, and the list did not exist. The events now carry their own answer and an empty list. Found from the tester's stack trace, checked against the beta's code (build 1794022194).
+
 ## [0.6.9-beta] - 2026-11-07
 
 ### Added
