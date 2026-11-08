@@ -7,6 +7,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.11-beta] - 2026-11-07
+
+### Added
+
+- **The log says why a part of a game's page is empty.** New lines:
+  - each start says how the previous one ended and whether it counts towards safe mode;
+  - each native port reports whether its achievement file was found, and how many unlocks were read;
+  - the Activity feed reports what it showed for a game, and why "Played for the first time" or the achievements were left out (no play time in Steam, no captures, unlocks with no time);
+  - a game with no achievement source lists which sources were checked;
+  - a game you open that the routing rules leave out is reported;
+  - "nothing to walk" says how many games the rules leave out and whether Steam's collections had loaded.
+
+### Fixed
+
+- **Safe mode no longer turns on after a quick restart.** Starting Steam twice within a minute, or Steam starting its page over on its own, counted as two crashes, and the next start switched most of the plugin off (only captures and sections stayed). A start that got going and ran 10 seconds without an error now counts as fine, even when Steam closes it without notice. An install stuck in safe mode by an older version starts normally.
+- **The Activity feed on a Steam beta stopped with `GetNewestActivityTime is not a function`.** The plugin's stand-in activity entry now has that step. Once Steam's own activity entry has been seen, the plugin uses Steam's class for the rest of the session, so a later Steam change can't break the stand-in the same way.
+- **A game's achievements are looked up again when a source can answer now.** A game once marked "no achievement source" kept that answer for a day, even after its shortcut was pointed at a native port, an emulator or a ROM. Each start now checks these games again.
+
 ## [0.6.10-beta] - 2026-11-07
 
 ### Changed

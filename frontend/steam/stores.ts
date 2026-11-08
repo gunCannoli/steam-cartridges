@@ -133,6 +133,8 @@ export interface AppActivity {
     /** What FetchLatestActivityFromServer calls on the entry after the requests answer. */
     MergeUserNews?(body: unknown): Promise<void>;
     MergeGameActivity?(body: unknown, steamid?: unknown): void;
+    /** Steam beta's MergeLatestActivityFromServer calls it on the entry. */
+    GetNewestActivityTime?(): number;
     GetAchievementMapCache?(): string;
     GetUserNewsCache?(): unknown[];
     GetGameActivityCache?(): unknown[];

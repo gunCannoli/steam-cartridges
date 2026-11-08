@@ -33,6 +33,8 @@ export interface AchievementsDeps {
     /** The poll re-arms only after a check settles, so a busy backend never has two checks queued (ADR-0060). */
     timers?: { setTimeout(fn: () => void, ms: number): unknown; clearTimeout(handle: unknown): void };
     now(): number;
+    /** One line in the plugin log under [ach] (a game given no achievements, and why). */
+    report?(message: string): void;
 }
 
 export interface AchievementsService {
@@ -223,8 +225,14 @@ export function createAchievements(deps: AchievementsDeps): AchievementsService 
         return part;
     }
 
+    const toldNone = new Set<number>();
     async function ensure(appid: ShortcutId, route: Route, opts: EnsureOptions = {}) {
         if (route.bucket === "none") {
+            // Its collection's bucket is "none" (local Game Info only): no source is asked. Said once per game.
+            if (!toldNone.has(appid)) {
+                toldNone.add(appid);
+                deps.report?.(`game ${appid}: no achievements asked, its bucket is "none" (via ${route.via ?? "unknown"})`);
+            }
             const part: Part<AchievementSet> = { status: "unsupported" };
             deps.ensureBase(appid);
             deps.records.update(appid, { achievements: part });

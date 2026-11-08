@@ -63,6 +63,7 @@ export async function patch(appid: number): Promise<void> {
         setHasContent(appid, totalCount > 0);
     } catch (error) {
         logger.error("Could not publish summary or activity for", appid, error);
+        deps.report?.(`publish failed for game ${appid}: ${String((error as Error)?.message ?? error).slice(0, 160)}`);
     }
 }
 

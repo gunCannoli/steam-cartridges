@@ -16,9 +16,14 @@ export const deps: SurfaceDeps & {
     activityOptions(): ActivityOptions;
     /** Where the surface reports what it published (`captures.published`). */
     bus: Pick<EventBus, "emit">;
+    /** One line in the plugin log under [activity] (what a feed showed and why a part was left out), sent on the bus. */
+    report(message: string): void;
 } = {
     isEnabled: () => true,
     reportError: () => {},
     activityOptions: () => ({ showAdded: true, showFirstPlayed: true, showAchievements: true }),
     bus: { emit: () => {} },
+    report(message) {
+        deps.bus.emit("surface.report", { area: "activity", message });
+    },
 };

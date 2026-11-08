@@ -22,6 +22,8 @@ export interface Events {
     "achievements.synced": { appid: ShortcutId; items: UnlockedAchievement[] };
     /** The captures surface published (or cleared) a shortcut's summary and activity (sections drops the placeholder). */
     "captures.published": { appid: ShortcutId; hasContent: boolean };
+    /** A surface's diagnostic line for the plugin log (the composition root writes it; surfaces get no backend, ADR-0044). */
+    "surface.report": { area: string; message: string };
     /** What the artwork surface wrote for a plan (app/artwork records it through the port, M10). */
     "artwork.applied": {
         appid: ShortcutId;

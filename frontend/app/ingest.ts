@@ -34,6 +34,8 @@ export interface IngestDeps {
     needsFetch?(appid: ShortcutId): boolean;
     /** One line per sync in the plugin log users share (ClientLog): why it started, what it walked, when it is done. */
     report?: (message: string) => void;
+    /** What the routing scope looks like now, for the sync lines (rules enabled, collections loaded): no names. */
+    scopeNote?(): string;
     /** Called when a shortcut has been successfully fetched. */
     onDone?(appid: ShortcutId): void;
     /** Artwork resolver: writes cover-arts and icon to Steam native components when data is fetched. */
@@ -213,7 +215,13 @@ export function createIngest(deps: IngestDeps): Ingest {
 
             if (items.length === 0) {
                 setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0, failed: 0 });
-                deps.report?.(`sync idle (${reason}): nothing to walk`);
+                // Why nothing: games the routing rules leave out are never fetched (ADR-0089) and used to vanish from the log.
+                const all = deps.shortcuts();
+                const out = all.filter((s) => !deps.isAllowed(s.appid as ShortcutId));
+                const names = out.slice(0, 5).map((s) => `"${s.name}"`).join(", ");
+                deps.report?.(
+                    `sync idle (${reason}): nothing to walk (${all.length} shortcuts: ${out.length} outside the routing rules${out.length ? ` [${names}${out.length > 5 ? ", ..." : ""}]` : ""}, ${all.length - out.length} already fetched; ${deps.scopeNote?.() ?? "scope unknown"})`,
+                );
                 return;
             }
 

@@ -45,7 +45,7 @@ import { createProvided } from "./app/provided";
 import { ownedCandidates } from "./sensors/owned-apps";
 import { loadStoreItem } from "./sensors/store-item";
 import { createFeatureSwitches, type FeatureId } from "./safety/features";
-import { beginBoot, watchBoot } from "./safety/boot";
+import { beginBoot, describePrevious, SURVIVED_MS, UNCLEAN_LIMIT, watchBoot } from "./safety/boot";
 import { createRenderDiag, installRenderDiag, summarizeRecord } from "./safety/render-diag";
 import { lookupStored, toShortcutId, type ShortcutId } from "./kernel/appid";
 import { isFallbackMetadata, type GameMetadata } from "./kernel/record";
@@ -157,6 +157,7 @@ const routing = createRouting({
     shortcuts: listShortcuts,
     loadProfiles: async () => (await backend.getAutoRoutingProfiles())?.profiles ?? {},
     metadataAppids: () => records.store.all().filter((r) => r.metadata).map((r) => r.appid),
+    report: (message) => backend.logEvent("routing", message),
 });
 
 /** Render queue (app/render-queue.ts, plan § 7.0 D5): coalesces record.updated into one
@@ -223,6 +224,7 @@ const achievements = createAchievements({
     providers: () => (window as any).SteamCartridges?.getAchievementProviders?.() ?? [],
     shortcutData: (appid) => shortcutData(appid),
     now: () => Date.now(),
+    report: (message) => backend.logEvent("ach", message),
 });
 
 /** Artwork (app/artwork.ts, plan M5c): SteamGridDB for shortcuts with no Steam match, the Steam
@@ -365,6 +367,10 @@ const ingest = createIngest({
     allowScreenscraper: (appid) => setting("services").screenscraperEnabled !== false && routing.serviceAllowed("screenscraper", appid),
     hardcore: () => setting("raHardcoreMode"),
     report: (message) => backend.logEvent("sync", message),
+    scopeNote: () => {
+        const rules = setting("routingRules").filter((r) => r.enabled !== false).length;
+        return `rules enabled=${rules}${rules === 0 ? " (no rule: no game is fetched)" : ""}, collections loaded=${routing.collectionsReady() ? "yes" : "no"}`;
+    },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     artwork,
     needsFetch: (appid) => {
@@ -593,6 +599,24 @@ async function init() {
     // The record must exist before anything writes a part to it (kernel/record.ts update()
     // is a no-op for an unknown appid); every view ensures its base record first.
     bus.on("shortcut.viewed", ({ appid }) => records.ensureBase(appid, shortcutTitle(appid) ?? ""));
+    // Surfaces have no backend (ADR-0044): their diagnostic lines come over the bus.
+    bus.on("surface.report", ({ area, message }) => backend.logEvent(area, message));
+    // A viewed game the routing rules leave out gets no web source and no background fetch (ADR-0089), which looks like
+    // "the feature does not work" in a report: said once per game per session, with the shape of the scope.
+    const toldOutOfScope = new Set<number>();
+    bus.on("shortcut.viewed", ({ appid }) => {
+        try {
+            if (toldOutOfScope.has(appid) || routing.serviceAllowed("all", appid)) return;
+            toldOutOfScope.add(appid);
+            const rules = setting("routingRules").filter((r) => r.enabled !== false).length;
+            backend.logEvent(
+                "routing",
+                `game "${shortcutTitle(appid) ?? appid}" viewed: outside the routing rules (rules enabled=${rules}, collections loaded=${routing.collectionsReady() ? "yes" : "no"}, in ${routing.collectionsOf(appid).length} collection(s)); no web source or background fetch for it`,
+            );
+        } catch {
+            /* diagnostics only */
+        }
+    });
 
     // Settings first: the Game Info gate reads them (ADR-0033).
     await initSettings();
@@ -603,18 +627,25 @@ async function init() {
     // Kill switches come from the `disabledFeatures` setting. Two starts in a row that
     // never finished cleanly switch safe mode on (capture tier only, ADR-0012).
     features.reload();
+    let bootWatch: { ready(): void } | undefined;
     try {
         const boot = beginBoot(window.localStorage);
+        // Every start says how the one before it ended, so a report shows why safe mode is on (or why it is not).
+        backend.logEvent("boot", `start: ${describePrevious(boot.previous)}; unclean starts in a row=${boot.unclean} (safe mode at ${UNCLEAN_LIMIT})`);
         if (boot.safeMode) {
             features.setSafeMode(true);
-            backend.logEvent("boot", `safe mode on (${boot.unclean} unclean starts)`);
+            backend.logEvent(
+                "boot",
+                `safe mode on (${boot.unclean} unclean starts): only sections and captures run; the next start is normal once this one runs ${SURVIVED_MS / 1000} s with no error`,
+            );
             logger.error(
                 `Safe mode: the last ${boot.unclean} starts did not finish cleanly; only sections and captures are on.`,
             );
         }
-        watchBoot(window.localStorage, () => features.errorCount(), window);
+        bootWatch = watchBoot(window.localStorage, () => features.errorCount(), window);
     } catch (e) {
         logger.warn("Boot sentinel unavailable.", e);
+        backend.logEvent("boot", `boot sentinel unavailable: ${String((e as Error)?.message ?? e).slice(0, 80)}`);
     }
 
     // ===== Legacy guard =====
@@ -811,7 +842,16 @@ async function init() {
     logger.info("Ready. Non-Steam games now use Steam's own detail sections.");
     {
         const st = runner.status();
-        backend.logEvent("boot", `ready (${st.filter((s) => s.installed).length}/${st.length} surfaces installed)`);
+        const missing = st.filter((s) => !s.installed).map((s) => `${s.id}:${!features.isEnabled(s.id as FeatureId) ? "off" : s.disabled ? "tripped" : "failed"}`);
+        backend.logEvent(
+            "boot",
+            `ready (${st.filter((s) => s.installed).length}/${st.length} surfaces installed)${missing.length ? `; not installed: ${missing.join("|")}` : ""}`,
+        );
+    }
+    try {
+        bootWatch?.ready();
+    } catch {
+        /* best-effort */
     }
     // Automatically start background sync for un-scraped games after startup
     features.run("background-sync", () => ingest.triggerSync(3000, "startup"));

@@ -38,6 +38,8 @@ export interface RoutingInputs {
     shortcuts(): { appid: number; name: string }[];
     loadProfiles(): Promise<Record<string, AutoRoutingProfile>>;
     metadataAppids(): Iterable<number>;
+    /** One line in the plugin log under [routing]. */
+    report?(message: string): void;
 }
 
 const TTL_MS = 2000;
@@ -91,7 +93,19 @@ export function createRouting(inputs: RoutingInputs) {
             if (inputs.collections.ready()) return inputs.collections.list() !== undefined;
             await new Promise((r) => setTimeout(r, 250));
         }
+        // A collection rule matches nothing until Steam's collections load: every game reads as in no collection, so an
+        // "only" rule leaves all of them out, silently. Said once per session.
+        if (!toldCollectionsLate) {
+            toldCollectionsLate = true;
+            inputs.report?.(`collections not loaded after ${Math.round(timeoutMs / 1000)} s: collection rules match no game until they load`);
+        }
         return false;
+    }
+    let toldCollectionsLate = false;
+
+    /** Steam's collections are loaded (a collection rule can match). */
+    function collectionsReady(): boolean {
+        return inputs.collections.ready() && inputs.collections.list() !== undefined;
     }
 
     async function loadAutoRoutingProfiles(): Promise<void> {
@@ -240,6 +254,7 @@ export function createRouting(inputs: RoutingInputs) {
         membersOf,
         collectionsOf,
         waitForCollections,
+        collectionsReady,
         loadAutoRoutingProfiles,
         ensureProfiles,
         getAutoRoutingProfile,

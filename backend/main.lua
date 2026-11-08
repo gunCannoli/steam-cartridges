@@ -189,6 +189,20 @@ local function on_load()
     end
     plog.event("startup", "native ports (games launching each): " .. table.concat(parts, ", "))
   end)
+  -- Per shortcut that launches a port: were its unlock files found, and how many unlocks were read? A game whose
+  -- achievements stay at 0 then shows "present=0" (custom data folder, another OS layout) instead of nothing.
+  pcall(function()
+    local ports = require("native_ports")
+    for _, e in ipairs(require("registry").entries() or {}) do
+      local port = ports.find(e.exe, e.launch_options)
+      if port then
+        local r = ports.unlock_report(port)
+        plog.event("startup", string.format(
+          "native port %s: unlock files known places=%d present=%d (first at place %d), found by name=%d, read=%d, unlocks=%d",
+          tostring(port.def.id), r.known, r.present, r.first, r.found_by_name, r.parsed, r.unlocks))
+      end
+    end
+  end)
   -- Every option in the settings panel, as flags and counts (settings_summary.lua: no pattern, name, key or path).
   pcall(function()
     local lines = require("settings_summary").lines(require("settings_store").get_all())
@@ -258,6 +272,34 @@ local function on_load()
         part, type(c) == "table" and c.error or 0, type(c) == "table" and c.unsupported or 0)
     end
     plog.event("startup", "stored health: " .. table.concat(cells, "; "))
+  end)
+
+  -- A remembered "unsupported" for achievements is asked again when a source supports the shortcut now (its exe was
+  -- re-pointed, a port or ROM appeared): the memo would otherwise hide the game's achievements for its whole TTL, and the
+  -- background walk treats it as settled. One line per such game: which sources say yes, so a report shows why.
+  pcall(function()
+    local fresh = require("fresh_policy")
+    local ach = require("ach_service")
+    local ids = fresh.with_status("achievements", "unsupported")
+    local again, gone = 0, 0
+    for _, appid in ipairs(ids) do
+      local r = ach.supports_report(appid)
+      local any = false
+      for _, name in ipairs(r.order) do if r[name] then any = true end end
+      if not r.shortcut then
+        gone = gone + 1
+      else
+        if any then
+          fresh.forget_part(appid, "achievements")
+          again = again + 1
+        end
+        plog.event("startup", string.format("achievements unsupported for game %d: %s (%s)", appid,
+          any and "a source supports it now, asked again" or "still no source", ach.supports_text(r)))
+      end
+    end
+    if #ids > 0 then
+      plog.event("startup", string.format("achievements unsupported: %d stored, %d asked again, %d not in shortcuts.vdf", #ids, again, gone))
+    end
   end)
 
   -- A migration failure logs and continues.

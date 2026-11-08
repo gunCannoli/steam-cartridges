@@ -126,6 +126,47 @@ local SOURCES = {
   },
 }
 
+--- Which sources support a shortcut right now: { shortcut = bool, program = ".ext", options = bool, [source] = bool }.
+--- File and string checks only, no network (the same `supports` rules `_resolve` asks). For log lines: no path, no name.
+function M.supports_report(appid)
+  local entry = (M.deps.entry or default_entry)(appid)
+  local out = { shortcut = entry ~= nil, order = {} }
+  if entry then
+    local exe = tostring(entry.exe or ""):gsub('"', "")
+    out.program = (exe:match("%.([%w]+)$") or "none"):lower()
+    out.options = tostring(entry.launch_options or ""):match("%S") ~= nil
+  end
+  local ctx = { appid = appid }
+  for _, source in ipairs(SOURCES) do
+    local ok, supported = pcall(source.supports, ctx, entry)
+    out[source.name] = ok and supported == true
+    out.order[#out.order + 1] = source.name
+  end
+  return out
+end
+
+--- The report as one log cell: "shortcut=found program=exe options=no; native_port=yes rpcs3=no ...".
+function M.supports_text(r)
+  local cells = {}
+  for _, name in ipairs(r.order or {}) do cells[#cells + 1] = name .. "=" .. (r[name] and "yes" or "no") end
+  return string.format("shortcut=%s program=%s options=%s; %s", r.shortcut and "found" or "missing",
+    tostring(r.program or "none"), r.options and "yes" or "no", table.concat(cells, " "))
+end
+
+-- A game's unsupported / error outcome is logged once per session (K2 kept these silent; a report then said nothing).
+local told = {}
+local function tell_once(appid, status, detail)
+  local k = tostring(appid) .. ":" .. status .. ":" .. tostring(detail)
+  if told[k] then return end
+  told[k] = true
+  pcall(function()
+    local why = M.supports_text(M.supports_report(appid))
+    require("plog").event("ach", string.format("game %s: %s%s (%s)", tostring(appid), status,
+      detail and (": " .. tostring(detail):sub(1, 160)) or "", why))
+  end)
+end
+M._tell_reset = function() told = {} end
+
 --- Resolve, returning the part and the raw source result (the old RPC's response shape).
 --- ctx = { native = number|nil, hardcore = boolean|nil, title = string }
 function M._resolve(appid, ctx)
@@ -159,8 +200,10 @@ function M._resolve(appid, ctx)
     -- A Steam list an earlier version stored and the user has unlocks in (ADR-0088 repair 4 keeps those) is no longer
     -- refreshed, but it must not turn into "unsupported" and hide.
     if st and st.schema and st.source == nil and type(st.schema_appid) == "number" then return M.local_part(appid), nil end
+    tell_once(appid, "unsupported", entry == nil and "the shortcut is not in shortcuts.vdf" or "no source supports it")
     return { status = "unsupported", checkedAt = now_ms() }, nil
   end
+  tell_once(appid, "error", last_err or "no source returned a schema")
   return { status = "error", message = tostring(last_err or "no source returned a schema"), checkedAt = now_ms() }, nil
 end
 

@@ -211,6 +211,18 @@ function M.error_counts(parts)
   return out
 end
 
+--- The appids (numbers) whose `part` last ended with `status` ("unsupported" or "error").
+function M.with_status(part, status)
+  local out = {}
+  local all = load().parts
+  if type(all) ~= "table" then return out end
+  for k, entry in pairs(all) do
+    if type(entry) == "table" and entry[part .. "_status"] == status and tonumber(k) then out[#out + 1] = tonumber(k) end
+  end
+  table.sort(out)
+  return out
+end
+
 --- Forget one part's check, so it counts as never checked (and any remembered unsupported / error with it).
 function M.forget_part(appid, part)
   local entry = load().parts[key(appid)]

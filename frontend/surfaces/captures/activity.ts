@@ -149,6 +149,54 @@ export function setAchievementSource(appid: number, set: AchievementSet | undefi
     else achievementSource.delete(appid);
 }
 
+/** Steam's own CAppActivity class, once an entry Steam made has been seen this session. */
+let steamActivityClass: (new (appid: number) => AppActivity) | undefined;
+/** The methods our stand-in (the literal in publishActivity) defines, for the gap sensor. */
+const STAND_IN_METHODS = new Set([
+    "MergeUserNews",
+    "MergeGameActivity",
+    "GetNewestActivityTime",
+    "GetAchievementMapCache",
+    "GetUserNewsCache",
+    "GetGameActivityCache",
+    "BHasEvents",
+]);
+let standInNoted = false;
+
+/**
+ * Remember Steam's class and, the first time, log the methods it has that our stand-in lacks: Steam's store may call any of
+ * them on a stand-in entry (MergeLatestActivityFromServer called GetNewestActivityTime on the 2026-11 beta). The line names
+ * them before a user meets the TypeError, so the stand-in can be completed from a log.
+ */
+function rememberActivityClass(cls: new (appid: number) => AppActivity): void {
+    if (steamActivityClass === cls) return;
+    const first = steamActivityClass === undefined;
+    steamActivityClass = cls;
+    if (!first) return;
+    try {
+        const names = new Set<string>();
+        for (let p = cls.prototype; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+            for (const n of Object.getOwnPropertyNames(p)) {
+                if (n === "constructor") continue;
+                const d = Object.getOwnPropertyDescriptor(p, n);
+                if (d && typeof d.value === "function") names.add(n);
+            }
+        }
+        const lacking = [...names].filter((n) => !STAND_IN_METHODS.has(n)).sort();
+        deps.report?.(
+            `Steam activity class seen: ${names.size} methods; the stand-in lacks ${lacking.length}${lacking.length ? `: ${lacking.slice(0, 40).join(", ")}` : ""}`,
+        );
+    } catch {
+        /* diagnostics only */
+    }
+}
+
+function noteStandIn(): void {
+    if (standInNoted) return;
+    standInNoted = true;
+    deps.report?.("stand-in activity entry used: Steam has made no activity entry of its own yet this session");
+}
+
 /** What the feed last published per app, so an unchanged feed writes nothing (guardrail 17.2). */
 const publishedSignature = new Map<number, string>();
 
@@ -262,13 +310,15 @@ async function playTimeline(
     gameid: string,
     overview: any,
     showFirstPlayed: boolean,
-): Promise<{ addedTime: number; firstPlayedTime?: number; hasPlayEvidence: boolean }> {
+): Promise<{ addedTime: number; firstPlayedTime?: number; hasPlayEvidence: boolean; evidence: string }> {
     const stored = getActivityTimestamps(appid);
     const playedSteam = (overview?.minutes_playtime_forever ?? 0) > 0 || (overview?.rt_last_time_played ?? 0) > 0;
     let earliestMedia: number | undefined;
+    let captures = -1; // -1: not read (a remembered time made it unnecessary)
     if (!stored.addedToLibrary || (showFirstPlayed && !stored.firstPlayed)) {
         const [screenshots, clips] = await Promise.all([screenshotsSince(appid, 0), clipsSince(gameid, 0)]);
         const times = [...screenshots.map((s) => s.nCreated), ...clips.map((c) => c.date_clipped || c.date_recorded)].filter((t) => t > 0);
+        captures = times.length;
         if (times.length > 0) earliestMedia = Math.min(...times);
     }
     const now = Math.floor(Date.now() / 1000);
@@ -299,7 +349,10 @@ async function playTimeline(
         }
         saveActivityTimestamps(appid, { firstPlayed: firstPlayedTime });
     }
-    return { addedTime, firstPlayedTime, hasPlayEvidence };
+    // Why "Played for the first time" shows or not, for the [activity] line: Steam's own play time and last-played date,
+    // the captures, and a time remembered from an earlier start.
+    const evidence = `steam-playtime-min=${overview?.minutes_playtime_forever ?? "none"}, steam-last-played=${(overview?.rt_last_time_played ?? 0) > 0 ? "yes" : "no"}, captures=${captures < 0 ? "not read" : captures}, remembered=${stored.firstPlayed ? "yes" : "no"}`;
+    return { addedTime, firstPlayedTime, hasPlayEvidence, evidence };
 }
 
 /**
@@ -321,6 +374,9 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
 
     if (!actStore || !storeCache || !currentSteamID) {
         logger.warn("Activity feed stores or SteamID not available for", appid);
+        deps.report?.(
+            `feed for game ${appid} not published: activity-store=${actStore ? "yes" : "no"}, store-item-cache=${storeCache ? "yes" : "no"}, steamid=${currentSteamID ? "yes" : "no"}`,
+        );
         return 0;
     }
 
@@ -372,7 +428,10 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
     const sampleEntry = [...actStore.m_mapAppActivity.values()].find(
         (e) => e?.m_mapActivityByDay instanceof Map && e.constructor !== Object,
     ) as AppActivity | undefined;
-    const CAppActivity = sampleEntry?.constructor as (new (appid: number) => AppActivity) | undefined;
+    // Kept for the session once seen: Steam's entries can be gone later, and its own class has every method its store
+    // calls (the stand-in below is a copy, which a Steam update outruns: GetNewestActivityTime, 2026-11-07).
+    if (sampleEntry?.constructor) rememberActivityClass(sampleEntry.constructor as new (appid: number) => AppActivity);
+    const CAppActivity = steamActivityClass;
 
     let appActivity: AppActivity;
     if (CAppActivity) {
@@ -398,6 +457,9 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
             // cache steps CAppActivity has, as no-ops (a shortcut has no server news; the next publish rebuilds the feed).
             async MergeUserNews() {},
             MergeGameActivity() {},
+            // Steam beta's MergeLatestActivityFromServer calls this on the entry it queued the fetch for (found in a
+            // tester's log 2026-11-07: "GetNewestActivityTime is not a function"). Same meaning as CAppActivity's.
+            GetNewestActivityTime() { return Math.max(this.m_rtLatestUserNewsTime ?? 0, this.m_rtLatestGameActivityTime ?? 0); },
             GetAchievementMapCache: () => "[]",
             GetUserNewsCache: () => [],
             GetGameActivityCache: () => [],
@@ -420,6 +482,7 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
             },
         };
     }
+    if (!CAppActivity) noteStandIn();
     // A shortcut has no activity on Steam's servers: the feed's "show more" must not ask for history (it would send
     // a request for an appid the server does not know).
     appActivity.m_bNoMoreHistoryAvailable = true;
@@ -454,8 +517,10 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
 
     // 6. Synthetic native activity events: Added to Library and Played First Time
     let syntheticCount = 0;
+    let firstPlayedWhy = showFirstPlayed ? "" : "option off";
     if (showAdded || showFirstPlayed) {
-        const { addedTime, firstPlayedTime, hasPlayEvidence } = await playTimeline(appid, gameid, overview, showFirstPlayed);
+        const { addedTime, firstPlayedTime, hasPlayEvidence, evidence } = await playTimeline(appid, gameid, overview, showFirstPlayed);
+        if (showFirstPlayed) firstPlayedWhy = `${hasPlayEvidence && firstPlayedTime ? "shown" : "left out, no play evidence"} (${evidence})`;
         if (showAdded && addedTime) {
             getOrCreateDay(getLocalMidnight(addedTime)).m_rgEvents.push(
                 simpleEvent(V, appid, 3, `added_${appid}_${addedTime}`, addedTime, currentSteamID),
@@ -488,6 +553,17 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
     if (publishedSignature.get(appid) !== signature || !(previous?.m_mapActivityByDay instanceof Map)) {
         actStore.m_mapAppActivity.set(appid, appActivity);
         publishedSignature.set(appid, signature);
+        // Only on a change (guardrail 17.2 holds for the log too): what the feed shows, and why a part is missing.
+        const set = achievementSource.get(appid);
+        const unlocks = set?.unlocks ? Object.keys(set.unlocks).length : 0;
+        const achWhy = !showAchievements
+            ? "option off"
+            : !set
+              ? "none loaded for the game (no source answered, or the achievements feature is off)"
+              : `schema=${Array.isArray(set.schema?.achievements) ? set.schema.achievements.length : 0}, unlocks=${unlocks}, shown=${achievementCount}${unlocks > achievementCount ? ` (${unlocks - achievementCount} with no time or not in the list)` : ""}`;
+        deps.report?.(
+            `feed for game ${appid}: ${nativeEvents} native, ${achievementCount} unlocks on ${achDays.length} days, ${syntheticCount} synthetic; entry=${CAppActivity ? "steam-class" : "stand-in"}; added=${showAdded ? "on" : "option off"}; first-played=${firstPlayedWhy}; achievements=${achWhy}`,
+        );
     }
     actStore.m_setAppFetchRequested?.add(appid);
     logger.info(
