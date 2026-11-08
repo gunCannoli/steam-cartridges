@@ -189,20 +189,6 @@ local function on_load()
     end
     plog.event("startup", "native ports (games launching each): " .. table.concat(parts, ", "))
   end)
-  -- Per shortcut that launches a port: were its unlock files found, and how many unlocks were read? A game whose
-  -- achievements stay at 0 then shows "present=0" (custom data folder, another OS layout) instead of nothing.
-  pcall(function()
-    local ports = require("native_ports")
-    for _, e in ipairs(require("registry").entries() or {}) do
-      local port = ports.find(e.exe, e.launch_options)
-      if port then
-        local r = ports.unlock_report(port)
-        plog.event("startup", string.format(
-          "native port %s: unlock files known places=%d present=%d (first at place %d), found by name=%d, read=%d, unlocks=%d",
-          tostring(port.def.id), r.known, r.present, r.first, r.found_by_name, r.parsed, r.unlocks))
-      end
-    end
-  end)
   -- Every option in the settings panel, as flags and counts (settings_summary.lua: no pattern, name, key or path).
   pcall(function()
     local lines = require("settings_summary").lines(require("settings_store").get_all())
@@ -274,34 +260,6 @@ local function on_load()
     plog.event("startup", "stored health: " .. table.concat(cells, "; "))
   end)
 
-  -- A remembered "unsupported" for achievements is asked again when a source supports the shortcut now (its exe was
-  -- re-pointed, a port or ROM appeared): the memo would otherwise hide the game's achievements for its whole TTL, and the
-  -- background walk treats it as settled. One line per such game: which sources say yes, so a report shows why.
-  pcall(function()
-    local fresh = require("fresh_policy")
-    local ach = require("ach_service")
-    local ids = fresh.with_status("achievements", "unsupported")
-    local again, gone = 0, 0
-    for _, appid in ipairs(ids) do
-      local r = ach.supports_report(appid)
-      local any = false
-      for _, name in ipairs(r.order) do if r[name] then any = true end end
-      if not r.shortcut then
-        gone = gone + 1
-      else
-        if any then
-          fresh.forget_part(appid, "achievements")
-          again = again + 1
-        end
-        plog.event("startup", string.format("achievements unsupported for game %d: %s (%s)", appid,
-          any and "a source supports it now, asked again" or "still no source", ach.supports_text(r)))
-      end
-    end
-    if #ids > 0 then
-      plog.event("startup", string.format("achievements unsupported: %d stored, %d asked again, %d not in shortcuts.vdf", #ids, again, gone))
-    end
-  end)
-
   -- A migration failure logs and continues.
   local ok_m, err_m = pcall(migrate.run)
   if not ok_m then
@@ -338,8 +296,62 @@ local function on_load()
   if not ok_p then logger:warn("pruning removed shortcuts failed: " .. tostring(err_p)) end
 end
 
+-- Startup reports that read the user's files (unlock files, shortcuts' sources). They run on the first frontend load,
+-- not in on_load: a Lua error raised inside a C function (cjson's decode of an empty or broken file, a Millennium fs
+-- call's argument check) during on_load crashes Millennium's Lua host when it answers the init request, even under
+-- pcall (0.6.11-beta: a Dusklight shortcut with no portable data folder crashed every start). The same error in an RPC
+-- or in on_frontend_loaded is harmless (checked live on v3.6.2 and v3.6.3-beta.1, 2026-11-07).
+local late_reports_done = false
+local function late_startup_reports()
+  if late_reports_done then return end
+  late_reports_done = true
+  local plog = require("plog")
+  -- Per shortcut that launches a port: were its unlock files found, and how many unlocks were read? A game whose
+  -- achievements stay at 0 then shows "present=0" (custom data folder, another OS layout) instead of nothing.
+  pcall(function()
+    local ports = require("native_ports")
+    for _, e in ipairs(require("registry").entries() or {}) do
+      local port = ports.find(e.exe, e.launch_options)
+      if port then
+        local r = ports.unlock_report(port)
+        plog.event("startup", string.format(
+          "native port %s: unlock files known places=%d present=%d (first at place %d), found by name=%d, read=%d, unlocks=%d",
+          tostring(port.def.id), r.known, r.present, r.first, r.found_by_name, r.parsed, r.unlocks))
+      end
+    end
+  end)
+  -- A remembered "unsupported" for achievements is asked again when a source supports the shortcut now (its exe was
+  -- re-pointed, a port or ROM appeared): the memo would otherwise hide the game's achievements for its whole TTL, and the
+  -- background walk treats it as settled. One line per such game: which sources say yes, so a report shows why.
+  pcall(function()
+    local fresh = require("fresh_policy")
+    local ach = require("ach_service")
+    local ids = fresh.with_status("achievements", "unsupported")
+    local again, gone = 0, 0
+    for _, appid in ipairs(ids) do
+      local r = ach.supports_report(appid)
+      local any = false
+      for _, name in ipairs(r.order) do if r[name] then any = true end end
+      if not r.shortcut then
+        gone = gone + 1
+      else
+        if any then
+          fresh.forget_part(appid, "achievements")
+          again = again + 1
+        end
+        plog.event("startup", string.format("achievements unsupported for game %d: %s (%s)", appid,
+          any and "a source supports it now, asked again" or "still no source", ach.supports_text(r)))
+      end
+    end
+    if #ids > 0 then
+      plog.event("startup", string.format("achievements unsupported: %d stored, %d asked again, %d not in shortcuts.vdf", #ids, again, gone))
+    end
+  end)
+end
+
 local function on_frontend_loaded()
   logger:info("Frontend loaded.")
+  pcall(late_startup_reports)
 end
 
 local function on_unload()

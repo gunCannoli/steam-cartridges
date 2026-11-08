@@ -269,7 +269,8 @@ M.FORMATS = {
   key_flags_json = {
     parse = function(text)
       local out = {}
-      local ok, data = pcall(require("json").decode, tostring(text or ""))
+      if type(text) ~= "string" or not text:find("%S") then return out end -- nothing to decode (see M.parse)
+      local ok, data = pcall(require("json").decode, text)
       if not (ok and type(data) == "table") then return out end
       local now = os.time()
       for key, entry in pairs(data) do
@@ -451,6 +452,9 @@ end
 function M.parse(port, format, text)
   local known = known_ids(port.def.game)
   local out = {}
+  -- A missing or empty file holds no unlock. It is never handed to a JSON decoder: the decode error it raises inside C
+  -- crashes Millennium's Lua host when it comes during on_load, even under pcall (see main.lua, late_startup_reports).
+  if type(text) ~= "string" or not text:find("%S") then return out end
   local found
   if format == "detect" then
     -- No time in the file (0): the unlock is stamped when first seen, as key_flags_json does.

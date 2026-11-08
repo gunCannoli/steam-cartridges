@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.6.12-beta] - 2026-11-08
+
+### Fixed
+
+- **0.6.11-beta crashed at every Steam start with a Dusklight shortcut.** The new startup check of Dusklight's achievement files tried to read the places where no file exists, and Millennium's backend crashes when that happens while the plugin is starting. The plugin then never came up ("plugin not running"). The empty places are now skipped, and the startup checks of achievement files run once Steam's window has loaded.
+
 ## [0.6.11-beta] - 2026-11-07
 
 ### Added
