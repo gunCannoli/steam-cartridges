@@ -1,6 +1,8 @@
 import { logger } from "../../logger";
 import type { GameMetadata as ConsolidatedMetadata } from "../../kernel/record";
 import { MANAGED_CATEGORY_IDS } from "../../kernel/record";
+import { deps } from "./deps";
+import { truncateDescription } from "./description";
 import {
     markAppEnriched,
     unmarkAppEnriched,
@@ -119,6 +121,8 @@ export function revertGameDetails(appid: number): void {
     }
 }
 
+export { truncateDescription };
+
 /**
  * Enriches Steam's in-memory CAppDetailsStore and appStore (AppOverview)
  * so that Big Picture's "Game Info" tab and Desktop game panels display
@@ -133,6 +137,9 @@ export function enrichGameDetails(
         let touched = false;
         const uAppid = appid >>> 0;
 
+        const maxLen = deps.descriptionMaxLength?.() ?? 360;
+        const desc = truncateDescription(meta.description || "", maxLen);
+
         // Idempotent (M0a): identical data already live in Steam -> no write, no re-render.
         let json = metaJson.get(meta);
         if (json === undefined) {
@@ -140,7 +147,7 @@ export function enrichGameDetails(
             metaJson.set(meta, json);
         }
         const categoryIds = meta.badge_category_ids ?? [];
-        const signature = json + "|" + categoryIds.join(",");
+        const signature = json + "|" + categoryIds.join(",") + "|" + desc;
         const previous = applied.get(uAppid);
         if (previous && previous.signature === signature) {
             const liveData =
@@ -173,7 +180,6 @@ export function enrichGameDetails(
             if (appData) {
                 recordOriginals(uAppid, appData, undefined);
                 // Descriptions (canonical description for snippet and full description)
-                const desc = meta.description || "";
                 appData.descriptionsData = {
                     strSnippet: desc,
                     strFullDescription: desc,

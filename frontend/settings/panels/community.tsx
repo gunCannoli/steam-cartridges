@@ -52,6 +52,7 @@ export function CommunitySection() {
                         suffix={cacheDays === 1 ? " day" : " days"}
                         resetValue={MEDIA_CACHE_DAYS.default}
                         onChange={setCacheDays}
+                        trailing
                     />
                 </>
             </Blocks>

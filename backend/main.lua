@@ -282,7 +282,8 @@ local function on_load()
   if config.get_twitch_credentials() then
     logger:info("Game Metadata provider loaded (Twitch credentials configured).")
   else
-    logger:warn("Game Metadata provider loaded (no Twitch credentials found in .env).")
+    -- Not a warning: onboarding adds the keys minutes after the first start. The first IGDB lookup says so if they are still missing.
+    logger:info("Game Metadata provider loaded (no Twitch credentials yet; IGDB lookups wait for them).")
   end
   logger:info("Metadata database contains " .. tostring(metadata_db.count()) .. " cached game(s).")
 

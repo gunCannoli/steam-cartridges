@@ -404,11 +404,6 @@ const librarySetup = createLibrarySetup({
     // The confirmed game is fetched, then its Game Info is filled in from what matched it (a Steam match reads Steam's own store item) so the
     // onboarding shows every field filled, for the user to check or just confirm (ADR-0100).
     fetchGames: async (appids, onProgress) => {
-        const shortcuts = routing.listShortcuts();
-        const nameMap = new Map(shortcuts.map((s) => [s.appid, s.name]));
-        let done = 0;
-        const total = appids.length;
-
         // Preload all saved records from disk into memory in one bulk read
         await metadata.preload();
 
@@ -422,14 +417,19 @@ const librarySetup = createLibrarySetup({
                     await metadata.ensure(id, route, ident, { userAction: true });
                 }
             }
-            done++;
-            onProgress?.(done, total, nameMap.get(appid));
         }
 
-        // Ingest startSync is the background synchronizer (artwork, screenshots, etc.).
-        // We start it in the background without forceAll (metadata and achievements are already fresh),
-        // so it only downloads missing artwork in the background.
-        void ingest.startSync({ onlyAppids: appids, reason: "confirmed" });
+        // The sync is what fetches every other game (metadata, achievements, artwork). It is awaited, and its progress is the
+        // "Fetching n of N" the window shows: returning before it ended told the user "Confirmed" while the issue counts were
+        // still falling (80, 40, 22) as the background run filled the records in.
+        const off = ingest.onSyncProgress((p) => {
+            if (p.isSyncing && p.total > 0) onProgress?.(p.current, p.total, p.currentGame || undefined);
+        });
+        try {
+            await ingest.startSync({ onlyAppids: appids, reason: "confirmed" });
+        } finally {
+            off();
+        }
     },
     resetSettings,
 });
@@ -521,6 +521,7 @@ export function initGlobalExtensionAPI(): SteamCartridgesAPI {
         reportAchievementSet: (appid, set, opts) => achievements.ingestProvidedSet(appid, set, opts),
         forgetGame: (appid, opts) => provided.forgetGame(appid, opts),
     });
+    (api as any).isLocalAchievementsWatchEnabled = () => setting("watchLocalAchievements") !== false;
     (window as any).SteamCartridges = api;
 
     // Flush any queue from plugins loaded before steam-cartridges
@@ -779,6 +780,7 @@ async function init() {
             ...surfaceDeps,
             metadataOf: (appid) => records.store.get(appid as ShortcutId)?.metadata?.data,
             showByDefault: () => setting("showGameInfoByDefault") === true,
+            descriptionMaxLength: () => (setting("descriptionMaxLength") as number) || 360,
         }),
     );
     runner.installAll();

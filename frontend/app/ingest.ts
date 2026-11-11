@@ -17,6 +17,7 @@ import { askOf } from "../domain/library-setup.ts";
 export interface IngestDeps {
     backend: Pick<typeof Backend, "getNewShortcuts" | "markKnown" | "ensureFresh" | "getSetupState"> & {
         logEvent?(tag: string, message: string): void;
+        endBatch?(opts?: { lane?: "background" }): Promise<unknown>;
         libraryScan?(collections: Record<string, string[]>): Promise<{ games?: unknown; platforms?: unknown; error?: string }>;
     };
     /** Every shortcut in the library (the full-sync source). */
@@ -63,14 +64,20 @@ export interface Ingest {
     onSyncProgress(fn: (p: SyncProgress) => void): () => void;
 }
 
-/** Polite pause between individual shortcuts (today's value). */
-const PAUSE_MS = 300;
+/** Pause between shortcuts that sent a request. Each service paces itself (net.SPACING, steam_store_throttle), so this is only a breather for the Lua host. */
+const PAUSE_MS = 100;
 
 /** Every ingest call waits behind what the user is looking at (ADR-0060). */
 const BACKGROUND = { lane: "background" } as const;
 
 /** Sources whose pause should stop a run (sgdb is not used here). */
 const RELEVANT_SOURCES = ["steam-store", "igdb", "screenscraper", "steam-web", "retroachievements"];
+
+/** Seconds (epoch) until which a relevant source stays paused, or 0. */
+function pausedUntil(res: { paused?: Record<string, number> } | undefined): number {
+    const p = res?.paused ?? {};
+    return Math.max(0, ...RELEVANT_SOURCES.filter((s) => s in p).map((s) => p[s] ?? 0));
+}
 
 function pausedIn(res: { paused?: Record<string, number> } | undefined): boolean {
     return !!res?.paused && RELEVANT_SOURCES.some((s) => s in (res.paused as Record<string, number>));
@@ -124,13 +131,13 @@ export function createIngest(deps: IngestDeps): Ingest {
     /** One shortcut. `stop` = a source is paused: end the run and leave this one for later. `errors` names the
      *  parts that failed, so the run reports them to the plugin log instead of swallowing them (logger.warn is
      *  stripped from prod builds). */
-    async function ingestOne(item: { appid: number; name: string }, force: boolean): Promise<{ stop: boolean; done: boolean; errors: string[] }> {
+    async function ingestOne(item: { appid: number; name: string }, force: boolean): Promise<{ stop: boolean; done: boolean; errors: string[]; requests: number; until?: number }> {
         const appid = item.appid as ShortcutId;
         const route = deps.routeOf(appid);
-        if (route.via === "pending") return { stop: false, done: false, errors: [] }; // collections not ready: try next run
+        if (route.via === "pending") return { stop: false, done: false, errors: [], requests: 0 }; // collections not ready: try next run
         if (route.bucket === "none") {
             deps.report?.(`sync skip "${item.name}" (bucket none)`);
-            return { stop: false, done: true, errors: [] }; // ADR-0035: no network for it
+            return { stop: false, done: true, errors: [], requests: 0 }; // ADR-0035: no network for it
         }
 
         const base = {
@@ -141,7 +148,9 @@ export function createIngest(deps: IngestDeps): Ingest {
             allowScreenscraper: deps.allowScreenscraper(appid),
             hardcore: deps.hardcore(),
             force,
+            deferSave: true,
         };
+        let requests = 0; // network requests the backend sent for this game: a game served from disk needs no pause
 
         let identity: Part<Identity> | undefined;
         const errors: string[] = [];
@@ -158,7 +167,8 @@ export function createIngest(deps: IngestDeps): Ingest {
         };
         if (route.bucket === "steam-store") {
             const res = await deps.backend.ensureFresh(appid, ["identity"], base, BACKGROUND);
-            if (pausedIn(res)) return { stop: true, done: false, errors };
+            requests += res.requests ?? 1; // an older backend does not say: assume it asked
+            if (pausedIn(res)) return { stop: true, done: false, errors, requests, until: pausedUntil(res) };
             if (res.error) errors.push(`identity: ${res.error}`);
             identity = res.parts?.identity as Part<Identity> | undefined;
             noteError("identity", res as never);
@@ -172,7 +182,8 @@ export function createIngest(deps: IngestDeps): Ingest {
         const parts: ("metadata" | "achievements")[] = native ? ["achievements"] : ["metadata", "achievements"];
         for (const part of parts) {
             const res = await deps.backend.ensureFresh(appid, [part], { ...base, identity }, BACKGROUND);
-            if (pausedIn(res)) return { stop: true, done: false, errors };
+            requests += res.requests ?? 1; // an older backend does not say: assume it asked
+            if (pausedIn(res)) return { stop: true, done: false, errors, requests, until: pausedUntil(res) };
             if (res.error) errors.push(`${part}: ${res.error}`);
             noteError(part, res as never);
             note(part, res as never);
@@ -187,10 +198,10 @@ export function createIngest(deps: IngestDeps): Ingest {
         }
         if (errors.length === 0) {
             deps.report?.(
-                `sync game "${item.name}": bucket=${route.bucket}, web=${base.allowWeb ? "on" : "off"}, screenscraper=${base.allowScreenscraper ? "on" : "off"}, ${seen.join(", ") || "no parts"}`,
+                `sync game "${item.name}": bucket=${route.bucket}, web=${base.allowWeb ? "on" : "off"}, screenscraper=${base.allowScreenscraper ? "on" : "off"}, ${seen.join(", ") || "no parts"}${requests === 0 ? ", served from disk" : ""}`,
             );
         }
-        return { stop: false, done: true, errors };
+        return { stop: false, done: true, errors, requests };
     }
 
     async function startSync(options?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void> {
@@ -308,14 +319,24 @@ export function createIngest(deps: IngestDeps): Ingest {
 
             let walked = 0;
             let failed = 0;
+            let skipped = 0;
             for (const [i, item] of items.entries()) {
                 walked++;
                 setProgress({ current: i + 1, currentGame: item.name, failed });
-                let outcome = { stop: false, done: false, errors: [] as string[] };
+                let outcome: Awaited<ReturnType<typeof ingestOne>> = { stop: false, done: false, errors: [] as string[], requests: 1 };
                 try {
                     outcome = await ingestOne(item, force);
+                    // A rate limit (429) is a pause of about a minute: wait it out and ask again, instead of ending the run
+                    // with most games unfetched (the 218-game run stopped at game 1 and left 159 without achievements).
+                    for (let waits = 0; outcome.stop && outcome.until && waits < 15; waits++) {
+                        const wait = Math.min(120, Math.max(1, Math.ceil(outcome.until - Date.now() / 1000) + 1));
+                        deps.report?.(`sync waiting ${wait}s for a rate limit to end (${walked - 1} of ${items.length} walked)`);
+                        setProgress({ currentGame: `${item.name} (waiting for a rate limit to end)` });
+                        await deps.sleep(wait * 1000);
+                        outcome = await ingestOne(item, force);
+                    }
                 } catch (e) {
-                    outcome = { stop: false, done: false, errors: [String((e as Error)?.message ?? e)] };
+                    outcome = { stop: false, done: false, errors: [String((e as Error)?.message ?? e)], requests: 1 };
                 }
                 if (outcome.errors.length > 0) {
                     failed++;
@@ -332,11 +353,15 @@ export function createIngest(deps: IngestDeps): Ingest {
                     await deps.backend.markKnown([item.appid], BACKGROUND).catch(() => undefined);
                 }
 
-                await deps.sleep(PAUSE_MS);
+                // Polite pause only after a game that sent requests; one served from disk costs nothing.
+                if (outcome.requests > 0) await deps.sleep(PAUSE_MS);
+                else skipped++;
             }
+            // Close the backend's batched achievements file (also after a pause or a stop).
+            await deps.backend.endBatch?.(BACKGROUND)?.catch(() => undefined);
 
             setProgress({ isSyncing: false, phase: "complete", failed });
-            deps.report?.(`sync done (${reason}): walked ${walked} of ${items.length}${failed > 0 ? `, ${failed} failed` : ""}`);
+            deps.report?.(`sync done (${reason}): walked ${walked} of ${items.length}${skipped > 0 ? ` (${skipped} needed no request)` : ""}${failed > 0 ? `, ${failed} failed` : ""}`);
             // Back to idle after a few seconds.
             const idle = setTimeout(() => {
                 if (!running) setProgress({ phase: "idle" });

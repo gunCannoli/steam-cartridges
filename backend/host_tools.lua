@@ -60,10 +60,10 @@ function M.has(name)
   if type(name) ~= "string" or not name:match("^[%w_%-]+$") then return false end
   if tools[name] == nil then
     if is_windows() then
-      local root = (require("platform").getenv("SystemRoot") or ""):gsub("\\", "/")
-      if root ~= "" then
-        local f = io.open(root .. "/System32/" .. name .. ".exe", "rb")
-        if f then f:close() tools[name] = true return true end
+      local root = (env("SystemRoot") or ""):gsub("\\", "/")
+      if root ~= "" and exists(root .. "/System32/" .. name .. ".exe") then
+        tools[name] = true
+        return true
       end
       tools[name] = false
     else

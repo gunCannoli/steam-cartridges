@@ -62,6 +62,11 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
     end)
   end
 
+  -- A background run (the sync) asks for many games: the achievements file is written in batches, closed by MarkKnown{final}.
+  if ctx.deferSave then require("achievements_store").begin_batch(); fresh().begin_batch() end
+  local calls_before = 0
+  for _, n in pairs(require("net").stats().http_calls) do calls_before = calls_before + n end
+
   local parts = {}
   for _, name in ipairs(requested) do
     if name == "identity" and ctx.noNetwork then
@@ -180,6 +185,9 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
 
   -- Which sources are paused right now (M7a breakers), so a background run can stop instead of hammering.
   local result = { appid = tonumber(appid), parts = parts }
+  local calls_after = 0
+  for _, n in pairs(require("net").stats().http_calls) do calls_after = calls_after + n end
+  result.requests = calls_after - calls_before -- the caller paces itself by this: a game served from disk costs no pause
   local paused = require("net").stats().paused
   if next(paused) ~= nil then result.paused = paused end
   return result
@@ -255,7 +263,18 @@ end)
 
 --- Mark shortcuts as handled: { appids = [...] }.
 RPC.MarkKnown = method("MarkKnown", function(data)
-  require("registry").mark_known(need(data, "appids"))
+  if #need(data, "appids") > 0 then require("registry").mark_known(data.appids) end
+  if data.final then
+    local st = require("achievements_store")
+    st.end_batch()
+    fresh().end_batch()
+    -- One line closing a background run: what the network cost and what the file cost, no names or paths.
+    pcall(function()
+      local stats = st.stats()
+      require("plog").event("sync", string.format("run closed: net [%s]; achievements.json saves=%d (%d KB written)",
+        require("net").summary(), stats.saves, math.floor(stats.bytes / 1024)))
+    end)
+  end
   return { ok = true }
 end)
 

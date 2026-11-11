@@ -92,6 +92,7 @@ export function SliderRow({
     resetValue,
     onChange,
     disabled,
+    trailing,
 }: {
     /** Left out when a Field row above already names the slider. */
     label?: string;
@@ -103,9 +104,10 @@ export function SliderRow({
     resetValue: number;
     onChange: (val: number) => void;
     disabled?: boolean;
+    trailing?: boolean;
 }) {
     return (
-        <ItemRow>
+        <ItemRow trailing={trailing ?? true}>
             <SliderField
                 label={label}
                 layout="below"
@@ -190,8 +192,10 @@ export function LoadingSpinner() {
 /** The last row of a popup: a status message on the left, its buttons on the right. A message ending in "..." is
  *  progress (with Steam's spinner beside it: the work runs in the background), one starting with "✓" success (green),
  *  one starting with "⚠" a warning (yellow: it worked, with a catch), anything else an error (red). */
-export function ActionRow({ message, children }: { message?: string; children?: React.ReactNode }) {
-    const progress = !!message && message.endsWith("...");
+export function ActionRow({ message, progress: explicit, children }: { message?: string; progress?: boolean; children?: React.ReactNode }) {
+    // `progress` set by the caller wins (a status with an ETA does not end in "..."); a ✓ / ⚠ result is never progress.
+    const done = !!message && (message.startsWith("✓") || message.startsWith("⚠"));
+    const progress = !!message && !done && (explicit ?? message.endsWith("..."));
     const color = !message ? undefined : message.startsWith("✓") ? "#a4d007" : message.startsWith("⚠") ? "#e5a00d" : progress ? undefined : "#eb4b4b";
     const label = message ? (
         <span style={{ color, fontWeight: 400, display: "inline-flex", alignItems: "center", gap: CONTROL_GAP }}>

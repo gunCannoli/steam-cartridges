@@ -234,6 +234,8 @@ export interface FreshContext {
     hardcore?: boolean;
     /** M7a: ignore TTLs, never a custom_override record. */
     force?: boolean;
+    /** A background run over many games: the backend writes its achievements file in batches (closed by markKnown final). */
+    deferSave?: boolean;
     /** Media only (features plan F2): the IGDB game Game Info shows; IGDB media is asked by this id, never by title. */
     igdb_id?: number;
     /** Media only (ADR-0051): setting mediaCacheDays; more than 0 counts this page open for the disk cache. */
@@ -271,6 +273,8 @@ export interface RecordResponse {
     error?: string;
     /** Sources the backend has paused (429, or repeated failures), by source id (M7a). */
     paused?: Record<string, number>;
+    /** Network requests the backend sent for this call (0 = answered from disk). */
+    requests?: number;
 }
 
 export const backend = {
@@ -305,6 +309,10 @@ export const backend = {
     /** Shortcuts not seen before (M7a). The first call seeds the library and returns none. */
     getNewShortcuts(opts?: CallOptions): Promise<{ shortcuts?: unknown }> {
         return call<{ shortcuts?: unknown }>("GetNewShortcuts", {}, opts);
+    },
+    /** Close the backend's batched achievements file after a background run (see FreshContext.deferSave). */
+    endBatch(opts?: CallOptions): Promise<{ ok?: boolean; error?: string }> {
+        return call<{ ok?: boolean; error?: string }>("MarkKnown", { appids: [], final: true }, opts);
     },
     markKnown(appids: number[], opts?: CallOptions): Promise<{ ok?: boolean; error?: string }> {
         return call<{ ok?: boolean; error?: string }>("MarkKnown", { appids }, opts);

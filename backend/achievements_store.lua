@@ -74,7 +74,41 @@ local function save()
   end)
 end
 
-function M._reset() state = nil end
+-- Batch mode (0.7.1): a run that stores many games' lists (Confirm all, the sync after it) rewrote the whole file once or
+-- twice per game (420 saves of ~4 MB in one run). While a batch is open, the schema/sync writes only mark the file dirty
+-- and it is written every BATCH_MAX writes and when the batch ends. Unlocks, resets and erasures always save at once.
+local BATCH_MAX = 20
+local batching, dirty, deferred = false, false, 0
+
+--- Write the file now if a deferred write is pending. Returns true when it wrote.
+function M.flush()
+  if not dirty then return false end
+  dirty, deferred = false, 0
+  save()
+  return true
+end
+
+--- Open a batch: schema/sync writes are deferred until M.end_batch() (or BATCH_MAX of them).
+function M.begin_batch() batching = true end
+
+--- Close the batch and write what is pending. Safe to call without begin_batch.
+function M.end_batch()
+  batching = false
+  local wrote = M.flush()
+  pcall(function()
+    require("plog").event("store", string.format("achievements.json batch closed (%s)", wrote and "wrote the pending changes" or "nothing pending"))
+  end)
+  return wrote
+end
+
+--- save() that a batch may defer.
+local function save_deferrable()
+  if not batching then return save() end
+  dirty, deferred = true, deferred + 1
+  if deferred >= BATCH_MAX then M.flush() end
+end
+
+function M._reset() state = nil; batching, dirty, deferred = false, false, 0 end
 
 local function to_schema_key(id)
   -- A source's own list: "ra_<game>", "ps3_<id>", "ps4_<id>", "epic_<namespace>", "xbox_<title id>" (ADR-0056), a
@@ -209,7 +243,7 @@ function M.sync(shortcut_appid, schema_id, unlocks, source)
   sc.unlocks = unlocks or {}
   sc.source = source
   s.shortcuts[sc_key] = sc
-  save()
+  save_deferrable()
   return sc
 end
 
@@ -226,7 +260,7 @@ function M.save_schema_and_sync(shortcut_appid, schema_id, schema, unlocks, sour
   sc.unlocks = unlocks or {}
   sc.source = source
   s.shortcuts[sc_key] = sc
-  save()
+  save_deferrable()
   return sc
 end
 

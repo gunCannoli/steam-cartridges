@@ -21,15 +21,21 @@ const ALL_METADATA_SERVICES: MetadataServiceDef[] = [
     { id: "steamgriddb", label: "SteamGridDB" },
 ];
 
+/** Module-level cache so reopening settings paints immediately without flicker while async status refreshes. */
+let cachedStatus: ProviderStatus | null = null;
+
 export function MetadataSection() {
     const ctx = usePanelContext();
     const [services, setServices] = useSetting("services");
-    const [status, setStatus] = useState<ProviderStatus | null>(null);
+    const [status, setStatus] = useState<ProviderStatus | null>(cachedStatus);
 
     const refresh = () => {
         backend
             .getStatus()
-            .then(setStatus)
+            .then((res) => {
+                cachedStatus = res;
+                setStatus(res);
+            })
             .catch((e) => backend.logEvent("sources", `status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     };
 
@@ -38,11 +44,12 @@ export function MetadataSection() {
     }, []);
 
     // A service is in use when it is on and, if it needs a key, has one. Nothing is on until the user adds it.
+    // While status is loading (null), preserve enabled services so the panel does not flicker on open.
     const isActive = (id: MetadataServiceId): boolean => {
         if (id === "steam_store") return services.steamStoreEnabled === true;
-        if (id === "screenscraper") return services.screenscraperEnabled === true && !!status?.has_screenscraper;
-        if (id === "igdb") return services.igdbEnabled === true && !!status?.has_twitch;
-        return services.steamgriddbEnabled === true && !!status?.has_sgdb;
+        if (id === "screenscraper") return services.screenscraperEnabled === true && (status === null || !!status.has_screenscraper);
+        if (id === "igdb") return services.igdbEnabled === true && (status === null || !!status.has_twitch);
+        return services.steamgriddbEnabled === true && (status === null || !!status.has_sgdb);
     };
     const activeServices = ALL_METADATA_SERVICES.filter((s) => isActive(s.id));
     const availableToAdd = ALL_METADATA_SERVICES.filter((s) => !isActive(s.id));

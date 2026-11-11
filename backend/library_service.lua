@@ -83,6 +83,7 @@ local function ra_lookup(entry)
     return nil, "miss"
   end
   local ra = require("retroachievements")
+  if not ra.enabled() then return nil, "not-a-source" end -- no ROM is hashed and nothing is asked
   local rom = ra.extract_rom_path(entry.exe, entry.launch_options)
   if not rom then return nil, "no-rom" end
   local md5, why = ra.compute_rom_md5(rom)
@@ -273,7 +274,13 @@ function M.scan(collections)
     local parts = {}
     for status, n in pairs(counts) do parts[#parts + 1] = status .. " " .. n end
     table.sort(parts)
-    require("plog").event("scan", #out .. " games" .. (#parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or ""))
+    -- The window scans and the refresh scans again right after: one line for the same answer within 3 s.
+    local line = #out .. " games" .. (#parts > 0 and (" (" .. table.concat(parts, ", ") .. ")") or "")
+    local t = os.time()
+    if not (M._last_scan and M._last_scan.line == line and t - M._last_scan.at <= 3) then
+      require("plog").event("scan", line)
+    end
+    M._last_scan = { line = line, at = t }
   end)
   return { games = out, platforms = list }
 end
@@ -646,10 +653,18 @@ function M.detect_all(appids, collections)
           if res.status == 200 and res.body and num_appid and contexts[num_appid] then
             local ok_j, list = pcall(json.decode, res.body)
             if ok_j and type(list) == "table" and #list > 0 then
-              local best = list[1]
-              local meta = web_igdb.to_consolidated_metadata(num_appid, contexts[num_appid].title, best)
-              web_igdb.put_cached_metadata(num_appid, meta)
-              contexts[num_appid].has_meta = true
+              local shortcut_info = {
+                platform = contexts[num_appid].v.platform or (contexts[num_appid].v.candidates and contexts[num_appid].v.candidates[1]),
+                exe = contexts[num_appid].e.exe,
+                launch_options = contexts[num_appid].e.launch_options,
+                tags = contexts[num_appid].e.tags,
+              }
+              local best = web_igdb.pick_best_candidate(list, contexts[num_appid].title, shortcut_info)
+              if best then
+                local meta = web_igdb.to_consolidated_metadata(num_appid, contexts[num_appid].title, best)
+                web_igdb.put_cached_metadata(num_appid, meta)
+                contexts[num_appid].has_meta = true
+              end
             end
           end
         end
@@ -665,7 +680,10 @@ function M.detect_all(appids, collections)
       local appid = unsigned(raw_id)
       local ctx = contexts[appid]
       if ctx and not ctx.has_meta and ctx.v and (ctx.v.state ~= "conflict" or ctx.v.platform) then
-        local url = ss.jeu_url(appid, ctx.e.exe, nil, nil, ctx.md5, ctx.title)
+        local p_id = ctx.v.platform or (ctx.v.candidates and ctx.v.candidates[1])
+        local p_info = p_id and require("platforms").BY_ID[p_id]
+        local system_id = p_info and p_info.ss
+        local url = ss.jeu_url(appid, ctx.e.exe, system_id, nil, ctx.md5, ctx.title)
         if url then
           ss_reqs[#ss_reqs + 1] = {
             id = "ss:" .. tostring(appid),
@@ -725,7 +743,7 @@ local function ra_hash_ok(entry, ra_game_id)
   return false, "the RetroAchievements set could not be verified" end
 
 --- Make the proposal the game's own: its Steam link, or its IGDB / ScreenScraper Game Info and RetroAchievements set.
-local function apply_proposal(appid, p, entry, pre_meta)
+local function apply_proposal(appid, p, entry, pre_meta, defer_fetch)
   local choice = { kind = "validated", platform = p.platform }
   local warnings = {}
   if p.steam_appid and (p.state == "steam" or p.state == "steam-proposed") then
@@ -758,9 +776,12 @@ local function apply_proposal(appid, p, entry, pre_meta)
         pcall(function()
           require("achievements_store").sync(appid, "ra_" .. tostring(p.ra_game_id), {}, "retroachievements")
         end)
-        local ok_s, r = pcall(require("ach_service").set_source, appid, "ra", p.ra_game_id)
-        if not ok_s or (r and r.error) then
-          warnings[#warnings + 1] = "RetroAchievements linked (schema download will resume shortly)"
+        -- Confirm all only links: the sync that follows downloads the sets, paced, in one place (0.7.2).
+        if not defer_fetch then
+          local ok_s, r = pcall(require("ach_service").set_source, appid, "ra", p.ra_game_id)
+          if not ok_s or (r and r.error) then
+            warnings[#warnings + 1] = "RetroAchievements linked (the list is downloaded next)"
+          end
         end
       end
     else
@@ -910,6 +931,11 @@ function M.validate_all(appids)
   end
 
   seen = {}
+  local ach_store = require("achievements_store")
+  local os_t0 = os.time()
+  local saves_before = ach_store.stats().saves
+  ach_store.begin_batch() -- one achievements.json write per few games, not two per game
+  local ok_loop, loop_err = pcall(function()
   for _, id in ipairs(type(appids) == "table" and appids or {}) do
     local appid = unsigned(id)
     if appid and not seen[appid] then
@@ -919,10 +945,15 @@ function M.validate_all(appids)
       if not e or type(p) ~= "table" or choices.get(appid) then
         skipped = skipped + 1
       else
-        local choice, err = apply_proposal(appid, p, e, batched_metas[appid])
+        local choice, err, warns = apply_proposal(appid, p, e, batched_metas[appid], true)
         if not choice then
+          pcall(function() require("plog").event("setup", "validate " .. appid .. " not confirmed: " .. tostring(err):sub(1, 100)) end)
           failed[tostring(appid)] = err or "could not confirm the proposal"
         else
+          if type(warns) == "table" and #warns > 0 then
+            -- A confirm that skipped something (RA hash, set download) leaves a trace; the same text the card shows, no names.
+            pcall(function() require("plog").event("setup", "validate " .. appid .. " confirmed with warning: " .. tostring(warns[1]):sub(1, 100)) end)
+          end
           choices.set(appid, choice, now, true)
           proposals.clear_proposal(appid, true)
           forget_parts(appid, true)
@@ -932,12 +963,20 @@ function M.validate_all(appids)
       end
     end
   end
+  end)
+  pcall(ach_store.end_batch)
+  if not ok_loop then
+    pcall(function() require("plog").event("setup", "validate_all stopped early: " .. tostring(loop_err):sub(1, 120)) end)
+  end
   if any_confirmed then
     pcall(choices.save)
     pcall(proposals.save)
     pcall(function() require("fresh_policy").save() end)
   end
-  pcall(function() require("plog").event("setup", "validate_all: " .. #confirmed .. " confirmed, " .. skipped .. " skipped") end)
+  pcall(function() require("plog").event("setup", string.format(
+    "validate_all: %d confirmed, %d skipped, %d failed in %.1fs, achievements.json saves=%d",
+    #confirmed, skipped, (function() local n = 0 for _ in pairs(failed) do n = n + 1 end return n end)(),
+    os.time() - os_t0, ach_store.stats().saves - saves_before)) end)
   return { confirmed = confirmed, skipped = skipped, failed = failed }
 end
 

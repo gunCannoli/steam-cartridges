@@ -4,9 +4,9 @@ import { logger } from '../logger';
 import { backend } from '../ports/backend';
 import { hasKeys, mergeStored } from './merge';
 import { DEFAULT_BUCKETS, validateConfig, type RoutingRule } from '../domain/routing/policy';
-import { DEFAULTS, DEFAULT_SERVICES, MEDIA_CACHE_DAYS, type ControllerOverride, type SettingKey, type Settings } from './defaults';
+import { DEFAULTS, DEFAULT_SERVICES, MEDIA_CACHE_DAYS, DESCRIPTION_MAX_LENGTH, type ControllerOverride, type SettingKey, type Settings } from './defaults';
 
-export { DEFAULTS, DEFAULT_SERVICES, MEDIA_CACHE_DAYS };
+export { DEFAULTS, DEFAULT_SERVICES, MEDIA_CACHE_DAYS, DESCRIPTION_MAX_LENGTH };
 export type { ControllerOverride, ServicesConfig, SettingKey, Settings } from './defaults';
 
 /** Progress of the background sync (app/ingest.ts), for the panel (plan § 7.0 D3: never an import of app/). */
@@ -26,6 +26,11 @@ const VALIDATORS: { [K in SettingKey]: (raw: unknown) => Settings[K] } = {
         typeof raw === 'number' && Number.isFinite(raw)
             ? Math.min(MEDIA_CACHE_DAYS.max, Math.max(MEDIA_CACHE_DAYS.min, Math.round(raw)))
             : MEDIA_CACHE_DAYS.default,
+    descriptionMaxLength: (raw) =>
+        typeof raw === 'number' && Number.isFinite(raw)
+            ? Math.min(DESCRIPTION_MAX_LENGTH.max, Math.max(DESCRIPTION_MAX_LENGTH.min, Math.round(raw)))
+            : DESCRIPTION_MAX_LENGTH.default,
+    watchLocalAchievements: (raw) => raw !== false,
     disabledFeatures: (raw) => (typeof raw === 'string' ? raw : ''),
     routingRules: (raw) => Array.isArray(raw) ? (raw as RoutingRule[]) : [],
     services: (raw) => {
@@ -68,6 +73,8 @@ const current: Settings = {
     communityShowArtworks: false,
     communityShowExternalLinks: false,
     mediaCacheDays: MEDIA_CACHE_DAYS.default,
+    descriptionMaxLength: DESCRIPTION_MAX_LENGTH.default,
+    watchLocalAchievements: true,
     disabledFeatures: '',
 };
 const listeners = new Set<(key: SettingKey) => void>();

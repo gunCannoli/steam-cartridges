@@ -49,32 +49,34 @@ export function RevisionSection() {
         <div style={{ display: syncProgress.isSyncing ? "none" : "block" }}>
             <PanelSection title="Library Analytics">
                 <Blocks>
-                    <StatRow
-                        label="Non-Steam Games"
-                        value={stats.games}
-                        onClick={() => openSetup(2)}
-                    />
-                    <StatRow
-                        label="Metadata Match"
-                        value={stats.metadata}
-                        onClick={() => openSetup(3, "metadata")}
-                    />
-                    <StatRow
-                        label="Achievements Detected"
-                        value={stats.achievements}
-                        onClick={() => openSetup(3, "achievements")}
-                    />
-                    <StatRow
-                        label="Games Ignored"
-                        value={stats.excluded}
-                        onClick={() => openSetup(2)}
-                    />
-                    <StatRow
-                        label="Games with issues"
-                        value={stats.issues}
-                        warn
-                        onClick={() => openSetup(3, "issues")}
-                    />
+                    <>
+                        <StatRow
+                            label="Non-Steam Games"
+                            value={stats.games}
+                            onClick={() => openSetup(2)}
+                        />
+                        <StatRow
+                            label="Metadata Match"
+                            value={stats.metadata}
+                            onClick={() => openSetup(3, "metadata")}
+                        />
+                        <StatRow
+                            label="Achievements Detected"
+                            value={stats.achievements}
+                            onClick={() => openSetup(3, "achievements")}
+                        />
+                        <StatRow
+                            label="Games Ignored"
+                            value={stats.excluded}
+                            onClick={() => openSetup(2)}
+                        />
+                        <StatRow
+                            label="Games with issues"
+                            value={stats.issues}
+                            warn
+                            onClick={() => openSetup(3, "issues")}
+                        />
+                    </>
                 </Blocks>
             </PanelSection>
         </div>

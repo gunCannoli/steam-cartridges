@@ -66,6 +66,19 @@ function M.emulator_dirs()
 end
 
 --- A line in the plugin log (plog.lua), tagged "retroachievements": why a game got, or did not get, its set.
+M.deps = M.deps or {}
+
+--- Is RetroAchievements one of the user's sources? Nothing is fetched from it, and no ROM is looked up, unless the user added it
+--- (Settings > Achievements: settings.services.retroachievementsEnabled). With no settings stored at all the answer is yes, so an
+--- install that never saved a setting and the unit tests behave as before. Tests inject `M.deps.enabled`.
+function M.enabled()
+  if M.deps.enabled ~= nil then return M.deps.enabled() == true end
+  local ok, all = pcall(function() return require("settings_store").get_all() end)
+  local services = ok and type(all) == "table" and all.services or nil
+  if type(services) ~= "table" then return true end
+  return services.retroachievementsEnabled == true
+end
+
 local function note(msg)
   local ok, plog = pcall(require, "plog")
   if ok then plog.event("retroachievements", msg) end
@@ -822,6 +835,7 @@ end
 --- on disk (ra_cache.lua, ADR-0060; a miss for 7 days); a network failure is not.
 function M.get_game_id_by_md5(md5)
   if not md5 or #md5 == 0 then return nil, "missing md5" end
+  if not M.enabled() then return nil, "RetroAchievements is not a source" end
   local known, known_id = ra_cache.game_for(md5)
   if known then
     if known_id then return known_id end
@@ -1073,6 +1087,7 @@ end
 ---@param appid number|nil
 --- One console's games list ({ [id] = title }), fetched once per session (no account needed).
 local function games_list(console_id)
+  if not M.enabled() then return nil end
   local list = games_list_cache[console_id]
   if not list then
     local url = "https://retroachievements.org/dorequest.php?r=gameslist&c=" .. tostring(console_id)
@@ -1178,6 +1193,26 @@ function M.find_game_id_by_title(target_title, cmd, launch_options, appid)
   return nil
 end
 
+-- The decoded `patch` answer of a game, kept in memory for the session (5 min): the Detect card (game_info) and the
+-- set download (fetch_game_data) used to request the same URL one after the other.
+local PATCH_TTL = 300
+local patch_cache = {}
+
+local function patch_get(gid)
+  local c = patch_cache[gid]
+  if c and os.time() - c.at < PATCH_TTL then return c.data end
+  patch_cache[gid] = nil
+  return nil
+end
+
+local function patch_put(gid, data)
+  patch_cache[gid] = { at = os.time(), data = data }
+end
+
+function M._patch_cache_reset() patch_cache = {} end
+
+local RA_HEADERS = { ["User-Agent"] = "RetroArch/1.19.0", ["Accept"] = "application/json" }
+
 --- Fetches full game schema and user unlocks from RetroAchievements
 --- A game's developer, publisher, genre and release year (the `patch` answer of the dorequest endpoint carries them and needs only
 --- the emulator's saved login, no Web API key), for the Library Setup card (ADR-0095). Kept in ra_cache; nil when it cannot be read.
@@ -1185,10 +1220,19 @@ end
 function M.game_info(game_id, exe_hint)
   local gid = tonumber(game_id)
   if not gid or gid <= 0 then return nil end
+  if not M.enabled() then return nil end
   local cached = ra_cache.info_for(gid)
   if cached then return cached end
   local creds = M.get_credentials(exe_hint) or {}
   local u, t = tostring(creds.username or ""), tostring(creds.token or "")
+  local kept = patch_get(gid)
+  if type(kept) == "table" then
+    local function text(v) return type(v) == "string" and #v > 0 and v or nil end
+    local info = { developer = text(kept.Developer), publisher = text(kept.Publisher), genre = text(kept.Genre),
+      year = tonumber(tostring(kept.Released or ""):match("(%d%d%d%d)")) }
+    ra_cache.put_info(gid, info)
+    return info
+  end
   local url = "https://retroachievements.org/dorequest.php?r=patch&g=" .. tostring(gid)
   if #u > 0 and #t > 0 then url = url .. "&u=" .. utils.url_encode(u) .. "&t=" .. utils.url_encode(t) end
   local ok, res = pcall(net.get, url, { source = "retroachievements", user_agent = "RetroArch/1.19.0", headers = { ["User-Agent"] = "RetroArch/1.19.0", ["Accept"] = "application/json" }, timeout = 10 })
@@ -1197,6 +1241,7 @@ function M.game_info(game_id, exe_hint)
   local okj, data = pcall(json.decode, res.body)
   local patch = okj and type(data) == "table" and data.Success and data.PatchData or nil
   if type(patch) ~= "table" then return nil end
+  patch_put(gid, patch)
   local function text(v) return type(v) == "string" and #v > 0 and v or nil end
   local info = {
     developer = text(patch.Developer),
@@ -1317,6 +1362,7 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
         end
 
         table.sort(achievements, function(x, y) return tonumber(x.id) < tonumber(y.id) end)
+        note_once("RetroAchievements: using the Web API, one request per game (list and unlocks together)")
 
         local schema = {
           ra_game_id = gid,
@@ -1334,39 +1380,56 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
   end
 
   -- Strategy B: Legacy dorequest.php endpoint (fallback)
+  -- One line per session: why a run costs 3 requests per game instead of 1 (measured 2026-11-11: 638 requests for 218 games).
+  note_once(#k == 0 and "RetroAchievements: no Web API key saved, so each game costs up to 3 requests (list + 2 unlock modes); a key (Settings > Add service > RetroAchievements) makes it 1"
+    or "RetroAchievements: the Web API answered no usable list; falling back to the legacy endpoints (up to 3 requests per game)")
   local patch_url = "https://retroachievements.org/dorequest.php?r=patch&g=" .. tostring(gid)
   if #u > 0 and #t > 0 then
     patch_url = patch_url .. "&u=" .. utils.url_encode(u) .. "&t=" .. utils.url_encode(t)
   end
-  local p_ok, p_res = pcall(net.get, patch_url, {
-    source = "retroachievements",
-    user_agent = "RetroArch/1.19.0",
-    headers = {
-      ["User-Agent"] = "RetroArch/1.19.0",
-      ["Accept"] = "application/json",
-    },
-    timeout = 10,
-  })
-
-  if not p_ok or not p_res or p_res.status ~= 200 or not p_res.body then
-    if p_res and p_res.status == 401 then
-      logger:warn("RetroAchievements API returned 401 Unauthorized (token invalid/stale)")
-      note_login_refused(u, t, "game patch")
+  local hs = { h_val, 1 - h_val }
+  local patch = patch_get(gid)
+  -- The list of a set changes rarely: one stored in the last 7 days (this game's other shortcut, or the last refresh) is reused,
+  -- so only the unlocks are asked. A fetch the user forces (M.refetch_list) skips this.
+  if not patch and not M.refetch_list then
+    local stored = store.get_schema("ra_" .. tostring(gid))
+    if type(stored) == "table" and type(stored.achievements) == "table" and #stored.achievements > 0
+        and os.time() - (tonumber(stored.fetched_at) or 0) < 7 * 86400 then
+      patch = { Title = stored.title, Achievements = {}, __stored = stored.achievements }
+      note(string.format("game %d: stored list reused (%d achievements, no patch request)", gid, #stored.achievements))
     end
-    return nil, "cannot fetch game patch"
+  end
+  local par = nil
+
+  if not patch then
+    local p_ok, p_res
+    if par and par.patch then
+      p_ok, p_res = true, par.patch
+    else
+      p_ok, p_res = pcall(net.get, patch_url, { source = "retroachievements", user_agent = "RetroArch/1.19.0", headers = RA_HEADERS, timeout = 10 })
+    end
+    if not p_ok or not p_res or p_res.status ~= 200 or not p_res.body then
+      if p_res and p_res.status == 401 then
+        logger:warn("RetroAchievements API returned 401 Unauthorized (token invalid/stale)")
+        note_login_refused(u, t, "game patch")
+      end
+      note(string.format("game %d: patch not fetched (%s)", gid, p_ok and p_res and tostring(p_res.status) or "no response"))
+      return nil, "cannot fetch game patch"
+    end
+    local ok_patch, patch_data = pcall(json.decode, p_res.body)
+    if not ok_patch or type(patch_data) ~= "table" or not patch_data.Success or not patch_data.PatchData then
+      if type(patch_data) == "table" and patch_data.Error then
+        logger:warn(string.format("RetroAchievements API error for game %d: %s", gid, tostring(patch_data.Error)))
+      end
+      return nil, "invalid patch response"
+    end
+    patch = patch_data.PatchData
+    patch_put(gid, patch)
   end
 
-  local ok_patch, patch_data = pcall(json.decode, p_res.body)
-  if not ok_patch or type(patch_data) ~= "table" or not patch_data.Success or not patch_data.PatchData then
-    if type(patch_data) == "table" and patch_data.Error then
-      logger:warn(string.format("RetroAchievements API error for game %d: %s", gid, tostring(patch_data.Error)))
-    end
-    return nil, "invalid patch response"
-  end
-
-  local patch = patch_data.PatchData
   local raw_achs = patch.Achievements or {}
 
+  if patch.__stored then for _, a in ipairs(patch.__stored) do table.insert(achievements, a) end end
   for _, a in ipairs(raw_achs) do
     table.insert(achievements, {
       id = tostring(a.ID),
@@ -1382,16 +1445,15 @@ function M.fetch_game_data(game_id, username, token, hardcore, api_key)
   if #u > 0 and #t > 0 then
     -- Both modes, unioned: `h=1` lists hardcore unlocks only, so a softcore unlock (RetroArch's default, and the profile
     -- shows it) never came back. Strategy A already counts either date.
-    for _, h in ipairs({ h_val, 1 - h_val }) do
-      local unl_url = string.format(
-        "https://retroachievements.org/dorequest.php?r=unlocks&g=%d&h=%d&u=%s&t=%s",
-        gid, h, utils.url_encode(u), utils.url_encode(t)
-      )
-      local u_ok, u_res = pcall(net.get, unl_url, {
-        source = "retroachievements",
-        headers = { ["User-Agent"] = "RetroArch/1.19.0" },
-        timeout = 10,
-      })
+    for i, h in ipairs(hs) do
+      local u_ok, u_res
+      if par and par.unlocks[i] then
+        u_ok, u_res = true, par.unlocks[i]
+      else
+        u_ok, u_res = pcall(net.get, string.format(
+          "https://retroachievements.org/dorequest.php?r=unlocks&g=%d&h=%d&u=%s&t=%s", gid, h, utils.url_encode(u), utils.url_encode(t)),
+          { source = "retroachievements", headers = { ["User-Agent"] = "RetroArch/1.19.0" }, timeout = 10 })
+      end
 
       if u_ok and u_res and u_res.status == 200 and u_res.body then
         local ok_unl, u_data = pcall(json.decode, u_res.body)
@@ -1459,13 +1521,15 @@ function M.get_or_fetch(shortcut_appid, hardcore)
   if s_appid == 0 then return nil, "invalid shortcut_appid" end
   if s_appid < 0 then s_appid = s_appid + 0x100000000 end
   local is_hardcore = (hardcore ~= false)
+  if not M.enabled() then return nil, "RetroAchievements is not a source" end
+  if not M.enabled() then return nil, "RetroAchievements is not a source" end
 
   local function is_legacy_schema(sch)
     if not sch or not sch.achievements or #sch.achievements == 0 then return false end
     for _, a in ipairs(sch.achievements) do
       local pts = tonumber(a.points) or 0
       local pct = tonumber(a.global_pct) or 0
-      if pct ~= pts and (pct > 0 or pts == 0) then
+      if pct ~= pts then -- a patch-endpoint set has no global percentage (0) and real points: it is current, not legacy
         return false
       end
     end
@@ -1536,8 +1600,10 @@ function M.get_or_fetch(shortcut_appid, hardcore)
   end
 
   local schema, unlocks = nil, nil
+  local fetch_failed = false
   if game_id then
     schema, unlocks = M.fetch_game_data(game_id, creds.username, creds.token, is_hardcore, creds.api_key)
+    fetch_failed = not schema
     if not schema or (schema.total or 0) == 0 or (schema.title and (schema.title:match("^~[Zz]~") or schema.title:lower():match("cheated rom"))) then
       if schema then
         -- A placeholder set (no achievements, a "~Z~" or cheated entry) is a definite answer: remember the hash as a
@@ -1554,6 +1620,11 @@ function M.get_or_fetch(shortcut_appid, hardcore)
     -- When a ROM file was extracted and hashed, but the hash is not supported by RetroAchievements,
     -- DO NOT fall back to title matching! An unsupported ROM version (e.g. Caravan Event, bad dump, hack)
     -- will never trigger or unlock achievements in RetroArch or other emulators.
+    if fetch_failed then
+      -- The hash mapped to a game but the set's request failed (throttled, offline): not an unsupported ROM.
+      note(string.format("shortcut %d: set download failed for a hash RetroAchievements knows (retry later)", s_appid))
+      return nil, "cannot fetch game data"
+    end
     if has_md5 then
       if not known_miss then logger:info(string.format("RetroAchievements: ROM MD5 %s is not supported by RetroAchievements for shortcut %s (%s); skipping automatic achievement attachment", tostring(md5), tostring(s_appid), tostring(sc.name or sc.appname or ""))) end
       return nil, "unsupported rom hash"

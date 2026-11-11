@@ -19,18 +19,25 @@ const ALL_ACHIEVEMENT_SOURCES: AchievementSourceDef[] = [
     { id: "native_ports", label: "Native ports" },
 ];
 
+/** Module-level cache so reopening settings paints immediately without flicker while async status refreshes. */
+let cachedRetroStatus: RetroStatusResponse | null = null;
+let cachedPorts: { id: string; name: string; detected: number }[] | null = null;
+
 export function AchievementsSection() {
     const ctx = usePanelContext();
     const [services, setServices] = useSetting("services");
-    const [retroStatus, setRetroStatus] = useState<RetroStatusResponse | null>(null);
+    const [retroStatus, setRetroStatus] = useState<RetroStatusResponse | null>(cachedRetroStatus);
     const [showEmuModal, setShowEmuModal] = useState(false);
     const [showPortsModal, setShowPortsModal] = useState(false);
-    const [ports, setPorts] = useState<{ id: string; name: string; detected: number }[] | null>(null);
+    const [ports, setPorts] = useState<{ id: string; name: string; detected: number }[] | null>(cachedPorts);
 
     const refreshRetro = () => {
         backend
             .getRetroStatus()
-            .then(setRetroStatus)
+            .then((res) => {
+                cachedRetroStatus = res;
+                setRetroStatus(res);
+            })
             .catch((e) => backend.logEvent("sources", `achievements status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     };
 
@@ -38,7 +45,11 @@ export function AchievementsSection() {
         refreshRetro();
         backend
             .getNativePortsStatus()
-            .then((res) => setPorts(res.ports ?? []))
+            .then((res) => {
+                const p = res.ports ?? [];
+                cachedPorts = p;
+                setPorts(p);
+            })
             .catch((e) => backend.logEvent("sources", `native ports status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     }, []);
 
@@ -47,9 +58,10 @@ export function AchievementsSection() {
         (retroStatus?.env_fallback ? retroStatus.env_username || "Configured in .env" : null);
 
     // A source is in use once the user turned it on (nothing is on by default); RetroAchievements also needs an account.
+    // While retroStatus is loading (null), preserve enabled RetroAchievements so the panel does not flicker on open.
     const activeSources = ALL_ACHIEVEMENT_SOURCES.filter((s) =>
         s.id === "retroachievements"
-            ? services.retroachievementsEnabled === true && !!activeRaUser
+            ? services.retroachievementsEnabled === true && (retroStatus === null || !!activeRaUser)
             : s.id === "native_ports"
               ? services.nativePortsEnabled === true
               : services.emulatorsEnabled === true && services.rpcs3Enabled !== false,

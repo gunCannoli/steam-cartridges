@@ -1,10 +1,10 @@
 // Settings: General (Game Info start) and the Activity Feed cards (migration plan M8c).
-import { PanelSection } from "@steambrew/client";
-import { useSetting } from "../settings";
-import { Blocks, ToggleRow } from "../components";
+import { Field, PanelSection } from "@steambrew/client";
+import { DESCRIPTION_MAX_LENGTH, useSetting } from "../settings";
+import { Blocks, ItemRow, SliderRow, ToggleRow } from "../components";
 
 // ===========================================================================
-// 4. {Activity} Feed Section
+// 4. General & {Activity} Feed Section
 // ===========================================================================
 
 export function ActivitySection() {
@@ -13,7 +13,13 @@ export function ActivitySection() {
     const [showFirstPlayed, setShowFirstPlayed] = useSetting(
         "activityShowFirstPlayed",
     );
-    const [showAchievements, setShowAchievements] = useSetting("activityShowAchievements");
+    const [showAchievements, setShowAchievements] = useSetting(
+        "activityShowAchievements",
+    );
+    const [watchLocal, setWatchLocal] = useSetting("watchLocalAchievements");
+    const [maxDescLength, setMaxDescLength] = useSetting(
+        "descriptionMaxLength",
+    );
 
     return (
         <PanelSection title="General">
@@ -38,10 +44,35 @@ export function ActivitySection() {
                         onChange={setShowFirstPlayed}
                     />
                     <ToggleRow
-                        label="Achievements"
+                        label="Achievements Activity"
                         description="Activity feed card for each day achievements were unlocked, from every source"
                         value={showAchievements}
                         onChange={setShowAchievements}
+                    />
+                    <ToggleRow
+                        label="Track Local Achievements"
+                        description="Detect achievement unlocks by monitoring local files and game logs"
+                        value={watchLocal !== false}
+                        onChange={setWatchLocal}
+                    />
+                </>
+                <>
+                    <ItemRow>
+                        <Field
+                            label="Game Description Length"
+                            description="Characters limit, ending at the nearest complete sentence."
+                            bottomSeparator="none"
+                        />
+                    </ItemRow>
+                    <SliderRow
+                        value={maxDescLength}
+                        min={DESCRIPTION_MAX_LENGTH.min}
+                        max={DESCRIPTION_MAX_LENGTH.max}
+                        step={DESCRIPTION_MAX_LENGTH.step}
+                        suffix=" chars"
+                        resetValue={DESCRIPTION_MAX_LENGTH.default}
+                        onChange={setMaxDescLength}
+                        trailing
                     />
                 </>
             </Blocks>

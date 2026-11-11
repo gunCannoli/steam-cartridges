@@ -57,6 +57,16 @@ function formatEta(seconds: number): string {
     return ` (~${m}m ${remSec}s remaining)`;
 }
 
+/** Formats an item title with a 30-character limit, adding ellipsis only if longer. */
+function formatTitle(name?: string, maxLen: number = 30): string {
+    if (!name) return "";
+    const trimmed = name.trim();
+    if (trimmed.length > maxLen) {
+        return `${trimmed.slice(0, maxLen).trim()}...`;
+    }
+    return trimmed;
+}
+
 /** `autoDetect`: Refresh library (plan § 7.5) looks up every game that was never answered as soon as the list is read. */
 export function GamesStep({
     autoDetect = false,
@@ -208,7 +218,7 @@ export function GamesStep({
     async function confirmAll(): Promise<void> {
         if (proposed.length === 0 || confirming || sweep) return;
         setConfirming(true);
-        setBulkMsg(`Confirming 0 of ${proposed.length}...`);
+        setBulkMsg(`Confirming 0 of ${proposed.length}`);
         const confirmStartTime = Date.now();
         let fetchStartTime: number | null = null;
         try {
@@ -216,15 +226,16 @@ export function GamesStep({
                 proposed.map((r) => r.appid),
                 (done, tot, phase, gameName) => {
                     const now = Date.now();
+                    const titleStr = gameName ? `: ${formatTitle(gameName)}` : "";
                     if (phase === "fetching") {
                         if (!fetchStartTime) fetchStartTime = now;
                         const elapsed = (now - fetchStartTime) / 1000;
                         const eta = done > 0 && tot > done ? formatEta((tot - done) / (done / elapsed)) : "";
-                        setBulkMsg(`Fetching ${done} of ${tot}${eta}${gameName ? `: ${gameName}` : ""}...`);
+                        setBulkMsg(`Fetching ${done} of ${tot}${titleStr}${eta}`);
                     } else {
                         const elapsed = (now - confirmStartTime) / 1000;
                         const eta = done > 0 && tot > done ? formatEta((tot - done) / (done / elapsed)) : "";
-                        setBulkMsg(`Confirming ${done} of ${tot}${eta}...`);
+                        setBulkMsg(`Confirming ${done} of ${tot}${titleStr}${eta}`);
                     }
                 },
             );
@@ -306,6 +317,14 @@ export function GamesStep({
     const locked = gateOnFind && waiting > 0 && !searched;
     useEffect(() => onPending?.(needsYou), [needsYou]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // The dropdown hides a filter with no game (except "All"): when the picked one empties (every game confirmed), show "All"
+    // instead of a blank dropdown. Waits for the list and the issue counts to be read, and for a running confirm or sweep.
+    const filterCount = visible.filter((r) => matchesFilter(r, filter, library.inGroup)).length;
+    useEffect(() => {
+        if (rows === undefined || visible.length === 0 || library.loading || confirming || sweep) return;
+        if (filter !== "all" && filterCount === 0) setFilter("all");
+    }, [rows, visible.length, library.loading, confirming, sweep, filter, filterCount]);
+
     // A proposal stored before the question showed details has none: look it up again once, so the user can see what it is.
     useEffect(() => {
         const p = chosen?.proposal;
@@ -386,12 +405,13 @@ export function GamesStep({
                         />
                     </ItemRow>
                 )}
-                {bulkMsg && <ActionRow message={bulkMsg} />}
+                {bulkMsg && <ActionRow message={bulkMsg} progress={confirming} />}
                 {rows === undefined && !listError && <ActionRow message="Reading your library..." />}
                 {sweep && (() => {
                     const elapsed = (Date.now() - sweep.startTime) / 1000;
                     const eta = sweep.current > 0 && sweep.total > sweep.current ? formatEta((sweep.total - sweep.current) / (sweep.current / elapsed)) : "";
-                    return <ActionRow message={`Looking up ${sweep.current} of ${sweep.total}${eta}: ${sweep.name}...`} />;
+                    const titleStr = sweep.name ? `: ${formatTitle(sweep.name)}` : "";
+                    return <ActionRow message={`Looking up ${sweep.current} of ${sweep.total}${titleStr}${eta}`} progress />;
                 })()}
                 {listError && <ActionRow message={listError} />}
                 {rows !== undefined && visible.length === 0 && excluded > 0 && (

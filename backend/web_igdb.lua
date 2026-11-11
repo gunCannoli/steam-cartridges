@@ -183,7 +183,7 @@ local function detect_platform_hints(shortcut)
     if p and p.igdb then
       local want = {}
       for _, id in ipairs(p.igdb) do want[id] = true end
-      return { "id:" .. shortcut.platform, igdb_ids = want }
+      return { "id:" .. shortcut.platform, shortcut.platform, platform = shortcut.platform, igdb_ids = want }
     end
   end
   local text_parts = {
@@ -266,6 +266,25 @@ function igdb.name_key(s)
   return s
 end
 
+local function tokenize_words(s)
+  local list = {}
+  for w in s:gmatch("%S+") do list[#list + 1] = w end
+  return list
+end
+
+local function check_word_order(target_words, cand_words)
+  if #target_words == 0 or #cand_words == 0 then return 0, false end
+  local ti = 1
+  local matched = 0
+  for _, cw in ipairs(cand_words) do
+    if ti <= #target_words and cw == target_words[ti] then
+      matched = matched + 1
+      ti = ti + 1
+    end
+  end
+  return matched, (matched == #target_words)
+end
+
 --- How a candidate's name relates to the title: "exact", "alternative" (one of its alternative names is exact),
 --- "sequel" (it is the title plus a number: "Final Fight 3"), "contains" (one holds the other), or nil.
 function igdb.name_match(cand, title)
@@ -280,11 +299,22 @@ function igdb.name_match(cand, title)
       if same(igdb.name_key(type(alt) == "table" and alt.name or alt), want) then return "alternative" end
     end
   end
+
   if name:sub(1, #want) == want then
     local rest = name:sub(#want + 1)
     if rest:match("^ [%divx]+$") or rest:match("^ [%divx]+ ") then return "sequel" end
   end
-  if name:find(want, 1, true) or want:find(name, 1, true) then return "contains" end
+
+  local tw = tokenize_words(want)
+  local cw = tokenize_words(name)
+  local matched, in_order = check_word_order(tw, cw)
+  if in_order and (#tw > 0 and #cw > 0) then
+    return "contains"
+  end
+
+  if name:find(want, 1, true) or want:find(name, 1, true) then
+    return "contains"
+  end
   return nil
 end
 
@@ -301,7 +331,7 @@ function igdb.best_name_match(cand, names)
   return best
 end
 
---- Score an IGDB candidate to prioritize main games and rich descriptions over ports
+--- Score an IGDB candidate to prioritize main games, exact titles, matching platforms and rich descriptions
 local function score_candidate(cand, clean_lower, hints, names)
   local score = 0
   local cat = cand.category or 0
@@ -319,14 +349,28 @@ local function score_candidate(cand, clean_lower, hints, names)
   -- contains it ("Final Fight" lost to "Final Fight 3", "Joe & Mac" to "Joe & Mac 2" with the old +80 / +30).
   local kind = igdb.best_name_match(cand, names or { clean_lower })
   if kind == "exact" then
-    score = score + 200
+    score = score + 250
   elseif kind == "alternative" then
-    score = score + 150
+    score = score + 200
   elseif kind == "sequel" then
-    score = score - 40
+    score = score - 50
   elseif kind == "contains" then
     score = score + 30
+    local target_k = igdb.name_key(clean_lower)
+    local cand_k = igdb.name_key(cand.name)
+    -- Contiguous ordered phrase bonus
+    if (" " .. cand_k .. " "):find(" " .. target_k .. " ", 1, true) then
+      score = score + 50
+    end
+  else
+    score = score - 150 -- No name match
   end
+
+  -- Extra words penalty: closer title match beats long compilations/packs/variants
+  local want_words = tokenize_words(igdb.name_key(clean_lower))
+  local cand_words = tokenize_words(igdb.name_key(cand.name))
+  local word_diff = math.abs(#cand_words - #want_words)
+  score = score - (word_diff * 15)
 
   -- Of entries with the same name, the one with real data: IGDB keeps re-releases and per-platform copies with no
   -- companies or summary ("Teenage Mutant Ninja Turtles: Tournament Fighters": a 2022 SNES entry without developers
@@ -347,7 +391,25 @@ local function score_candidate(cand, clean_lower, hints, names)
     end
   end
 
-  -- Platform matching
+  -- Platform matching: strong bonus for matching target platform, heavy penalty for mismatching
+  hints = hints or {}
+  if hints.igdb_ids then
+    local has_platform_match = false
+    if type(cand.platforms) == "table" and #cand.platforms > 0 then
+      for _, p in ipairs(cand.platforms) do
+        if type(p) == "table" and hints.igdb_ids[tonumber(p.id)] then
+          has_platform_match = true
+          break
+        end
+      end
+      if has_platform_match then
+        score = score + 250
+      else
+        score = score - 300
+      end
+    end
+  end
+
   local plat_str = ""
   if type(cand.platforms) == "table" then
     local pnames = {}
@@ -358,12 +420,6 @@ local function score_candidate(cand, clean_lower, hints, names)
     plat_str = table.concat(pnames, " ")
   end
 
-  hints = hints or {}
-  if hints.igdb_ids and type(cand.platforms) == "table" then
-    for _, p in ipairs(cand.platforms) do
-      if type(p) == "table" and hints.igdb_ids[tonumber(p.id)] then score = score + 150 break end
-    end
-  end
   for _, hint in ipairs(hints) do
     if hint == "snes" then
       if plat_str:find("super nintendo") or plat_str:find("snes") or plat_str:find("super famicom") then
@@ -408,8 +464,8 @@ local function score_candidate(cand, clean_lower, hints, names)
 
   local raw_cand_name = tostring(cand.name or ""):lower()
   if not clean_lower:find("pack") and not clean_lower:find("collection") and not clean_lower:find("bundle") then
-    if raw_cand_name:find("action pack") or raw_cand_name:find("collection") or raw_cand_name:find("bundle") then
-      score = score - 120
+    if raw_cand_name:find("action pack") or raw_cand_name:find("collection") or raw_cand_name:find("bundle") or raw_cand_name:find("compilation") then
+      score = score - 200
     end
   end
 
@@ -436,6 +492,27 @@ local function score_candidate(cand, clean_lower, hints, names)
   end
 
   return score
+end
+
+igdb.score_candidate = score_candidate
+igdb._score_candidate = score_candidate
+
+--- Pick the best candidate game from an IGDB results list
+function igdb.pick_best_candidate(results, raw_title, shortcut_info, extra_names)
+  if type(results) ~= "table" or #results == 0 then return nil, -9999 end
+  local clean = clean_title(raw_title)
+  local clean_lower = clean:lower()
+  local names = { clean }
+  for _, n in ipairs(extra_names or {}) do
+    if type(n) == "string" and n ~= "" and not n:find("~", 1, true) then names[#names + 1] = n end
+  end
+  local hints = detect_platform_hints(shortcut_info)
+  local best, best_sc = results[1], -99999
+  for _, cand in ipairs(results) do
+    local sc = score_candidate(cand, clean_lower, hints, names)
+    if sc > best_sc then best, best_sc = cand, sc end
+  end
+  return best, best_sc
 end
 
 --- An IGDB game (the fields fetch_game_metadata and fetch_by_id ask for) as our metadata record.
@@ -659,16 +736,7 @@ function igdb.fetch_game_metadata(appid, raw_title, shortcut_info, extra_names)
     return nil
   end
 
-  local clean_lower = clean:lower()
-  local function pick(list)
-    local best, best_sc = list[1], -9999
-    for _, cand in ipairs(list) do
-      local sc = score_candidate(cand, clean_lower, hints, names)
-      if sc > best_sc then best, best_sc = cand, sc end
-    end
-    return best, best_sc
-  end
-  local best_game, best_score = pick(results)
+  local best_game, best_score = igdb.pick_best_candidate(results, raw_title, shortcut_info, extra_names)
 
   -- A title search whose best hit does not carry the title (Library Setup accuracy pass, 2026-10-22): IGDB's search
   -- skips alternative names ("Out of This World" is listed as "Another World"), so ask for the name there; with still
@@ -682,10 +750,10 @@ function igdb.fetch_game_metadata(appid, raw_title, shortcut_info, extra_names)
     local alt = query_igdb(fields .. "where " .. table.concat(wheres, " | ") .. "; limit 20;")
     if alt and #alt > 0 then
       for _, cand in ipairs(alt) do results[#results + 1] = cand end
-      best_game, best_score = pick(results)
+      best_game, best_score = igdb.pick_best_candidate(results, raw_title, shortcut_info, extra_names)
     end
     if not igdb.best_name_match(best_game, names) then
-      logger:info("No IGDB candidate is named '" .. clean .. "' (best: '" .. tostring(best_game.name) .. "'): no match")
+      logger:info("No IGDB candidate is named '" .. clean .. "' (best: '" .. tostring(best_game and best_game.name) .. "'): no match")
       return nil
     end
   end

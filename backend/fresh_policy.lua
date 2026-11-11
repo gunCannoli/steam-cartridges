@@ -63,7 +63,16 @@ end
 --- frontend keeps no retry timer of its own (M10). Memory only: freshness.json does not change.
 local recent = {}
 
-function M._reset() state = nil; recent = {} end
+-- Batch mode (0.7.2), as achievements_store: a background run's stamps are written every 20 touches and when the run ends.
+local batching, dirty, deferred = false, false, 0
+function M.begin_batch() batching = true end
+function M.end_batch()
+  batching = false
+  if dirty then dirty, deferred = false, 0; return pcall(save) end
+  return true
+end
+
+function M._reset() state = nil; recent = {}; batching, dirty, deferred = false, false, 0 end
 
 local function key(appid) return tostring(math.floor(tonumber(appid) or 0)) end
 
@@ -130,6 +139,11 @@ function M.touch(appid, part, now, status, sig)
   s.parts[k][part .. "_status"] = (status == "unsupported" or status == "error") and status or nil
   s.parts[k][part .. "_sig"] = (status == "unsupported" and type(sig) == "string") and sig or nil
   -- Bookkeeping only: a disk error costs a refetch later, never a failed EnsureFresh.
+  if batching then
+    dirty, deferred = true, deferred + 1
+    if deferred < 20 then return true end
+    dirty, deferred = false, 0
+  end
   return pcall(save)
 end
 

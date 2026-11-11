@@ -197,6 +197,13 @@ local function record(source, res)
   end
 end
 
+--- Account a request that went out through another client (parallel_http's curl) against the source's breaker, so a 429
+--- there pauses the source like one made by M.get.
+function M.record_external(source, status)
+  calls[source] = (calls[source] or 0) + 1
+  record(source, { status = status })
+end
+
 --- One line per finished request in the plugin log (plog.lua; credentials in the URL are scrubbed there): what was
 --- asked, what came back, how long it took, and the start of the body when it was not a success. A transport
 --- failure carries its kind ([dns], [refused], ...); status 0 (libcurl never got an answer) reads as no response.
@@ -238,10 +245,29 @@ end
 --- missing `http` module is an ordinary transport failure, logged with its kind.
 ---@param url string
 ---@param opts? { source: string, headers?: table, timeout?: number }
+-- Pacing (0.7.2): a minimum gap between two requests to the same source, so a run of many games never reaches the
+-- service's rate limit (RetroAchievements answered 429 to a burst of ~60 sets). Seconds; a source not listed is not paced.
+-- There is no sleep primitive in the sandbox: a short busy wait, as steam_store_throttle does.
+M.SPACING = { retroachievements = 0.4 }
+local last_sent = {}
+
+local function pace(source)
+  local gap = M.SPACING[source]
+  if not gap or M.deps.now then return end -- tests inject a clock: never wait there
+  local t = now()
+  local prev = last_sent[source]
+  if prev and t - prev < gap then
+    local untilt = prev + gap
+    while now() < untilt do end
+  end
+  last_sent[source] = now()
+end
+
 function M.get(url, opts)
   local source = source_of(opts)
   if not M.allowed() then trace(source, "GET", url, nil, "setup", now()) return nil, "setup" end
   if consent == 0 and not (opts and opts.force) and M.is_paused(source) then trace(source, "GET", url, nil, "paused", now()) return nil, "paused" end
+  pace(source)
   calls[source] = (calls[source] or 0) + 1
   local started = now()
   local http, herr = http_module()

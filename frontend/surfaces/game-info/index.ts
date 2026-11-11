@@ -37,12 +37,14 @@ export function createGameInfoSurface(
     d: SurfaceDeps & {
         metadataOf(appid: number): GameMetadata | undefined;
         showByDefault(): boolean;
+        descriptionMaxLength?(): number;
     },
 ): Surface {
     deps.isEnabled = d.isEnabled;
     deps.reportError = d.reportError;
     deps.metadataOf = d.metadataOf;
     deps.showByDefault = d.showByDefault;
+    if (d.descriptionMaxLength) deps.descriptionMaxLength = d.descriptionMaxLength;
     return {
         id: "game-info",
         touches: [

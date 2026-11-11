@@ -111,6 +111,7 @@ local SOURCES = {
   {
     name = "retroachievements",
     supports = function(_, entry)
+      if M.deps.rom_path == nil and not require("retroachievements").enabled() then return false end
       return entry ~= nil and dep("rom_path", "retroachievements", "extract_rom_path")(entry.exe, entry.launch_options) ~= nil
     end,
     fetch = function(appid, ctx) return dep("ra", "retroachievements", "get_or_fetch")(appid, ctx.hardcore) end,
@@ -203,6 +204,13 @@ function M._resolve(appid, ctx)
     tell_once(appid, "unsupported", entry == nil and "the shortcut is not in shortcuts.vdf" or "no source supports it")
     return { status = "unsupported", checkedAt = now_ms() }, nil
   end
+  -- A definite "this ROM has no set" is not a failure: the sync used to count it as one ("8 failed") and the game kept
+  -- being asked. It lands as unsupported (remembered, "Missing achievements").
+  local why = tostring(last_err or "")
+  if why == "unsupported rom hash" or why == "cannot verify the ROM hash" or why == "cannot extract rom path from shortcut" then
+    tell_once(appid, "unsupported", why)
+    return { status = "unsupported", message = why, checkedAt = now_ms() }, nil
+  end
   tell_once(appid, "error", last_err or "no source returned a schema")
   return { status = "error", message = tostring(last_err or "no source returned a schema"), checkedAt = now_ms() }, nil
 end
@@ -221,9 +229,12 @@ function M.signature()
     table.sort(ids)
     signature = table.concat(names, ",") .. "|" .. table.concat(ids, ",")
   end
+  -- Turning RetroAchievements on or off changes what can be answered: a remembered "unsupported" is asked again.
+  local okr, ra_on = pcall(function() return require("retroachievements").enabled() end)
+  local base = signature .. ((okr and ra_on) and "|ra" or "")
   local ok, packs = pcall(M.deps.pack_signature or function() return require("achievement_packs").signature() end)
-  if ok and type(packs) == "string" and packs ~= "" then return signature .. "|" .. packs end
-  return signature
+  if ok and type(packs) == "string" and packs ~= "" then return base .. "|" .. packs end
+  return base
 end
 
 --- Full resolution. Returns a Part<{ schema, unlocks }>.
@@ -290,6 +301,11 @@ function M.set_source(s_appid, source, target)
     if not gid or gid <= 0 then return { error = "invalid RetroAchievements game id" } end
 
     local ra = require("retroachievements")
+    -- RetroAchievements asked us to slow down (429): do not ask again during Confirm all; the link is kept and the sync fetches the set.
+    if require("net").is_paused("retroachievements") then
+      require("plog").event("ach", "RetroAchievements set not fetched now: the source is paused after a 429")
+      return { error = "RetroAchievements is rate-limiting requests; the set will be fetched shortly" }
+    end
     -- The same login the normal fetch uses: the emulator's saved one first, then .env (a user with no .env confirmed a game and got
     -- "could not fetch game data" while the same game loaded fine when its page opened).
     local entry = (M.deps.entry or default_entry)(s_appid)

@@ -192,7 +192,8 @@ function M.trophy_files(schema, sc_match, exe_dir)
   local cmd, opts = sc_match and sc_match.exe or exe_dir, sc_match and sc_match.launch_options
   if schema and schema.ps3_title_id then
     local dir = require("ps3_trophies").find_trophy_dir(cmd, opts)
-    if dir and file_exists(dir .. "/TROPUSR.DAT") then out[#out + 1] = dir .. "/TROPUSR.DAT" end
+    local usr_path = type(dir) == "table" and dir.unlocks_path or (dir and (dir .. "/TROPUSR.DAT"))
+    if usr_path and file_exists(usr_path) then out[#out + 1] = usr_path end
   end
   if schema and schema.ps4_title_id then
     local ps4 = require("ps4_trophies")

@@ -173,16 +173,49 @@ local function words(s)
   return set, n
 end
 
+local function word_list(s)
+  local list = {}
+  for w in s:gmatch("%S+") do list[#list + 1] = w end
+  return list
+end
+
 --- How alike two titles are, 0..1: 1 for the same words, else shared words over the longer title's words.
+--- Considers word order: out-of-order words are heavily penalized.
 function M.name_score(a, b)
   local na, nb = M.normalize_name(a), M.normalize_name(b)
   if na == "" or nb == "" then return 0 end
   if na == nb then return 1 end
+  local la = word_list(na)
+  local lb = word_list(nb)
+  if #la == 0 or #lb == 0 then return 0 end
+
   local wa, ca = words(na)
   local wb, cb = words(nb)
   local shared = 0
   for w in pairs(wa) do if wb[w] then shared = shared + 1 end end
-  return shared / math.max(ca, cb)
+  local base_score = shared / math.max(ca, cb)
+
+  -- Order check: does shorter word sequence appear in order in longer word sequence?
+  local shorter, longer = la, lb
+  if #la > #lb then shorter, longer = lb, la end
+  local si = 1
+  local matched_order = 0
+  for _, lw in ipairs(longer) do
+    if si <= #shorter and lw == shorter[si] then
+      matched_order = matched_order + 1
+      si = si + 1
+    end
+  end
+  local in_order = (matched_order == #shorter)
+  if in_order then
+    if (" " .. nb .. " "):find(" " .. na .. " ", 1, true) or (" " .. na .. " "):find(" " .. nb .. " ", 1, true) then
+      return math.min(1.0, base_score + 0.15)
+    end
+    return base_score
+  else
+    -- Penalize out-of-order words (e.g. "sword of mana" vs "Legend of the Mana Sword")
+    return base_score * 0.4
+  end
 end
 
 --- Every name a search result carries (`noms`: { region, text } entries, or a plain `nom`).
@@ -252,8 +285,15 @@ function M.best_match(title, games, console_id)
       end
       if score >= M.MIN_NAME_SCORE then
         local bonus = 0
-        if console_id and sys_id == console_id then bonus = 0.02
-        elseif not console_id and M.is_pc_system(system_text(g)) then bonus = 0.01 end
+        if console_id then
+          if sys_id == console_id then
+            bonus = 0.25
+          else
+            bonus = -0.30
+          end
+        elseif M.is_pc_system(system_text(g)) then
+          bonus = 0.05
+        end
         if not best or score + bonus > best_score then best, best_score = g, score + bonus end
       end
     end

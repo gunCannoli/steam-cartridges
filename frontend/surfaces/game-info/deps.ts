@@ -8,8 +8,11 @@ export const deps: SurfaceDeps & {
     metadataOf(appid: number): GameMetadata | undefined;
     /** Setting showGameInfoByDefault: a shortcut's Game Info starts open (Steam's own start for a shortcut). Default off. */
     showByDefault(): boolean;
+    /** Maximum length for game descriptions, breaking cleanly at sentence end. Default 360. */
+    descriptionMaxLength(): number;
 } = {
     showByDefault: () => false,
+    descriptionMaxLength: () => 360,
     isEnabled: () => true,
     reportError: () => {},
     metadataOf: () => undefined,

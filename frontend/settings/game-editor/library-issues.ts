@@ -174,7 +174,7 @@ export function useLibraryIssues(): LibraryIssues {
         issuesBy.set(g.appid, list);
         if (list.length > 0) stats.issues++;
         const set = new Set<LibraryGroup>(["all"]);
-        (["metadata", "achievements", "ignored", "issues"] as const).forEach((group) => {
+        (["metadata", "achievements", "ignored", "issues", "missing-achievements"] as const).forEach((group) => {
             if (inGroup(i, group)) set.add(group);
         });
         groupsBy.set(g.appid, set);

@@ -48,7 +48,7 @@ export function fetched(i: IssueInputs): boolean {
 }
 
 /** The Library Analytics groups the Game Data editor filters by: one per Analytics row. */
-export type LibraryGroup = 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues';
+export type LibraryGroup = 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues' | 'missing-achievements';
 
 /**
  * Whether the game belongs to the Analytics group: each row's own rule, so the editor and the counts agree.
@@ -61,6 +61,8 @@ export function inGroup(i: IssueInputs, group: LibraryGroup): boolean {
     if (i.excluded) return false;
     if (group === 'metadata') return !!i.metadata || i.storeData;
     if (group === 'achievements') return i.hasAchievements;
+    // The same rule as the "Achievements" issue, so a "Games with issues" list and a "Missing achievements" count agree.
+    if (group === 'missing-achievements') return gameIssues(i).includes('achievements');
     return gameIssues(i).length > 0;
 }
 

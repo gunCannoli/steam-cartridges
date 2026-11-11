@@ -114,7 +114,7 @@ export function askOf(row: SetupRowLike): SetupAsk {
 export function matchesFilter(
     row: SetupRowLike,
     filter: SetupFilter,
-    inGroup?: (appid: number, group: 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues') => boolean,
+    inGroup?: (appid: number, group: 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues' | 'missing-achievements') => boolean,
 ): boolean {
     const ask = askOf(row);
     switch (filter) {
@@ -131,8 +131,8 @@ export function matchesFilter(
         case 'no-match':
             return certaintyOf(row).level === 'none';
         case 'achievements':
-            if (row.appid !== undefined && inGroup) return inGroup(row.appid, 'achievements');
-            return ask === 'achievements';
+            // A validated game still asking for a source, or a fetched game whose stored data has no achievements (the "Games with issues" rule).
+            return ask === 'achievements' || (row.appid !== undefined && !!inGroup && inGroup(row.appid, 'missing-achievements'));
         case 'issues':
             if (row.appid !== undefined && inGroup) return inGroup(row.appid, 'issues');
             return row.status === 'conflict' || certaintyOf(row).level === 'low';
