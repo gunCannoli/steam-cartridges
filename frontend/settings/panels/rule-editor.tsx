@@ -123,7 +123,7 @@ export function RuleEditorWindow({ index, closeModal }: { index?: number; closeM
         setRules(copy);
         // Shape and reach only in the log: never the rule's name or pattern (user data).
         backend.logEvent("rules", `${index === undefined ? "added" : "edited"} ${rule.action}/${rule.conditionType} for ${rule.service}, matching ${matchCount} games (${copy.length} rules)`);
-        ctx.ingest.trigger(100, "rules");
+        ctx.ingest.markStale("rules");
         closeModal?.();
     };
 

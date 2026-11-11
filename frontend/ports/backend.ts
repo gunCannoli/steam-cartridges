@@ -105,6 +105,7 @@ export interface SetupGame {
     state?: string;
     platform?: string;
     platform_name?: string;
+    candidates?: WireList<string>;
     /** The Steam collections the game is in (filled by app/library-setup, not by the backend). */
     collections?: string[];
     signals?: WireList<string>;
@@ -316,6 +317,10 @@ export const backend = {
     logEvent(tag: string, message: string): void {
         void call<unknown>("ClientLog", { tag, message }, { lane: "background" }).catch(() => undefined);
     },
+    /** Whose userdata folder the backend reads: the account Steam's own window says is signed in (32-bit id). Never throws. */
+    setSignedInAccount(account: number): Promise<{ ok?: boolean; changed?: boolean }> {
+        return call<{ ok?: boolean; changed?: boolean }>("SetSignedInAccount", { account }).catch(() => ({}));
+    },
     /** The backend's second copy of the settings (ADR-0090): used when Millennium's Configuration API gives nothing back. */
     getSettings(): Promise<{ values?: Record<string, unknown>; error?: string }> {
         return call<{ values?: Record<string, unknown>; error?: string }>("GetSettings", {});
@@ -352,8 +357,11 @@ export const backend = {
         return call<{ games?: WireList<SetupGame>; platforms?: WireList<SetupPlatform>; error?: string }>("LibraryScan", { collections });
     },
     /** Library Setup: look one game up (Steam store, RetroAchievements hash, IGDB, ScreenScraper); stores only the proposal. */
-    libraryDetect(appid: number, collections: string[]) {
-        return call<SetupGame>("LibraryDetect", { appid, collections });
+    libraryDetect(appid: number, collections: string[], platform?: string) {
+        return call<SetupGame>("LibraryDetect", { appid, collections, platform });
+    },
+    libraryDetectAll(appids: number[], collections?: Record<string, string[]>) {
+        return call<{ games: SetupGame[]; error?: string }>("LibraryDetectAll", { appids, collections });
     },
     /** Library Setup: the user's answer for one game. A validated game may be fetched; nothing is fetched here. */
     validateGame(appid: number, answer: SetupAnswer, collections: string[]) {
@@ -478,7 +486,7 @@ export const backend = {
         });
     },
     setAchievementSource(appid: number, source: "ra" | "none" | "pack", target?: string | number) {
-        return call<{ ok?: boolean; error?: string; source?: string; title?: string; total?: number; game_id?: number; steam_appid?: number; pack?: string }>(
+        return call<{ ok?: boolean; error?: string; source?: string; title?: string; total?: number; game_id?: number; hash_status?: string; steam_appid?: number; pack?: string }>(
             "SetAchievementSource",
             { appid, source, target },
         );

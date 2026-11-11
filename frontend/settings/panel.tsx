@@ -9,8 +9,7 @@ import { RevisionSection } from "./panels/audit";
 import { LibrarySetupSection } from "./panels/library-setup";
 
 import { SyncProgressBar } from "./sync-progress";
-import { COLUMN_STYLE, ItemRow } from "./components";
-import { Field } from "@steambrew/client";
+import { COLUMN_STYLE } from "./components";
 
 class ExtensionErrorBoundary extends Component<{ id: string; children: ReactNode }, { hasError: boolean; error?: Error }> {
     constructor(props: any) {
@@ -60,11 +59,6 @@ export function SettingsPanel() {
         <div style={{ ...COLUMN_STYLE, paddingBottom: "70px", position: "relative" }}>
             <SyncProgressBar />
             <LibrarySetupSection onOnboarded={setOnboarded} />
-            {onboarded === false && (
-                <ItemRow>
-                    <Field label="Finish onboarding or skip it to change settings" bottomSeparator="none" />
-                </ItemRow>
-            )}
             <div
                 style={{ ...COLUMN_STYLE, ...(onboarded === false ? { opacity: 0.4, pointerEvents: "none" } : {}) }}
                 inert={onboarded === false}

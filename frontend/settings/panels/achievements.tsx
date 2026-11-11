@@ -61,7 +61,7 @@ export function AchievementsSection() {
         else if (id === "native_ports") setServices({ ...services, nativePortsEnabled: false });
         else setServices({ ...services, emulatorsEnabled: false, rpcs3Enabled: false });
         backend.logEvent("sources", `${id} removed`);
-        ctx.ingest.trigger(250, "services");
+        ctx.ingest.markStale("services");
     };
 
     const openAdd = (e?: { currentTarget?: unknown }) => {

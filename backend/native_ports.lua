@@ -396,7 +396,7 @@ end
 ---   exists or 0, found_by_name = files discovery added, unlocks = unlocks read from all of them, parsed = files read }.
 function M.unlock_report(port)
   local u = port and port.def.unlocks
-  local out = { known = 0, present = 0, first = 0, found_by_name = 0, unlocks = 0, parsed = 0 }
+  local out = { known = 0, present = 0, first = 0, found_by_name = 0, unlocks = 0, parsed = 0, bytes = 0 }
   if not u then return out end
   local okn, named = pcall(u.files, port)
   out.known = okn and type(named) == "table" and #named or 0
@@ -409,7 +409,10 @@ function M.unlock_report(port)
       if out.first == 0 then out.first = i end
     end
     local text = read(f.path)
-    if text then out.parsed = out.parsed + 1 end
+    if text then
+      out.parsed = out.parsed + 1
+      out.bytes = out.bytes + #text
+    end
   end
   local okr, unlocks = pcall(M.read_unlocks, port)
   if okr and type(unlocks) == "table" then for _ in pairs(unlocks) do out.unlocks = out.unlocks + 1 end end

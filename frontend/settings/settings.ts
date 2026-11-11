@@ -14,6 +14,7 @@ const VALIDATORS: { [K in SettingKey]: (raw: unknown) => Settings[K] } = {
     buckets: validateConfig,
     defaultFullController: (raw) => raw === true,
     raHardcoreMode: (raw) => raw !== false,
+    showGameInfoByDefault: (raw) => raw === true,
     activityShowAddedToLibrary: (raw) => raw === true,
     activityShowFirstPlayed: (raw) => raw === true,
     activityShowAchievements: (raw) => raw === true,
@@ -58,6 +59,7 @@ const current: Settings = {
     services: DEFAULT_SERVICES,
     controllerOverrides: {},
     ignoredIssues: {},
+    showGameInfoByDefault: false,
     activityShowAddedToLibrary: false,
     activityShowFirstPlayed: false,
     activityShowAchievements: false,
@@ -104,8 +106,11 @@ type ConfigApi = {
 };
 type Ffi = (plugin: string, method: string) => (...args: unknown[]) => Promise<unknown>;
 
+let resolvedPluginName: string | undefined;
+
 /** Our plugin name as Millennium loaded it (`-dev` copy or released). */
 function pluginName(): string {
+    if (resolvedPluginName) return resolvedPluginName;
     const loaded = Reflect.get(globalThis, 'PLUGIN_LIST') as Record<string, unknown> | undefined;
     return ['steam-cartridges-dev', 'steam-cartridges'].find((n) => loaded && n in loaded) ?? 'steam-cartridges';
 }
@@ -118,27 +123,37 @@ const config = pluginConfig as unknown as ConfigApi;
  * answer is returned when nothing has keys: a plugin with no saved setting is a real case.
  */
 async function readStored(): Promise<Record<string, unknown>> {
-    const name = pluginName();
+    const candidates = ['steam-cartridges-dev', 'steam-cartridges'];
     let first: Record<string, unknown> = {};
     let threw: unknown = null;
-    try {
-        const answer = await config.getAll(name);
-        if (hasKeys(answer)) return answer;
-        first = answer && typeof answer === 'object' ? (answer as Record<string, unknown>) : {};
-    } catch (error) {
-        threw = error;
-        logger.warn('Configuration API getAll failed; trying the FFI.', error);
+    for (const name of candidates) {
+        try {
+            const answer = await config.getAll(name);
+            if (hasKeys(answer)) {
+                resolvedPluginName = name;
+                return answer;
+            }
+            if (answer && typeof answer === 'object' && Object.keys(first).length === 0) {
+                first = answer as Record<string, unknown>;
+            }
+        } catch (error) {
+            threw = error;
+            logger.warn('Configuration API getAll failed; trying the FFI.', error);
+        }
     }
     const ffi = (Reflect.get(globalThis, 'MILLENNIUM_API') as { ffi?: Ffi } | undefined)?.ffi;
     if (ffi) {
-        try {
-            const answer = await ffi('core', 'PluginConfig_GetAll')(name);
-            if (hasKeys(answer)) {
-                if (threw) backend.logEvent('settings', 'config API getAll threw, FFI answered');
-                return answer;
+        for (const name of candidates) {
+            try {
+                const answer = await ffi('core', 'PluginConfig_GetAll')(name);
+                if (hasKeys(answer)) {
+                    resolvedPluginName = name;
+                    if (threw) backend.logEvent('settings', 'config API getAll threw, FFI answered');
+                    return answer as Record<string, unknown>;
+                }
+            } catch (error) {
+                logger.warn('PluginConfig_GetAll failed.', error);
             }
-        } catch (error) {
-            logger.warn('PluginConfig_GetAll failed.', error);
         }
     }
     if (threw) backend.logEvent('settings', 'config API getAll threw and FFI gave nothing');

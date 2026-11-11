@@ -51,6 +51,8 @@ local function get_access_token()
   return cached_token
 end
 
+igdb.get_access_token = get_access_token
+
 --- Clean shortcut name for IGDB search
 local function clean_title(name)
   if not name or name == "" then return "" end
@@ -586,7 +588,14 @@ end
 ---@param extra_names string[]|nil  names other sources gave the game (a RetroAchievements title by ROM hash), best
 ---                                 first; a candidate named so scores as if named like the shortcut
 ---@return table|nil metadata
+local meta_cache = {}
+
+function igdb.put_cached_metadata(appid, meta)
+  if appid then meta_cache[appid] = meta end
+end
+
 function igdb.fetch_game_metadata(appid, raw_title, shortcut_info, extra_names)
+  if appid and meta_cache[appid] then return meta_cache[appid] end
   local clean = clean_title(raw_title)
   if clean == "" then return nil end
   local names = { clean }
@@ -701,6 +710,36 @@ function igdb.fetch_by_id(appid, igdb_id, raw_title)
   if not results or #results == 0 then return nil, "game not found on igdb" end
   local cand = results[1]
   return igdb.to_consolidated_metadata(appid, raw_title or cand.name, cand)
+end
+
+--- Fetch full metadata for multiple IGDB game IDs in a single query
+---@param items table { { appid = number, igdb_id = number, raw_title? = string }, ... }
+---@return table<number, table> map of appid -> metadata
+function igdb.fetch_by_ids(items)
+  if type(items) ~= "table" or #items == 0 then return {} end
+  local id_list = {}
+  local by_id = {}
+  for _, it in ipairs(items) do
+    local id = tonumber(it.igdb_id)
+    if id and id > 0 then
+      id_list[#id_list + 1] = tostring(id)
+      by_id[id] = it
+    end
+  end
+  if #id_list == 0 then return {} end
+  local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, player_perspectives.name, alternative_names.name; "
+  local query = fields .. "where id = (" .. table.concat(id_list, ",") .. "); limit " .. tostring(#id_list) .. ";"
+  local results = query_igdb(query)
+  local out = {}
+  if results and type(results) == "table" then
+    for _, cand in ipairs(results) do
+      local it = by_id[cand.id]
+      if it then
+        out[it.appid] = igdb.to_consolidated_metadata(it.appid, it.raw_title or cand.name, cand)
+      end
+    end
+  end
+  return out
 end
 
 --- One query to IGDB's /v4/games endpoint with this module's Twitch token (features plan F2: the media

@@ -204,8 +204,10 @@ local function row(e, collections)
   local proposal = proposals.proposal(appid)
   local v = verdict.verdict(e.name or "", e, nil, choice and choice.platform and { platform = choice.platform } or nil, collections)
   local status
-  if choice then
+  if choice and choice.kind ~= "platform" then
     status = choice.kind -- validated | existing | skipped
+  elseif proposal and type(proposal) == "table" and proposal.title then
+    status = "proposed"
   elseif v.state == "conflict" then
     status = "conflict"
   elseif proposal == nil then
@@ -218,7 +220,20 @@ local function row(e, collections)
   local ach_source
   pcall(function()
     local st = require("achievements_store").get_state(appid)
-    ach_source = st and (st.source or (st.schema_appid ~= nil and tostring(st.schema_appid))) or nil
+    if not st or (not st.source and not st.schema_appid) then
+      local ok_snp, snp = pcall(require, "src_native_ports")
+      if ok_snp and (not choice or choice.achievements ~= "none") then
+        if snp.supports(e) or snp.pack_supports(e) then
+          require("ach_service").ensure(appid)
+          st = require("achievements_store").get_state(appid)
+          if choice and not choice.achievements and st and st.source then
+            choice.achievements = st.source
+            choices.set(appid, choice, M.deps.now())
+          end
+        end
+      end
+    end
+    ach_source = st and (st.source or (st.schema_appid ~= nil and tostring(st.schema_appid))) or (choice and choice.achievements) or nil
   end)
   local meta = require("web_metadata_db").get(appid)
   -- Detect's verdict included the Steam hit (scan has none): a proposal carries its own state and platform.
@@ -320,7 +335,7 @@ end
 M._source_issues = source_issues -- test seam
 
 --- Look one game up and store what to propose. Lookups only: no record, no link, no artwork, nothing to Steam.
-function M.detect(appid, collection_names)
+function M.detect(appid, collection_names, forced_platform)
   local e, missing = entry_or_missing(appid)
   if not e then
     log_detect(appid, "?", "no entry", {}, "missing: " .. tostring(missing))
@@ -330,14 +345,27 @@ function M.detect(appid, collection_names)
   searched_web = false
   local net_before = failed_counts()
   local title = e.name or ""
-  local v = verdict.verdict(title, e, nil, nil, collection_names)
-  if v.state == "conflict" then
+  local choice = choices.get(appid)
+  local effective_platform = forced_platform or (choice and choice.platform)
+  if forced_platform and platforms.BY_ID[forced_platform] then
+    choices.set(appid, { kind = "platform", platform = forced_platform }, M.deps.now())
+  end
+  local v = verdict.verdict(title, e, nil, effective_platform and { platform = effective_platform } or nil, collection_names)
+  local is_conflict = (v.state == "conflict")
+  local effective_v_platform = v.platform or (v.candidates and v.candidates[1])
+  if is_conflict and not effective_v_platform then
     proposals.set_proposal(appid, false, M.deps.now())
     log_detect(appid, title, "conflict", {}, "conflict: a manual link")
     return row(e, collection_names)
   end
 
-  local p = { platform = v.platform, state = v.state }
+  local p = {
+    platform = effective_v_platform,
+    state = v.state,
+    disputed = v.disputed or is_conflict,
+    dispute_reason = v.dispute_reason,
+    candidates = v.candidates,
+  }
   local attempts = {} -- what each source said, for the [detect] log line
 
   -- RetroAchievements first: a ROM hash names the game exactly, and its title is IGDB's second name.
@@ -349,17 +377,12 @@ function M.detect(appid, collection_names)
   else attempts[#attempts + 1] = "ra=hit:" .. tostring(ra.id) end
   if ra_taken then
     p.ra_game_id, p.ra_title, p.ra_by = ra.id, ra.title, ra.by
-    local ok_i, info = pcall(ra_info, e, ra.id)
-    if ok_i and type(info) == "table" then
-      if info.developer then p.developers = { info.developer } end
-      if info.genre then p.genres = { info.genre } end
-      p.year = p.year or info.year
-    end
   end
 
   -- Steam: only where no console signal says otherwise (a tag, an emulator, a ROM, a folder, a collection).
-  if v.state ~= "unknown" and v.state ~= "steam" then attempts[#attempts + 1] = "steam=skipped:console" end
-  if v.state == "unknown" or v.state == "steam" then
+  local check_steam = (p.platform == "steam" or v.state == "unknown" or v.state == "steam" or (v.state == "steam-proposed"))
+  if not check_steam then attempts[#attempts + 1] = "steam=skipped:console" end
+  if check_steam then
     local ok_s, hit, hit_why = pcall(steam_lookup, v.title)
     local steam_taken = ok_s and hit and not proposals.is_rejected(appid, "steam:" .. tostring(hit.appid))
     if not ok_s then attempts[#attempts + 1] = "steam=error:" .. tostring(hit):sub(1, 60)
@@ -385,7 +408,7 @@ function M.detect(appid, collection_names)
   if not p.steam_appid then
     local info = {}
     for k, val in pairs(e) do info[k] = val end
-    info.platform = v.platform
+    info.platform = p.platform
     local ok_i, meta, meta_why = pcall(igdb_lookup, appid, title, info, p.ra_title and { p.ra_title } or nil)
     local igdb_taken = ok_i and meta and meta.igdb_id and not proposals.is_rejected(appid, "igdb:" .. tostring(meta.igdb_id))
     if not ok_i then attempts[#attempts + 1] = "igdb=error:" .. tostring(meta):sub(1, 60)
@@ -417,15 +440,57 @@ function M.detect(appid, collection_names)
     attempts[#attempts + 1] = "igdb=skipped:steam-hit"
     attempts[#attempts + 1] = "ss=skipped:steam-hit"
   end
+
+  if not ra_taken then
+    local ok_snp, snp = pcall(require, "src_native_ports")
+    if ok_snp then
+      if snp.supports(e) then
+        p.achievements = "native_port"
+        attempts[#attempts + 1] = "ach=native_port"
+      elseif snp.pack_supports(e) then
+        p.achievements = "pack"
+        attempts[#attempts + 1] = "ach=pack"
+      end
+    end
+  end
+
+  if ra_taken and (not p.developers or not p.genres or not p.year) then
+    local ok_i, info = pcall(ra_info, e, p.ra_game_id)
+    if ok_i and type(info) == "table" then
+      if not p.developers and info.developer then p.developers = { info.developer } end
+      if not p.genres and info.genre then p.genres = { info.genre } end
+      p.year = p.year or info.year
+    end
+  end
   p.title = p.steam_name or p.igdb_name or p.ss_name or p.ra_title
   p.signals = signal_lines(v)
-  -- No console signal and IGDB lists the game on Windows: it is a PC game (IGDB's release list is the evidence).
-  if not p.platform and v.state == "unknown" and type(p.platforms) == "table" then
+  -- Infer platform from metadata release list when unknown or ambiguous console (ADR-0086).
+  if not p.platform and type(p.platforms) == "table" then
     for _, name in ipairs(p.platforms) do
       if tostring(name):lower():find("windows", 1, true) then
         p.platform = "pc"
         p.signals[#p.signals + 1] = "released on " .. tostring(name)
         break
+      end
+    end
+  end
+  if not p.platform and type(p.platforms) == "table" then
+    for _, meta_plat in ipairs(p.platforms) do
+      local norm_p = platforms.BY_TAG[meta_plat:lower()] or platforms.BY_ID[meta_plat:lower()]
+      if norm_p and not platforms.STEAM_SIDE[norm_p] then
+        local match_cand = true
+        if v.candidates and #v.candidates > 0 then
+          match_cand = false
+          for _, cand in ipairs(v.candidates) do
+            if cand == norm_p then match_cand = true break end
+          end
+        end
+        if match_cand then
+          p.platform = norm_p
+          p.platform_inferred = true
+          p.signals[#p.signals + 1] = "released on " .. tostring(meta_plat)
+          break
+        end
       end
     end
   end
@@ -440,12 +505,205 @@ function M.detect(appid, collection_names)
   return out
 end
 
+--- Detect a batch of games.
+--- Uses parallel_http to resolve network requests across RetroAchievements, Steam Store,
+--- IGDB and ScreenScraper concurrently, then produces the rows via M.detect.
+function M.detect_all(appids, collections)
+  if type(appids) ~= "table" or #appids == 0 then return {} end
+
+  -- If stubs are set (unit test environment) or parallel_http unavailable, fall back sequentially
+  local phttp_ok, phttp = pcall(require, "parallel_http")
+  if M.deps.ra or M.deps.steam or M.deps.igdb or M.deps.screenscraper or not phttp_ok or not phttp.is_available() then
+    local out = {}
+    for _, id in ipairs(appids) do
+      out[#out + 1] = M.detect(id, collections)
+    end
+    return out
+  end
+
+  local ra = require("retroachievements")
+  local ra_cache = require("ra_cache")
+  local json = require("json")
+  local utils = require("utils")
+
+  -- Stage 1: Local analysis & dispatch RA hashes + Steam Store searches
+  local stage1_reqs = {}
+  local contexts = {}
+
+  for _, raw_id in ipairs(appids) do
+    local appid = unsigned(raw_id)
+    local e = entry_of(appid)
+    if e then
+      local title = e.name or ""
+      local choice = choices.get(appid)
+      local v = verdict.verdict(title, e, nil, choice and choice.platform and { platform = choice.platform } or nil, collections and collections[tostring(appid)])
+      contexts[appid] = { e = e, v = v, title = title }
+
+      if v.state ~= "conflict" or v.platform then
+        -- 1. RetroAchievements hash
+        local rom = ra.extract_rom_path(e.exe, e.launch_options)
+        if rom then
+          local md5 = ra.compute_rom_md5(rom)
+          if md5 then
+            contexts[appid].md5 = md5
+            local known, _ = ra_cache.game_for(md5)
+            if not known then
+              stage1_reqs[#stage1_reqs + 1] = {
+                id = "ra:" .. tostring(appid),
+                url = "https://retroachievements.org/dorequest.php?r=gameid&m=" .. tostring(md5),
+                user_agent = "RetroArch/1.19.0",
+                headers = { ["Accept"] = "application/json" },
+              }
+            end
+          end
+        end
+
+        -- 2. Steam Store search (for PC games without console signal)
+        if (v.state == "unknown" or v.state == "steam" or v.platform == "steam") and source_on("steamStoreEnabled") then
+          local clean_t = v.title or title
+          if clean_t ~= "" then
+            stage1_reqs[#stage1_reqs + 1] = {
+              id = "steam:" .. tostring(appid),
+              url = "https://store.steampowered.com/api/storesearch/?term=" .. utils.url_encode(clean_t) .. "&l=english&cc=US",
+              user_agent = "Valve/Steam HTTP Client 1.0 (0)",
+            }
+          end
+        end
+      end
+    end
+  end
+
+  -- Run Stage 1 transfers
+  if #stage1_reqs > 0 then
+    local s1_res = phttp.execute(stage1_reqs, { concurrency = 8, timeout = 10 })
+    for id, res in pairs(s1_res) do
+      local prefix, s_appid = id:match("^(%w+):(%d+)$")
+      local num_appid = tonumber(s_appid)
+      if res.status == 200 and res.body and num_appid and contexts[num_appid] then
+        if prefix == "ra" and contexts[num_appid].md5 then
+          local ok_j, data = pcall(json.decode, res.body)
+          if ok_j and type(data) == "table" then
+            if data.Success and data.GameID and tonumber(data.GameID) > 0 then
+              ra_cache.put_game(contexts[num_appid].md5, tonumber(data.GameID))
+            else
+              ra_cache.put_game(contexts[num_appid].md5, nil)
+            end
+          end
+        elseif prefix == "steam" then
+          local ok_j, data = pcall(json.decode, res.body)
+          if ok_j and type(data) == "table" and data.items then
+            local ssearch = require("steam_store_search")
+            local classified = ssearch.classify_items(contexts[num_appid].title, data.items)
+            ssearch.put_search(contexts[num_appid].title, classified)
+          end
+        end
+      end
+    end
+  end
+
+  -- Stage 2: Metadata lookups for non-Steam games (IGDB & ScreenScraper)
+  local igdb_on = source_on("igdbEnabled", function() return require("web_config").get_twitch_credentials() end)
+  local ss_on   = source_on("screenscraperEnabled", function() return require("web_config").get_screenscraper_credentials() end)
+
+  if igdb_on then
+    local igdb_reqs = {}
+    local twitch_creds = require("web_config").get_twitch_credentials()
+    local web_igdb = require("web_igdb")
+    local ok_tok, token = pcall(function()
+      return type(web_igdb.get_access_token) == "function" and web_igdb.get_access_token()
+    end)
+    token = ok_tok and token or nil
+    if token and twitch_creds.client_id then
+      local headers = {
+        ["Client-ID"] = twitch_creds.client_id,
+        ["Authorization"] = "Bearer " .. token,
+        ["Accept"] = "application/json",
+      }
+      local fields = "fields name, slug, summary, storyline, category, parent_game.name, parent_game.summary, first_release_date, platforms.name, platforms.abbreviation, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, franchise.name, franchises.name, game_modes.name, genres.name, themes.name, player_perspectives.name, alternative_names.name; "
+      for _, raw_id in ipairs(appids) do
+        local appid = unsigned(raw_id)
+        local ctx = contexts[appid]
+        if ctx and ctx.v and (ctx.v.state ~= "conflict" or ctx.v.platform) then
+          local clean_t = tostring(ctx.title or ""):gsub('["\\]', " ")
+          if clean_t ~= "" then
+            local query = fields .. 'search "' .. clean_t .. '"; limit 15;'
+            igdb_reqs[#igdb_reqs + 1] = {
+              id = "igdb:" .. tostring(appid),
+              url = "https://api.igdb.com/v4/games",
+              method = "POST",
+              headers = headers,
+              data = query,
+            }
+          end
+        end
+      end
+      if #igdb_reqs > 0 then
+        local igdb_res = phttp.execute(igdb_reqs, { concurrency = 6, timeout = 12 })
+        local web_igdb = require("web_igdb")
+        for id, res in pairs(igdb_res) do
+          local s_appid = id:match("^igdb:(%d+)$")
+          local num_appid = tonumber(s_appid)
+          if res.status == 200 and res.body and num_appid and contexts[num_appid] then
+            local ok_j, list = pcall(json.decode, res.body)
+            if ok_j and type(list) == "table" and #list > 0 then
+              local best = list[1]
+              local meta = web_igdb.to_consolidated_metadata(num_appid, contexts[num_appid].title, best)
+              web_igdb.put_cached_metadata(num_appid, meta)
+              contexts[num_appid].has_meta = true
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Stage 3: ScreenScraper for remaining games needing metadata
+  if ss_on then
+    local ss = require("screenscraper_media")
+    local ss_reqs = {}
+    for _, raw_id in ipairs(appids) do
+      local appid = unsigned(raw_id)
+      local ctx = contexts[appid]
+      if ctx and not ctx.has_meta and ctx.v and (ctx.v.state ~= "conflict" or ctx.v.platform) then
+        local url = ss.jeu_url(appid, ctx.e.exe, nil, nil, ctx.md5, ctx.title)
+        if url then
+          ss_reqs[#ss_reqs + 1] = {
+            id = "ss:" .. tostring(appid),
+            url = url,
+            user_agent = "steam-cartridges/1.0",
+          }
+        end
+      end
+    end
+    if #ss_reqs > 0 then
+      local ss_res = phttp.execute(ss_reqs, { concurrency = 2, timeout = 15 })
+      for id, res in pairs(ss_res) do
+        local s_appid = id:match("^ss:(%d+)$")
+        local num_appid = tonumber(s_appid)
+        if res.status == 200 and res.body and num_appid then
+          local ok_j, data = pcall(json.decode, res.body)
+          if ok_j and type(data) == "table" and data.response and data.response.jeu then
+            ss.put_jeu(num_appid, data.response.jeu)
+          end
+        end
+      end
+    end
+  end
+
+  -- Assemble proposals and rows
+  local out = {}
+  for _, id in ipairs(appids) do
+    out[#out + 1] = M.detect(id, collections)
+  end
+  return out
+end
+
 -- ---------------------------------------------------------------------------------------------- validate
 
-local function forget_parts(appid)
+local function forget_parts(appid, no_save)
   local fresh = require("fresh_policy")
-  for _, part in ipairs({ "identity", "metadata", "artwork", "media", "achievements" }) do
-    pcall(fresh.forget_part, appid, part)
+  for _, part in ipairs({ "artwork", "media" }) do
+    pcall(fresh.forget_part, appid, part, no_save)
   end
 end
 
@@ -467,7 +725,7 @@ local function ra_hash_ok(entry, ra_game_id)
   return false, "the RetroAchievements set could not be verified" end
 
 --- Make the proposal the game's own: its Steam link, or its IGDB / ScreenScraper Game Info and RetroAchievements set.
-local function apply_proposal(appid, p, entry)
+local function apply_proposal(appid, p, entry, pre_meta)
   local choice = { kind = "validated", platform = p.platform }
   local warnings = {}
   if p.steam_appid and (p.state == "steam" or p.state == "steam-proposed") then
@@ -481,8 +739,10 @@ local function apply_proposal(appid, p, entry)
   else
     local metadata = require("metadata_service")
     if p.igdb_id then
-      local r = metadata.link_igdb(appid, p.igdb_id, p.igdb_name)
-      if r.error then return nil, r.error end
+      if not pre_meta then
+        local r = metadata.link_igdb(appid, p.igdb_id, p.igdb_name)
+        if r.error then return nil, r.error end
+      end
       choice.igdb_id = p.igdb_id
     elseif p.ss_id then
       local r = metadata.link_screenscraper(appid, p.ss_id, p.ss_name)
@@ -494,8 +754,25 @@ local function apply_proposal(appid, p, entry)
       if not ok_v then
         warnings[#warnings + 1] = "RetroAchievements skipped: " .. verr
       else
-        local r = require("ach_service").set_source(appid, "ra", p.ra_game_id)
-        if r.error then warnings[#warnings + 1] = r.error else choice.ra_game_id, choice.achievements = p.ra_game_id, "ra" end
+        choice.ra_game_id, choice.achievements = p.ra_game_id, "ra"
+        pcall(function()
+          require("achievements_store").sync(appid, "ra_" .. tostring(p.ra_game_id), {}, "retroachievements")
+        end)
+        local ok_s, r = pcall(require("ach_service").set_source, appid, "ra", p.ra_game_id)
+        if not ok_s or (r and r.error) then
+          warnings[#warnings + 1] = "RetroAchievements linked (schema download will resume shortly)"
+        end
+      end
+    else
+      local ok_snp, snp = pcall(require, "src_native_ports")
+      if ok_snp then
+        if snp.supports(entry) then
+          choice.achievements = "native_port"
+          pcall(function() require("ach_service").ensure(appid) end)
+        elseif snp.pack_supports(entry) then
+          choice.achievements = "pack"
+          pcall(function() require("ach_service").ensure(appid) end)
+        end
       end
     end
   end
@@ -573,6 +850,12 @@ function M.validate(appid, answer, collection_names)
     choices.set(appid, choice, now)
     proposals.clear_proposal(appid)
     forget_parts(appid)
+  elseif answer.platform and not answer.linked then
+    if type(answer.platform) == "string" and platforms.BY_ID[answer.platform] then
+      choices.set(appid, { kind = "platform", platform = answer.platform }, now)
+      proposals.clear_proposal(appid)
+      forget_parts(appid)
+    end
   elseif answer.no_achievements then
     local r = require("ach_service").set_source(appid, "none")
     if r.error then log_validate_error(appid, r.error) return { error = r.error } end
@@ -602,6 +885,31 @@ function M.validate_all(appids)
   local now = M.deps.now()
   local confirmed, skipped, failed = {}, 0, {}
   local seen = {}
+  local any_confirmed = false
+
+  -- Pre-batch IGDB queries across the chunk in 1 network request
+  local igdb_batch = {}
+  for _, id in ipairs(type(appids) == "table" and appids or {}) do
+    local appid = unsigned(id)
+    if appid and not seen[appid] then
+      seen[appid] = true
+      local e = entry_of(appid)
+      local p = e and proposals.proposal(appid)
+      if e and type(p) == "table" and not choices.get(appid) then
+        if p.igdb_id and not (p.steam_appid and (p.state == "steam" or p.state == "steam-proposed")) then
+          igdb_batch[#igdb_batch + 1] = { appid = appid, igdb_id = p.igdb_id, raw_title = p.igdb_name }
+        end
+      end
+    end
+  end
+
+  local batched_metas = {}
+  if #igdb_batch > 0 then
+    local ok_m, mres = pcall(require("metadata_service").link_igdb_batch, igdb_batch)
+    if ok_m and type(mres) == "table" then batched_metas = mres end
+  end
+
+  seen = {}
   for _, id in ipairs(type(appids) == "table" and appids or {}) do
     local appid = unsigned(id)
     if appid and not seen[appid] then
@@ -611,17 +919,23 @@ function M.validate_all(appids)
       if not e or type(p) ~= "table" or choices.get(appid) then
         skipped = skipped + 1
       else
-        local choice, err = apply_proposal(appid, p, e)
+        local choice, err = apply_proposal(appid, p, e, batched_metas[appid])
         if not choice then
           failed[tostring(appid)] = err or "could not confirm the proposal"
         else
-          choices.set(appid, choice, now)
-          proposals.clear_proposal(appid)
-          forget_parts(appid)
+          choices.set(appid, choice, now, true)
+          proposals.clear_proposal(appid, true)
+          forget_parts(appid, true)
           confirmed[#confirmed + 1] = appid
+          any_confirmed = true
         end
       end
     end
+  end
+  if any_confirmed then
+    pcall(choices.save)
+    pcall(proposals.save)
+    pcall(function() require("fresh_policy").save() end)
   end
   pcall(function() require("plog").event("setup", "validate_all: " .. #confirmed .. " confirmed, " .. skipped .. " skipped") end)
   return { confirmed = confirmed, skipped = skipped, failed = failed }

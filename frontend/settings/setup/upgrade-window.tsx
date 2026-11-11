@@ -11,7 +11,7 @@ import { LibrarySetupWindow } from "./setup-window";
 /** The prompt's share of the screen: a small window (steam/modal.ts gives scales under 0.5 a 700 x 480 floor). */
 export const UPGRADE_SCALE = 0.3;
 /** The onboarding window's share of the screen (the same as the Library Setup block opens it with). */
-const SETUP_SCALE = 0.6;
+const SETUP_SCALE = { width: 0.6, height: 0.8 };
 
 export function UpgradeOnboardingWindow({ onDone, closeModal }: { onDone?: () => void; closeModal?: () => void }) {
     const ctx = usePanelContext();

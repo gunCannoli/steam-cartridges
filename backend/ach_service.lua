@@ -301,7 +301,30 @@ function M.set_source(s_appid, source, target)
     local schema_key = "ra_" .. tostring(gid)
     store.save_schema_and_sync(s_appid, schema_key, schema, unlocks or {}, "retroachievements")
     require("fresh_policy").touch(s_appid, "achievements", now_ms())
-    return { ok = true, source = "retroachievements", title = schema.title, total = schema.total, game_id = gid }
+
+    local hash_status = "none"
+    if entry then
+      local rom = ra.extract_rom_path(entry.exe, entry.launch_options)
+      if rom then
+        local md5 = ra.compute_rom_md5(rom)
+        if md5 then
+          local matched_id = ra.get_game_id_by_md5(md5)
+          if matched_id and tonumber(matched_id) == gid then
+            hash_status = "verified"
+          elseif matched_id then
+            hash_status = "mismatch"
+          else
+            hash_status = "unmapped"
+          end
+        else
+          hash_status = "hash_failed"
+        end
+      else
+        hash_status = "no_rom"
+      end
+    end
+
+    return { ok = true, source = "retroachievements", title = schema.title, total = schema.total, game_id = gid, hash_status = hash_status }
   elseif source == "steam" then
     return { error = "a Steam achievement list is a visual list only and cannot be unlocked in a custom game: use RetroAchievements or an achievement pack" }
   else

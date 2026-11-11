@@ -13,21 +13,45 @@ export type SetupAsk =
     | 'done' //         validated (or set up before Library Setup existed)
     | 'skipped'; //     the user left it alone
 
-export type SetupFilter = 'needs-you' | 'achievements' | 'validated' | 'all';
+export type SetupFilter =
+    | 'uncertain'
+    | 'possible'
+    | 'likely'
+    | 'certain'
+    | 'conflicts'
+    | 'no-match'
+    | 'achievements'
+    | 'issues'
+    | 'metadata'
+    | 'validated'
+    | 'all'
+    | 'needs-you';
 
-export const SETUP_FILTERS: readonly { id: SetupFilter; label: string }[] = [
-    { id: 'needs-you', label: 'Needs you' },
+export const SETUP_FILTERS: readonly { id: SetupFilter; label: string; icon?: string }[] = [
+    { id: 'uncertain', label: 'Uncertain', icon: '▮▯▯▯' },
+    { id: 'possible', label: 'Possible', icon: '▮▮▯▯' },
+    { id: 'likely', label: 'Likely', icon: '▮▮▮▯' },
+    { id: 'certain', label: 'Certain', icon: '▮▮▮▮' },
+    { id: 'conflicts', label: 'Platform conflicts' },
+    { id: 'no-match', label: 'No match' },
     { id: 'achievements', label: 'Missing achievements' },
+    { id: 'issues', label: 'Games with issues' },
+    { id: 'metadata', label: 'Metadata match' },
     { id: 'validated', label: 'Validated' },
     { id: 'all', label: 'All' },
 ];
 
 /** The fields of a setup row (ports/backend SetupGame) this module reads. */
 export interface SetupRowLike {
+    appid?: number;
     name?: string;
     /** The Steam collections the game is in (the window's name/collection filter). */
     collections?: string[];
     status?: string;
+    /** Detect's platform signals ("core snes9x", "released on PC (Microsoft Windows)"): a list, or the wire's empty object. */
+    signals?: unknown;
+    /** Sources that failed to answer in the last Detect (only on the row Detect returned, not stored). */
+    source_issues?: unknown;
     achievements?: string;
     choice?: { kind?: string; platform?: string; steam_appid?: number; achievements?: string };
     proposal?: {
@@ -51,6 +75,10 @@ export interface SetupRowLike {
         themes?: string[];
         game_modes?: string[];
         perspectives?: string[];
+        disputed?: boolean;
+        dispute_reason?: string;
+        platform_inferred?: boolean;
+        candidates?: unknown;
     };
 }
 
@@ -83,18 +111,68 @@ export function askOf(row: SetupRowLike): SetupAsk {
     }
 }
 
-export function matchesFilter(row: SetupRowLike, filter: SetupFilter): boolean {
+export function matchesFilter(
+    row: SetupRowLike,
+    filter: SetupFilter,
+    inGroup?: (appid: number, group: 'all' | 'metadata' | 'achievements' | 'ignored' | 'issues') => boolean,
+): boolean {
     const ask = askOf(row);
     switch (filter) {
-        case 'needs-you':
-            return ask === 'detect' || ask === 'answer' || ask === 'link' || ask === 'achievements';
+        case 'uncertain':
+            return certaintyOf(row).level === 'low';
+        case 'possible':
+            return certaintyOf(row).level === 'medium';
+        case 'likely':
+            return certaintyOf(row).level === 'high';
+        case 'certain':
+            return certaintyOf(row).level === 'verified';
+        case 'conflicts':
+            return row.status === 'conflict';
+        case 'no-match':
+            return certaintyOf(row).level === 'none';
         case 'achievements':
+            if (row.appid !== undefined && inGroup) return inGroup(row.appid, 'achievements');
             return ask === 'achievements';
+        case 'issues':
+            if (row.appid !== undefined && inGroup) return inGroup(row.appid, 'issues');
+            return row.status === 'conflict' || certaintyOf(row).level === 'low';
+        case 'metadata':
+            if (row.appid !== undefined && inGroup) return inGroup(row.appid, 'metadata');
+            return (
+                row.proposal?.steam_appid !== undefined ||
+                row.proposal?.igdb_id !== undefined ||
+                row.proposal?.ss_id !== undefined ||
+                row.status === 'existing' ||
+                row.status === 'validated'
+            );
         case 'validated':
             return ask === 'done';
+        case 'needs-you':
+            return ask === 'detect' || ask === 'answer' || ask === 'link' || ask === 'achievements';
         default:
             return true;
     }
+}
+
+const DEFAULT_FILTER_PRIORITY: readonly SetupFilter[] = [
+    'uncertain',
+    'possible',
+    'likely',
+    'certain',
+    'conflicts',
+    'no-match',
+    'achievements',
+    'validated',
+    'all',
+];
+
+export function defaultFilter(rows: readonly SetupRowLike[]): SetupFilter {
+    for (const f of DEFAULT_FILTER_PRIORITY) {
+        if (f === 'all' || rows.some((r) => matchesFilter(r, f))) {
+            return f;
+        }
+    }
+    return 'all';
 }
 
 /**
@@ -217,4 +295,176 @@ export function gameFacts(row: SetupRowLike & { platform_name?: string }): [stri
 /** The platform a proposal's source names when no signal did: IGDB's Windows release means PC (also for older stored proposals). */
 export function inferredPlatform(p: SetupRowLike['proposal']): string | undefined {
     return Array.isArray(p?.platforms) && p.platforms.some((n) => n.toLowerCase().includes('windows')) ? 'PC' : undefined;
+}
+
+// ---------------------------------------------------------------------------------------------- certainty (review-queue plan § 3)
+
+/** How sure the plugin is about a game's proposal, or the game's state when there is nothing to be sure about. */
+export type CertaintyLevel = 'verified' | 'high' | 'medium' | 'low' | 'conflict' | 'none' | 'confirmed' | 'pending' | 'skipped';
+
+export interface Certainty {
+    level: CertaintyLevel;
+    /** Why, in the user's words: shown under the level. */
+    reasons: string[];
+}
+
+/** The level's mark (signal-strength bars, so it reads without colour) and its word. */
+export const CERTAINTY_ICON: Record<CertaintyLevel, string> = {
+    verified: '▮▮▮▮',
+    high: '▮▮▮▯',
+    medium: '▮▮▯▯',
+    low: '▮▯▯▯',
+    conflict: '⚠',
+    none: '✕',
+    confirmed: '✓',
+    pending: '○',
+    skipped: '–',
+};
+export const CERTAINTY_LABEL: Record<CertaintyLevel, string> = {
+    verified: 'Certain',
+    high: 'Likely',
+    medium: 'Possible',
+    low: 'Uncertain',
+    conflict: 'Conflict',
+    none: 'No match',
+    confirmed: 'Confirmed',
+    pending: 'Not looked up',
+    skipped: 'Skipped',
+};
+/** The levels the count strip shows, most certain first. */
+export const CERTAINTY_ORDER: readonly CertaintyLevel[] = ['verified', 'high', 'medium', 'low', 'conflict', 'none'];
+/** Levels a bulk "Confirm" may answer for the user (plan § 3; wired in Phase E). Medium and below are looked at one by one. */
+export const BULK_LEVELS: readonly CertaintyLevel[] = ['verified', 'high'];
+
+function stripBalanced(s: string, open: string, close: string): string {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+        if (s[i] === open) {
+            let depth = 0;
+            let j = i;
+            let found = false;
+            while (j < s.length) {
+                if (s[j] === open) depth++;
+                else if (s[j] === close) {
+                    depth--;
+                    if (depth === 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                j++;
+            }
+            if (found) {
+                i = j + 1;
+                continue;
+            }
+        }
+        out += s[i];
+        i++;
+    }
+    return out;
+}
+
+/** The backend's title normalisation (backend/steam_store_normalize.lua `normalize`); tests/fixtures/normalize-cases.json holds both to the same answers. */
+export function normalizeTitle(s: unknown): string {
+    let t = String(s ?? '').toLowerCase().replace(/[™®©]/g, '');
+    t = stripBalanced(t, '(', ')');
+    t = stripBalanced(t, '[', ']');
+    return t.replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** One title holds the other as whole words (the backend's `is_near`): close, not equal. */
+function nearTitle(a: string, b: string): boolean {
+    const x = normalizeTitle(a);
+    const y = normalizeTitle(b);
+    if (x === '' || y === '' || x === y) return false;
+    return ` ${y} `.includes(` ${x} `) || ` ${x} `.includes(` ${y} `);
+}
+
+const listOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+const RANK: Record<'high' | 'medium' | 'low', number> = { high: 3, medium: 2, low: 1 };
+
+/**
+ * How sure the plugin is about a row (review-queue plan § 3). Pure; reads only what the row already carries, no stored field is new.
+ *  verified  RetroAchievements matched the ROM by its hash
+ *  high      the hit's title equals the shortcut's, and (not Steam) the platform matches a signal
+ *  medium    one hit, but the title is only close, an edition, or the platform was guessed
+ *  low       the title differs, or a source did not answer
+ * A game with nothing proposed is `none`; a game the user answered is `confirmed`.
+ */
+export function certaintyOf(row: SetupRowLike): Certainty {
+    const issues = listOf(row.source_issues);
+    switch (askOf(row)) {
+        case 'detect':
+            return { level: 'pending', reasons: ['Not looked up yet'] };
+        case 'skipped':
+            return { level: 'skipped', reasons: ['Left alone: the plugin never fetches it'] };
+        case 'done':
+            return { level: 'confirmed', reasons: row.status === 'existing' ? ['Set up before Library Setup'] : [] };
+        case 'achievements':
+            return { level: 'confirmed', reasons: ['Achievements missing'] };
+        case 'link': {
+            if (row.status === 'conflict') {
+                return { level: 'conflict', reasons: ['Platform signals disagree on the platform, so nothing was looked up'] };
+            }
+            const reasons = ['Nothing found to propose'];
+            if (issues.length > 0) reasons.push('A source did not answer: try again');
+            return { level: 'none', reasons };
+        }
+        default:
+            break;
+    }
+    const p = row.proposal;
+    if (!p) return { level: 'none', reasons: ['Nothing found to propose'] };
+    if (p.ra_game_id !== undefined && p.ra_by === 'hash') {
+        return { level: 'verified', reasons: ['RetroAchievements matched the ROM by its hash'] };
+    }
+    const named = p.steam_appid !== undefined ? p.steam_name : p.igdb_id !== undefined ? p.igdb_name : p.ss_id !== undefined ? p.ss_name : undefined;
+    const found = named ?? p.title ?? '';
+    const reasons: string[] = [];
+    let level: 'high' | 'medium' | 'low' = 'high';
+    const cap = (to: 'medium' | 'low') => {
+        if (RANK[to] < RANK[level]) level = to;
+    };
+    if (normalizeTitle(row.name) === normalizeTitle(found)) reasons.push('The title matches exactly');
+    else if (nearTitle(row.name ?? '', found)) {
+        cap('medium');
+        reasons.push(`The title is only close: "${found}"`);
+    } else {
+        cap('low');
+        reasons.push(`The title differs: "${found}"`);
+    }
+    if (p.steam_appid !== undefined) {
+        // Detect asks Steam only when no console signal says otherwise, so a Steam hit needs no platform signal of its own.
+        if (p.steam_kind === 'edition') {
+            cap('medium');
+            reasons.push('An edition of the game, not the same title');
+        }
+    } else if (listOf(row.signals).some((s) => s.startsWith('released on'))) {
+        cap('medium');
+        reasons.push("The platform was guessed from the source's release list");
+    } else if (!p.platform) {
+        cap('medium');
+        reasons.push('The platform is unknown');
+    }
+    if (p.disputed || (row.status === 'conflict' && p)) {
+        cap('low');
+        reasons.push(p.dispute_reason ?? 'Platform resolved from conflicting signals');
+    } else if (p.platform_inferred) {
+        cap('medium');
+        reasons.push('Platform inferred from metadata release list');
+    }
+    if (issues.length > 0) {
+        cap('low');
+        reasons.push('A source did not answer');
+    }
+    return { level, reasons };
+}
+
+/** How many of `rows` sit at each level (the count strip). */
+export function certaintyCounts(rows: readonly SetupRowLike[]): Record<CertaintyLevel, number> {
+    const out: Record<CertaintyLevel, number> = { verified: 0, high: 0, medium: 0, low: 0, conflict: 0, none: 0, confirmed: 0, pending: 0, skipped: 0 };
+    for (const r of rows) out[certaintyOf(r).level]++;
+    return out;
 }

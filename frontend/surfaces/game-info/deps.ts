@@ -6,7 +6,10 @@ import type { SurfaceDeps } from "../../kernel/surface";
 export const deps: SurfaceDeps & {
     /** O(1) cached Game Info of a shortcut (records.get(appid)?.metadata?.data, M5b): a pure read of the record. */
     metadataOf(appid: number): GameMetadata | undefined;
+    /** Setting showGameInfoByDefault: a shortcut's Game Info starts open (Steam's own start for a shortcut). Default off. */
+    showByDefault(): boolean;
 } = {
+    showByDefault: () => false,
     isEnabled: () => true,
     reportError: () => {},
     metadataOf: () => undefined,

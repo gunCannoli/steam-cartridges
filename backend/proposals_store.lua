@@ -75,9 +75,16 @@ function M.is_rejected(appid, what)
 end
 
 --- Drop the proposal, keep the rejections (after a Yes, or a No).
-function M.clear_proposal(appid)
+function M.clear_proposal(appid, no_save)
   local e = load()[key(appid)]
-  if type(e) == "table" then e.proposal = nil; save() end
+  if type(e) == "table" then
+    e.proposal = nil
+    if not no_save then save() end
+  end
+end
+
+function M.save()
+  return save()
 end
 
 --- Every appid with a proposal or a rejection (prune_removed).

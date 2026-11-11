@@ -14,7 +14,8 @@ import { RulesSection } from "../panels/rules";
 import { usePanelContext } from "../context";
 import { onSettingChange, useSetting } from "../settings";
 import { backend, type ProviderStatus, type SetupGame } from "../../ports/backend";
-import { inScopeCount, nextBlockedReason, pendingInScope, reachableStep, sourcesOn } from "../../domain/onboarding";
+import { alreadySetUpInScope, inScopeCount, nextBlockedReason, pendingInScope, reachableStep, sourcesOn, toScanInScope } from "../../domain/onboarding";
+import type { SetupFilter } from "../../domain/library-setup";
 import { GamesStep } from "./step-games";
 import { ScanWarning, StepIntro } from "./step-intro";
 import { SETUP_STEPS, Timeline } from "./timeline";
@@ -32,11 +33,13 @@ const HINTS = [
 export function LibrarySetupWindow({
     startStep = 0,
     refresh = false,
+    initialFilter,
     closeModal,
 }: {
     startStep?: number;
     /** Refresh library (plan § 7.5): step 4 looks up the games nobody answered yet on its own. */
     refresh?: boolean;
+    initialFilter?: SetupFilter;
     closeModal?: () => void;
 }) {
     const ctx = usePanelContext();
@@ -94,7 +97,12 @@ export function LibrarySetupWindow({
         backend.logEvent("onboarding", `step ${next + 1} (${SETUP_STEPS[next]}) opened: sources on ${gate.sourcesOn}, rules ${gate.rules}, games ${rows.length}, in scope ${counts.inScope}`);
     };
     const last = step === SETUP_STEPS.length - 1;
-    const counts = { detected: rows.length, inScope: inScopeCount(rows, inScope) };
+    const counts = {
+        detected: rows.length,
+        inScope: inScopeCount(rows, inScope),
+        alreadySetUp: alreadySetUpInScope(rows, inScope),
+        toScan: toScanInScope(rows, inScope),
+    };
 
     const finish = async (skipped: boolean) => {
         setClosing(true);
@@ -127,13 +135,19 @@ export function LibrarySetupWindow({
                     <GamesStep
                         gateOnFind={limited && !refresh}
                         autoDetect={refresh}
+                        initialFilter={initialFilter}
                         scope={!refresh ? scope : undefined}
                         excluded={!refresh ? rows.length - counts.inScope : 0}
                         onPending={setGamesPending}
                     />
                 ) : (
                     <div style={{ ...COLUMN_STYLE, maxWidth: 900, margin: "0 auto", gap: BLOCK_GAP }}>
-                        <StepIntro step={step} counts={step === 2 ? counts : null} />
+                        <StepIntro
+                            step={step}
+                            counts={step === 2 ? counts : null}
+                            rows={step === 2 ? rows : undefined}
+                            inScope={step === 2 ? inScope : undefined}
+                        />
                         {step === 0 && <MetadataSection />}
                         {step === 1 && <AchievementsSection />}
                         {step === 2 && <RulesSection />}
@@ -160,9 +174,9 @@ export function LibrarySetupWindow({
                         </div>
                     </Field>
                 </ItemRow>
-                {step === 2 && counts.inScope > 0 && (
+                {step === 2 && counts.toScan > 0 && (
                     <div style={{ padding: "0 13px 13px" }}>
-                        <ScanWarning games={counts.inScope} />
+                        <ScanWarning games={counts.toScan} />
                     </div>
                 )}
                 {limited && step === 0 && (

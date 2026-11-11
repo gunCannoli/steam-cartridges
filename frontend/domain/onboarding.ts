@@ -47,6 +47,26 @@ export function inScopeCount(rows: readonly { appid: number }[], inScope: (appid
     return rows.filter((r) => inScope(r.appid)).length;
 }
 
+/** Games in scope that are already set up (validated or existing data). */
+export function alreadySetUpInScope(rows: readonly (SetupRowLike & { appid: number })[], inScope: (appid: number) => boolean): number {
+    let n = 0;
+    for (const r of rows) {
+        const ask = askOf(r);
+        if ((ask === 'done' || ask === 'skipped') && inScope(r.appid)) n++;
+    }
+    return n;
+}
+
+/** Games in scope that still need scanning or validation (detect, answer, link, achievements). */
+export function toScanInScope(rows: readonly (SetupRowLike & { appid: number })[], inScope: (appid: number) => boolean): number {
+    let n = 0;
+    for (const r of rows) {
+        const ask = askOf(r);
+        if (ask !== 'done' && ask !== 'skipped' && inScope(r.appid)) n++;
+    }
+    return n;
+}
+
 /** How much a scan is: up to 150 games is quick (green), up to 250 takes a while (yellow), more is long (red). */
 export type ScanLevel = 'green' | 'yellow' | 'red';
 export function scanLevel(games: number): ScanLevel {

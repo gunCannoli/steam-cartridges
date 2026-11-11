@@ -27,11 +27,12 @@ local function packs() return require("achievement_packs") end
 
 --- The built-in port a shortcut entry launches, or nil.
 function M.builtin(entry)
-  if type(entry) ~= "table" then return nil end
+  if type(entry) ~= "table" or type(ports.find) ~= "function" then return nil end
   return ports.find(entry.exe, entry.launch_options)
 end
 
 local function pack_port_of(def, entry)
+  if type(ports.program) ~= "function" or type(ports.port_of) ~= "function" then return nil end
   local _, dir = ports.program(entry.exe)
   return ports.port_of(def, dir)
 end

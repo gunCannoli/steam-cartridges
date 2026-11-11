@@ -46,9 +46,14 @@ function M.get(appid)
   return type(c) == "table" and c or nil
 end
 
-function M.set(appid, choice, now)
+function M.set(appid, choice, now, no_save)
   choice.at = choice.at or now or os.time()
   load()[key(appid)] = choice
+  if no_save then return true end
+  return save()
+end
+
+function M.save()
   return save()
 end
 

@@ -13,8 +13,8 @@ import { UPGRADE_SCALE, UpgradeOnboardingWindow } from "../setup/upgrade-window"
 import { waitingCounts, waitingTotal } from "../../domain/library-setup";
 import { backend } from "../../ports/backend";
 
-/** The setup window's share of the screen (plan Q4: 60%, tuned after the first look). */
-const SETUP_SCALE = 0.6;
+/** The setup window's share of the screen: 60% width, 80% height. */
+const SETUP_SCALE = { width: 0.6, height: 0.8 };
 
 /** The window opens by itself the first time the panel is entered in a Steam session while onboarding is not done (plan § 3b). */
 let autoOpened = false;
@@ -110,7 +110,7 @@ export function LibrarySetupSection({ onOnboarded }: { onOnboarded?: (onboarded:
                 {onboarded === false ? (
                     <ButtonRow
                         label="Onboarding required"
-                        description="Explains the plugin and sets the rules for your library. Nothing new is fetched until you finish it or skip it, and the other settings wait."
+                        description="Set up sources and rules for your non-Steam games before changing settings."
                         buttonLabel="Open"
                         onClick={open(0)}
                     />
@@ -122,14 +122,10 @@ export function LibrarySetupSection({ onOnboarded }: { onOnboarded?: (onboarded:
                         onClick={open(0)}
                     />
                 ) : (
-                    // An array, not a fragment: Blocks spaces its children, a fragment would be one block.
-                    [
-                        // One block: the count, then the two buttons (rows touch inside a block).
-                        <div key="status">
-                            <StatRow label="Games to set up" value={waiting} warn />
-                            <ButtonRow label="Review your games" description="Confirm or change each game's answer." buttonLabel="Open" onClick={open(3)} />
-                        </div>,
-                    ]
+                    <div key="status">
+                        <StatRow label="Games to set up" value={waiting} warn />
+                        <ButtonRow label="Review your games" description="Confirm or change each game's answer." buttonLabel="Open" onClick={open(3)} />
+                    </div>
                 )}
             </Blocks>
         </PanelSection>

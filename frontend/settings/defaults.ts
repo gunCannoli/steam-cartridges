@@ -44,6 +44,8 @@ export interface Settings {
     controllerOverrides: Record<string, ControllerOverride>;
     /** Games whose issues the user chose to ignore (Game Data editor): left out of "games with issues". */
     ignoredIssues: Record<string, boolean>;
+    /** Open a shortcut's Game Info when its page opens. Off by default: Steam keeps an owned game's collapsed behind the info button. */
+    showGameInfoByDefault: boolean;
     /** Show native activity card when a non-Steam game is added to the library. Default true. */
     activityShowAddedToLibrary: boolean;
     /** Show native activity card when a non-Steam game is played for the first time. Default true. */
@@ -80,6 +82,7 @@ export const DEFAULTS: Settings = {
     controllerOverrides: {},
     ignoredIssues: {},
     // Everything optional starts off on a first initialization (ADR-0091): the user turns on what they want.
+    showGameInfoByDefault: false,
     activityShowAddedToLibrary: false,
     activityShowFirstPlayed: false,
     activityShowAchievements: false,

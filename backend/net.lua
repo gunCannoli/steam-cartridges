@@ -20,7 +20,7 @@
 
 local M = {}
 
-M.PAUSE_429_SECONDS = 30 * 60
+M.PAUSE_429_SECONDS = 60
 M.PAUSE_FAILURES_SECONDS = 15 * 60
 M.FAILURES_BEFORE_PAUSE = 5
 
@@ -90,6 +90,11 @@ function M.is_paused(source)
     return false
   end
   return true
+end
+
+function M.unpause(source)
+  paused[source] = nil
+  failures[source] = 0
 end
 
 --- { http_calls = { [source] = n }, failed = { [source] = n }, last_error = { [source] = text },
@@ -168,6 +173,11 @@ end
 --- Account one finished request against its source's breaker.
 local function record(source, res)
   local status = res and tonumber(res.status)
+  if status and status >= 200 and status < 400 then
+    failures[source] = 0
+    paused[source] = nil
+    return
+  end
   if status == 429 then
     paused[source] = now() + M.PAUSE_429_SECONDS
     failures[source] = 0
@@ -231,7 +241,7 @@ end
 function M.get(url, opts)
   local source = source_of(opts)
   if not M.allowed() then trace(source, "GET", url, nil, "setup", now()) return nil, "setup" end
-  if M.is_paused(source) then trace(source, "GET", url, nil, "paused", now()) return nil, "paused" end
+  if consent == 0 and not (opts and opts.force) and M.is_paused(source) then trace(source, "GET", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
   local started = now()
   local http, herr = http_module()
@@ -265,7 +275,7 @@ end
 function M.post(url, body, opts)
   local source = source_of(opts)
   if not M.allowed() then trace(source, "POST", url, nil, "setup", now()) return nil, "setup" end
-  if M.is_paused(source) then trace(source, "POST", url, nil, "paused", now()) return nil, "paused" end
+  if consent == 0 and not (opts and opts.force) and M.is_paused(source) then trace(source, "POST", url, nil, "paused", now()) return nil, "paused" end
   local started = now()
   local http, herr = http_module()
   if http == nil then
@@ -318,7 +328,7 @@ end
 function M.get_binary(url, opts)
   local source = source_of(opts)
   if not M.allowed() then trace(source, "GET(bin)", url, nil, "setup", now()) return nil, "setup" end
-  if M.is_paused(source) then trace(source, "GET(bin)", url, nil, "paused", now()) return nil, "paused" end
+  if consent == 0 and not (opts and opts.force) and M.is_paused(source) then trace(source, "GET(bin)", url, nil, "paused", now()) return nil, "paused" end
   calls[source] = (calls[source] or 0) + 1
   local started = now()
   local bin_ok, binary = pcall(function() return M.deps.binary or require("bin_http") end)

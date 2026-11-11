@@ -53,7 +53,7 @@ export function MetadataSection() {
         else if (id === "igdb") setServices({ ...services, igdbEnabled: false });
         else setServices({ ...services, steamgriddbEnabled: false });
         backend.logEvent("sources", `${id} removed`);
-        ctx.ingest.trigger(250, "services");
+        ctx.ingest.markStale("services");
     };
 
     const openAdd = (e?: { currentTarget?: unknown }) => {

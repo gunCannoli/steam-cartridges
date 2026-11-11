@@ -92,12 +92,20 @@ end
 
 --- Search the store for a shortcut title.
 ---@param title string
+local search_cache = {}
+
+function M.put_search(title, result)
+  local norm = normalize.normalize(title)
+  if norm ~= "" and result then search_cache[norm] = result end
+end
+
 ---@param http_get? fun(url: string): string|nil, string|nil   injectable for tests
 ---@param store? table   steam_store_store; enables the negative cache
 ---@return table  { exact?, suggestions } | { skipped = "negative" } | { error }
 function M.search(title, http_get, store)
   local norm = normalize.normalize(title)
   if norm == "" then return { suggestions = {} } end
+  if search_cache[norm] then return search_cache[norm] end
   if store and store.is_negative(norm) then return { skipped = "negative", suggestions = {} } end
 
   http_get = http_get or throttle.http_get

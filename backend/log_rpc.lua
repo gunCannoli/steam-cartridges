@@ -20,4 +20,22 @@ M.ClientLog = method("ClientLog", function(data)
   return { ok = true }
 end)
 
+--- The account Steam's own window says is signed in (its 32-bit id) -> { ok, changed }. It decides whose userdata folder is read
+--- when loginusers.vdf names nobody; when it changes the user, the new folder picture goes to the log.
+local reported = false
+M.SetSignedInAccount = method("SetSignedInAccount", function(data)
+  local sp = require("steam_paths")
+  local changed = sp.set_signed_in(data.account)
+  -- The first report of a session is always logged (a log then shows which source decided); a later one only when it moves the user.
+  if changed or not reported then
+    reported = true
+    local plog = require("plog")
+    local line, odd = sp.diagnosis()
+    plog.event("startup", (changed and "the signed-in user reported by Steam changed which folder is read; "
+      or "the signed-in user reported by Steam matches the folder read; ") .. line)
+    for _, what in ipairs(odd) do plog.event("startup", "steam folders: " .. what) end
+  end
+  return { ok = true, changed = changed }
+end)
+
 return M

@@ -469,7 +469,18 @@ function M.rom_md5(path, depth)
     if not z then return nil, "file_not_found" end
     local rom, err = M.zip_rom(z)
     if not rom then return nil, err end
-    if rom.format then return rom end
+    if rom.format then
+      if rom.format == "arcade_zip" then
+        -- rcheevos rc_hash_arcade: arcade hash is the MD5 of the romset name (filename without extension)
+        local stem = path:match("([^/\\]+)%.[^%.]+$") or path:match("([^/\\]+)$")
+        if stem then
+          stem = stem:lower()
+          local arcade_md5 = M.md5(stem)
+          return { md5 = arcade_md5, size = size, format = "arcade_zip", romset = stem }
+        end
+      end
+      return rom
+    end
     bytes = rom.bytes
   else
     if size > M.MAX_PLAIN then return { format = "large_disc", size = size } end

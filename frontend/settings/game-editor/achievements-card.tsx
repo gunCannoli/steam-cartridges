@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 import { DialogButton, Dropdown, Field } from "@steambrew/client";
 import { asList } from "../../kernel/lists";
 import { backend, type AchievementPackExplain, type AchievementPackInfo } from "../../ports/backend";
-import { ActionRow, BUTTON_STYLE, ButtonRow, Card, FullWidthRows, ItemRow, TextRows } from "../components";
+import { ActionRow, BUTTON_STYLE, ButtonRow, Card, ItemRow, TextRows } from "../components";
 import type { AchievementState } from "./library-issues";
-import { tint, type RunAction } from "./styles";
+import { tint, SUCCESS_TINT_BORDER, type RunAction } from "./styles";
 import { Missing } from "./missing";
 
 const SOURCE_NAMES: Record<string, string> = {
@@ -121,32 +121,39 @@ function PackPicker({ appid, busy, run }: { appid: number; busy: boolean; run: R
     }));
     return (
         <>
-            <FullWidthRows label="Achievement pack" description="Give this game the achievements of a pack, whatever program it starts">
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <div style={{ flex: 1 }}>
-                        <Dropdown
-                            rgOptions={options}
-                            selectedOption={chosen}
-                            contextMenuPositionOptions={{ bMatchWidth: true }}
-                            onChange={(o) => setChosen(String(o.data))}
-                        />
-                    </div>
-                    <DialogButton
-                        disabled={busy || !chosen || (current?.assigned === true && current.pack === chosen)}
-                        style={BUTTON_STYLE}
-                        onClick={() =>
-                            run(async () => {
-                                const res = await backend.setAchievementSource(appid, "pack", chosen);
-                                if (!res.ok) return { error: res.error ?? "Could not use this pack." };
-                                setCurrent({ ...(current ?? {}), pack: chosen, assigned: true });
-                                return {};
-                            }, `Using the achievement pack ${chosen}.`, "Reading the pack...", "achievements")
-                        }
-                    >
-                        Use pack
-                    </DialogButton>
-                </div>
-            </FullWidthRows>
+            <ItemRow>
+                <Field label="Achievement pack" description="Give this game the achievements of a pack, whatever program it starts" bottomSeparator="none" />
+            </ItemRow>
+            <div style={{ marginTop: -10 }}>
+                <ItemRow>
+                    <Field childrenContainerWidth="max">
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <div style={{ flex: 1 }}>
+                                <Dropdown
+                                    rgOptions={options}
+                                    selectedOption={chosen}
+                                    contextMenuPositionOptions={{ bMatchWidth: true }}
+                                    onChange={(o) => setChosen(String(o.data))}
+                                />
+                            </div>
+                            <DialogButton
+                                disabled={busy || !chosen || (current?.assigned === true && current.pack === chosen)}
+                                style={BUTTON_STYLE}
+                                onClick={() =>
+                                    run(async () => {
+                                        const res = await backend.setAchievementSource(appid, "pack", chosen);
+                                        if (!res.ok) return { error: res.error ?? "Could not use this pack." };
+                                        setCurrent({ ...(current ?? {}), pack: chosen, assigned: true });
+                                        return {};
+                                    }, `Using the achievement pack ${chosen}.`, "Reading the pack...", "achievements")
+                                }
+                            >
+                                Use pack
+                            </DialogButton>
+                        </div>
+                    </Field>
+                </ItemRow>
+            </div>
             {current?.assigned && (
                 <ButtonRow
                     label="Stop using this pack"
@@ -185,16 +192,52 @@ export function AchievementsCard({
     status?: string;
 }) {
     const [ra, setRa] = useState("");
+    const [justLinked, setJustLinked] = useState(false);
     const marked = state?.source === "none";
     const found = state?.status === "ok" && state.total > 0;
 
+    useEffect(() => {
+        if (!justLinked) return;
+        const timer = setTimeout(() => setJustLinked(false), 5000);
+        return () => clearTimeout(timer);
+    }, [justLinked]);
+
+    const cardStyle = justLinked ? { borderColor: SUCCESS_TINT_BORDER } : tint(missing);
+
     return (
-        <Card style={tint(missing)}>
-            <Missing on={missing}>
+        <Card style={cardStyle}>
+            <Missing on={missing || justLinked} variant={justLinked ? "success" : "error"}>
                 <ItemRow>
                     <Field label="Achievements" description={statusLine(state, waiting)} bottomSeparator="none" />
                 </ItemRow>
             </Missing>
+            <TextRows label="RetroAchievements game" description="Its URL (retroachievements.org/game/1234) or id" value={ra} onChange={setRa} />
+            <div style={{ marginTop: -10 }}>
+                <ButtonRow
+                    label="Link RetroAchievements"
+                    description="For a ROM the automatic match got wrong"
+                    buttonLabel="Link"
+                    disabled={busy || !ra.trim()}
+                    onClick={() =>
+                        run(async () => {
+                            const target = ra.trim();
+                            const res = await backend.setAchievementSource(appid, "ra", target);
+                            if (!res.ok) return { error: res.error ?? "Could not link RetroAchievements." };
+                            setRa("");
+                            setJustLinked(true);
+                            let msg = `Linked to RetroAchievements (Game #${res.game_id ?? target}: ${res.title ?? "Unknown"}, ${res.total ?? 0} achievements).`;
+                            if (res.hash_status === "verified") {
+                                msg += " ROM hash verified.";
+                            } else if (res.hash_status === "mismatch" || res.hash_status === "unmapped") {
+                                msg += " Note: ROM hash was not recognized by RetroAchievements for this game; achievements will display, but emulator unlocking may not work.";
+                            } else if (res.hash_status === "no_rom" || res.hash_status === "hash_failed") {
+                                msg += " Note: ROM file could not be hashed.";
+                            }
+                            return { message: msg, delayUpdate: true };
+                        }, "Linked to RetroAchievements.", "Linking to RetroAchievements...", "achievements")
+                    }
+                />
+            </div>
             <PackLines
                 key={`${state?.source}:${state?.total}`}
                 appid={appid}
@@ -202,21 +245,6 @@ export function AchievementsCard({
                 marked={marked}
             />
             {(!found || marked || state?.source === "pack") && <PackPicker appid={appid} busy={busy} run={run} />}
-            <TextRows label="RetroAchievements game" description="Its URL (retroachievements.org/game/1234) or id" value={ra} onChange={setRa} />
-            <ButtonRow
-                label="Link RetroAchievements"
-                description="For a ROM the automatic match got wrong"
-                buttonLabel="Link"
-                disabled={busy || !ra.trim()}
-                onClick={() =>
-                    run(async () => {
-                        const res = await backend.setAchievementSource(appid, "ra", ra.trim());
-                        if (!res.ok) return { error: res.error ?? "Could not link RetroAchievements." };
-                        setRa("");
-                        return {};
-                    }, "Linked to RetroAchievements.", "Linking to RetroAchievements...", "achievements")
-                }
-            />
             {marked ? (
                 <ButtonRow
                     label="Retry achievement detection"
@@ -233,9 +261,9 @@ export function AchievementsCard({
                 />
             ) : found ? null : (
                 <ButtonRow
-                    label="No achievements"
-                    description="This game has none: turn achievement detection off for it"
-                    buttonLabel="No achievements"
+                    label="Ignore Achievements"
+                    description="Skips fetching achievements for this game"
+                    buttonLabel="Ignore"
                     disabled={busy}
                     onClick={() =>
                         run(async () => {

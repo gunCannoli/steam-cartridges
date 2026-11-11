@@ -1,5 +1,6 @@
 import { definePlugin, IconsModule } from "@steambrew/client";
 import { screenSize, showDialog } from "./steam/modal";
+import { friendStore } from "./steam/stores";
 import { logger, onLoggerProblem } from "./logger";
 import {
     createCapturesSurface,
@@ -68,6 +69,7 @@ import {
 } from "./surfaces/sections";
 import {
     createGameInfoSurface,
+    applyGameInfoDefault,
 } from "./surfaces/game-info";
 import { createController } from "./app/controller";
 import { setPanelContext } from "./settings/context";
@@ -121,6 +123,7 @@ const features = createFeatureSwitches({
 });
 onSettingChange((key) => {
     if (key === "disabledFeatures") features.reload();
+    if (key === "showGameInfoByDefault") applyGameInfoDefault();
 });
 /** A slider drag sends many values: prune the disk cache once it settles (ADR-0051). */
 let pruneTimer: ReturnType<typeof setTimeout> | undefined;
@@ -367,6 +370,7 @@ const ingest = createIngest({
     allowScreenscraper: (appid) => setting("services").screenscraperEnabled !== false && routing.serviceAllowed("screenscraper", appid),
     hardcore: () => setting("raHardcoreMode"),
     report: (message) => backend.logEvent("sync", message),
+    collectionsOf: (appid) => routing.collectionsOf(appid),
     scopeNote: () => {
         const rules = setting("routingRules").filter((r) => r.enabled !== false).length;
         return `rules enabled=${rules}${rules === 0 ? " (no rule: no game is fetched)" : ""}, collections loaded=${routing.collectionsReady() ? "yes" : "no"}`;
@@ -399,15 +403,33 @@ const librarySetup = createLibrarySetup({
     collectionsOf: (appid) => routing.collectionsOf(appid),
     // The confirmed game is fetched, then its Game Info is filled in from what matched it (a Steam match reads Steam's own store item) so the
     // onboarding shows every field filled, for the user to check or just confirm (ADR-0100).
-    fetchGames: async (appids) => {
-        await ingest.startSync({ forceAll: true, onlyAppids: appids, reason: "confirmed" });
+    fetchGames: async (appids, onProgress) => {
+        const shortcuts = routing.listShortcuts();
+        const nameMap = new Map(shortcuts.map((s) => [s.appid, s.name]));
+        let done = 0;
+        const total = appids.length;
+
+        // Preload all saved records from disk into memory in one bulk read
+        await metadata.preload();
+
+        // For any game with a native Steam store mapping, resolve store item
         for (const appid of appids) {
             const id = toShortcutId(appid);
-            if (id === undefined) continue;
-            const route = routing.getBucket(id);
-            const ident = records.store.get(id)?.identity ?? (route.bucket === "steam-store" ? await identity.ensure(id, route) : undefined);
-            await metadata.ensure(id, route, ident, { userAction: true });
+            if (id !== undefined) {
+                const route = routing.getBucket(id);
+                if (route.bucket === "steam-store") {
+                    const ident = records.store.get(id)?.identity ?? (await identity.ensure(id, route));
+                    await metadata.ensure(id, route, ident, { userAction: true });
+                }
+            }
+            done++;
+            onProgress?.(done, total, nameMap.get(appid));
         }
+
+        // Ingest startSync is the background synchronizer (artwork, screenshots, etc.).
+        // We start it in the background without forceAll (metadata and achievements are already fresh),
+        // so it only downloads missing artwork in the background.
+        void ingest.startSync({ onlyAppids: appids, reason: "confirmed" });
     },
     resetSettings,
 });
@@ -552,6 +574,10 @@ async function init() {
             onProgress: ingest.onSyncProgress,
             trigger: ingest.triggerSync,
             start: ingest.startSync,
+            markStale: (reason) => ingest.markStale(reason),
+            staleCount: () => ingest.staleCount(),
+            onStaleChange: (fn) => ingest.onStaleChange(fn),
+            resetStale: () => ingest.resetStale(),
         },
         records: {
             achievementsOf: (appid) => achievements.summary(appid),
@@ -620,6 +646,19 @@ async function init() {
 
     // Settings first: the Game Info gate reads them (ADR-0033).
     await initSettings();
+    // Whose library to read: the account Steam says is signed in (loginusers.vdf can name nobody). Before the first sync.
+    void (async () => {
+        for (let i = 0; i < 40; i++) {
+            const id = friendStore()?.currentUserSteamID;
+            const account = typeof id?.GetAccountID === "function" ? id.GetAccountID() : 0;
+            if (account > 0) {
+                await backend.setSignedInAccount(account);
+                return;
+            }
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        backend.logEvent("boot", "the signed-in user was not reported by Steam within 20 s");
+    })();
     // Downloaded media of games not opened within the setting's days leaves the disk (ADR-0051). Local files only.
     void media.pruneCache();
 
@@ -739,6 +778,7 @@ async function init() {
         createGameInfoSurface({
             ...surfaceDeps,
             metadataOf: (appid) => records.store.get(appid as ShortcutId)?.metadata?.data,
+            showByDefault: () => setting("showGameInfoByDefault") === true,
         }),
     );
     runner.installAll();

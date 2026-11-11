@@ -1,14 +1,22 @@
 // Library Setup: the explanation above each step. Each entry is a bold label over its description, close together, in one
 // card (guardrail 18: Steam's text, `Card`, `BLOCK_GAP` between cards); the numbers of the Rules step are `StatRow`s and the
 // size of the scan is a coloured card on top of the step.
-import { Card, CONTROL_GAP, StatRow } from "../components";
+import { useState } from "react";
+import { DialogButton } from "@steambrew/client";
+import { BUTTON_STYLE, Card, CONTROL_GAP, SettingsModal, StatRow, TextRows } from "../components";
 import { scanLevel, type ScanLevel } from "../../domain/onboarding";
+import { askOf } from "../../domain/library-setup";
+import type { SetupGame } from "../../ports/backend";
 
 /** The counts the Rules step shows (null while the library is being read). */
 export interface RulesCounts {
     detected: number;
-    /** Games the rules put in scope: the ones that will be scanned. */
+    /** Games the rules put in scope. */
     inScope: number;
+    /** Games in scope that already have data / are set up. */
+    alreadySetUp?: number;
+    /** Games in scope that will actually be looked up or answered. */
+    toScan?: number;
 }
 
 const LABEL: React.CSSProperties = { fontWeight: 700, fontSize: 14 };
@@ -42,7 +50,36 @@ export function ScanWarning({ games }: { games: number }) {
     );
 }
 
-export function StepIntro({ step, counts }: { step: number; counts: RulesCounts | null }) {
+export function StepIntro({
+    step,
+    counts,
+    rows,
+    inScope,
+}: {
+    step: number;
+    counts: RulesCounts | null;
+    rows?: readonly SetupGame[];
+    inScope?: (appid: number) => boolean;
+}) {
+    const [bucket, setBucket] = useState<{ title: string; games: readonly SetupGame[] } | null>(null);
+    const [query, setQuery] = useState("");
+
+    const openBucket = (title: string, games: readonly SetupGame[]) => {
+        setBucket({ title, games });
+        setQuery("");
+    };
+
+    const filteredGames = (bucket?.games ?? []).filter((g) => {
+        if (!query.trim()) return true;
+        const q = query.toLowerCase();
+        return (
+            g.name.toLowerCase().includes(q) ||
+            g.collections?.some((c) => c.toLowerCase().includes(q)) ||
+            g.platform_name?.toLowerCase().includes(q) ||
+            g.platform?.toLowerCase().includes(q)
+        );
+    });
+
     return (
         <>
             <Card>
@@ -89,10 +126,108 @@ export function StepIntro({ step, counts }: { step: number; counts: RulesCounts 
             </Card>
             {step === 2 && counts && (
                 <Card>
-                    <StatRow label="Non-Steam games detected" value={counts.detected} />
-                    <StatRow label="Games that will be ignored" value={counts.detected - counts.inScope} />
-                    <StatRow label="Games that will be scanned" value={counts.inScope} />
+                    <StatRow
+                        label="Non-Steam games detected"
+                        value={counts.detected}
+                        onClick={rows && rows.length > 0 ? () => openBucket("Non-Steam games detected", rows) : undefined}
+                    />
+                    <StatRow
+                        label="Games that will be ignored"
+                        value={counts.detected - counts.inScope}
+                        onClick={
+                            rows && inScope && counts.detected - counts.inScope > 0
+                                ? () => openBucket("Games that will be ignored", rows.filter((r) => !inScope(r.appid)))
+                                : undefined
+                        }
+                    />
+                    {(counts.alreadySetUp ?? 0) > 0 && (
+                        <StatRow
+                            label="Games already set up"
+                            value={counts.alreadySetUp!}
+                            onClick={
+                                rows && inScope
+                                    ? () =>
+                                          openBucket(
+                                              "Games already set up",
+                                              rows.filter((r) => inScope(r.appid) && (askOf(r) === "done" || askOf(r) === "skipped")),
+                                          )
+                                    : undefined
+                            }
+                        />
+                    )}
+                    <StatRow
+                        label="Games that will be scanned"
+                        value={counts.toScan ?? counts.inScope}
+                        onClick={
+                            rows && inScope && (counts.toScan ?? counts.inScope) > 0
+                                ? () =>
+                                      openBucket(
+                                          "Games that will be scanned",
+                                          rows.filter((r) => inScope(r.appid) && askOf(r) !== "done" && askOf(r) !== "skipped"),
+                                      )
+                                : undefined
+                        }
+                    />
                 </Card>
+            )}
+            {bucket && (
+                <SettingsModal
+                    title={`${bucket.title} (${bucket.games.length})`}
+                    isOpen={true}
+                    onClose={() => setBucket(null)}
+                    width="600px"
+                >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "4px 0" }}>
+                        {bucket.games.length > 5 && (
+                            <TextRows
+                                label="Filter games"
+                                value={query}
+                                onChange={setQuery}
+                            />
+                        )}
+                        <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
+                            {filteredGames.length === 0 ? (
+                                <div style={{ color: "#8f98a0", fontSize: 13, textAlign: "center", padding: "24px 0" }}>
+                                    {bucket.games.length === 0 ? "No games in this list." : "No games match your search."}
+                                </div>
+                            ) : (
+                                filteredGames.map((game) => (
+                                    <div
+                                        key={game.appid}
+                                        style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            alignItems: "center",
+                                            padding: "10px 14px",
+                                            background: "rgba(255, 255, 255, 0.04)",
+                                            borderRadius: "4px",
+                                            border: "1px solid rgba(255, 255, 255, 0.05)",
+                                            gap: 12,
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0, flex: 1 }}>
+                                            <div style={{ fontWeight: 600, fontSize: 13, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {game.name || `App ${game.appid}`}
+                                            </div>
+                                            {(game.platform_name || game.platform || (game.collections && game.collections.length > 0)) && (
+                                                <div style={{ fontSize: 11, color: "#8f98a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {[game.platform_name || game.platform, game.collections && game.collections.length > 0 ? `Collections: ${game.collections.join(", ")}` : null]
+                                                        .filter(Boolean)
+                                                        .join(" • ")}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 12, borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}>
+                            <DialogButton onClick={() => setBucket(null)} style={BUTTON_STYLE}>
+                                Close
+                            </DialogButton>
+                        </div>
+                    </div>
+                </SettingsModal>
             )}
         </>
     );

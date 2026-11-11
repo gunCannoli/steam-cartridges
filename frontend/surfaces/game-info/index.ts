@@ -6,7 +6,7 @@ import type { GameMetadata } from "../../kernel/record";
 import type { Surface, SurfaceDeps } from "../../kernel/surface";
 import { deps } from "./deps";
 import { enrichGameDetails, revertGameDetails } from "./metadata";
-import { patchPlayBar } from "./playbar";
+import { patchPlayBar, applyGameInfoDefault } from "./playbar";
 import {
     enrichedAppIds,
     ensureAppOverviewHooked,
@@ -19,6 +19,7 @@ import {
     trackInstance,
 } from "./patch";
 
+export { applyGameInfoDefault };
 export { gameInfoRepairDiagnostics, enrichGameDetails, revertGameDetails, isAppEnriched, refreshGameInfoInstances, ensureAppOverviewHooked, trackInstance };
 
 /** What the features call (structurally matched by their setters). */
@@ -35,11 +36,13 @@ const nativeByAppid = new Map<number, number>();
 export function createGameInfoSurface(
     d: SurfaceDeps & {
         metadataOf(appid: number): GameMetadata | undefined;
+        showByDefault(): boolean;
     },
 ): Surface {
     deps.isEnabled = d.isEnabled;
     deps.reportError = d.reportError;
     deps.metadataOf = d.metadataOf;
+    deps.showByDefault = d.showByDefault;
     return {
         id: "game-info",
         touches: [

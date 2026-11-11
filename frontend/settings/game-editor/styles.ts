@@ -19,11 +19,15 @@ export const TEXTAREA_STYLE: CSSProperties = {
 export const ISSUE_TINT = "rgba(255, 70, 70, 0.2)";
 export const ISSUE_TINT_BORDER = "rgba(230, 70, 70, 0.85)";
 
+/** A successful piece confirmation (matching ActionRow success text color #a4d007). */
+export const SUCCESS_TINT = "rgba(164, 208, 7, 0.18)";
+export const SUCCESS_TINT_BORDER = "#a4d007";
+
 /** A card that holds a missing piece: a red edge (the tint itself is an Overlay, see `Missing`). */
 export function tint(missing: boolean): CSSProperties {
     return missing ? { borderColor: ISSUE_TINT_BORDER } : {};
 }
 
 /** The editor's action runner (modal.tsx): `progress` shows (with Steam's spinner) in the card `from` while `work` runs,
- *  then `done` or the error. */
-export type RunAction = (work: () => Promise<{ error?: string } | void>, done: string, progress?: string, from?: string) => void;
+ *  then `done` or the error. `delayUpdate` pauses library refresh/removal so users can see confirmation. */
+export type RunAction = (work: () => Promise<{ error?: string; message?: string; delayUpdate?: boolean } | void>, done: string, progress?: string, from?: string) => void;

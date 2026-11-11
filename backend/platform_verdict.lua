@@ -132,7 +132,8 @@ function M.console_signals(entry)
     local id = platforms.BY_TAG[key]
     if id and not platforms.STEAM_SIDE[id] and not M.PATH_IGNORED[key] and not seen[id] then
       seen[id] = true
-      out[#out + 1] = { kind = "path", platforms = { id }, detail = seg }
+      local family = M.COLLECTION_FAMILIES[id]
+      out[#out + 1] = { kind = "path", platforms = family or { id }, detail = seg }
     end
   end
   return out
@@ -141,6 +142,27 @@ end
 --- Tags too short or too common to mean a console as a folder name ("D:\PC\", "\md\", "\360\").
 M.PATH_IGNORED = {}
 for t in ("pc win dc md gg ns fc 360 2600 gc steam windows"):gmatch("%S+") do M.PATH_IGNORED[t] = true end
+
+--- Console families where a collection name or broad folder refers to a family of systems rather than a single generation.
+M.COLLECTION_FAMILIES = {
+  wii = { "wii", "wiiu" },
+  psx = { "psx", "ps2", "ps3", "ps4" },
+  xbox = { "xbox", "xbox360" },
+  gb = { "gb", "gbc", "gba" },
+}
+
+--- Signal reliability weights for arbitration and conflict resolution (review-queue plan Phase D).
+M.SIGNAL_WEIGHTS = {
+  choice = 100,
+  port = 80,
+  core = 70,
+  program = 65,
+  rom = 65,
+  tag = 50,
+  path = 20,
+  collection = 15,
+  steam = 10,
+}
 
 --- Console signals from the Steam collections the game is in (plan Q6): a collection named like a console, alone or
 --- followed by "games" ("PS2", "PlayStation 2 Games"). The app reads the collections (Steam's collection store) and
@@ -152,17 +174,64 @@ function M.collection_signals(collections)
     local id = platforms.BY_TAG[key]
     if id and not platforms.STEAM_SIDE[id] and not seen[id] then
       seen[id] = true
-      out[#out + 1] = { kind = "collection", platforms = { id }, detail = tostring(name) }
+      local family = M.COLLECTION_FAMILIES[id]
+      out[#out + 1] = { kind = "collection", platforms = family or { id }, detail = tostring(name) }
     end
   end
   return out
 end
 
+--- Resolves the best platform from signals and candidate platforms based on signal weights.
+--- Returns: best_platform, is_tie, dispute_reason
+local function resolve_best(signals, candidates)
+  if not candidates or #candidates == 0 then return nil, false, nil end
+  if #candidates == 1 then return candidates[1], false, nil end
+
+  local scores = {}
+  local best_sig = {}
+  for _, c in ipairs(candidates) do scores[c] = 0 end
+
+  for _, sig in ipairs(signals) do
+    local w = M.SIGNAL_WEIGHTS[sig.kind] or 10
+    local p_set = set_of(sig.platforms or {})
+    for _, c in ipairs(candidates) do
+      if p_set[c] then
+        scores[c] = (scores[c] or 0) + w
+        if not best_sig[c] or w > best_sig[c].weight then
+          best_sig[c] = { weight = w, kind = sig.kind, detail = sig.detail }
+        end
+      end
+    end
+  end
+
+  local best_p, best_score, second_score = nil, -1, -1
+  for _, c in ipairs(candidates) do
+    local sc = scores[c] or 0
+    if sc > best_score then
+      second_score = best_score
+      best_score = sc
+      best_p = c
+    elseif sc > second_score then
+      second_score = sc
+    end
+  end
+
+  local is_tie = (best_score == second_score and best_score > 0)
+  local reason
+  if best_p and best_sig[best_p] then
+    reason = string.format("Platform %s favored based on %s", best_p, best_sig[best_p].kind)
+  end
+
+  return best_p, is_tie, reason
+end
+
 --- The platforms every console signal allows (their intersection), or nil when no signal names one.
---- Returns the list and whether two signals disagree (an empty intersection).
+--- Returns the list, whether two signals disagree (an empty intersection), and all candidate platforms seen.
 local function narrow(signals)
   local current = nil
+  local all_platforms = {}
   for _, sig in ipairs(signals) do
+    for _, p in ipairs(sig.platforms or {}) do all_platforms[p] = true end
     if #sig.platforms > 0 then
       if not current then
         current = set_of(sig.platforms)
@@ -171,16 +240,21 @@ local function narrow(signals)
         for _, p in ipairs(sig.platforms) do
           if current[p] then next_set[p] = true; any = true end
         end
-        if not any then return nil, true end
+        if not any then
+          local all_list = {}
+          for p in pairs(all_platforms) do all_list[#all_list + 1] = p end
+          table.sort(all_list)
+          return nil, true, all_list
+        end
         current = next_set
       end
     end
   end
-  if not current then return nil, false end
+  if not current then return nil, false, {} end
   local list = {}
   for p in pairs(current) do list[#list + 1] = p end
   table.sort(list)
-  return list, false
+  return list, false, list
 end
 
 --- The verdict for one shortcut.
@@ -189,7 +263,7 @@ end
 ---@param steam table|nil         the Steam store proposal { appid, name } (steam_store_search.proposal)
 ---@param choice table|nil        the user's validated answer { platform = id }
 ---@param collections string[]|nil the names of the Steam collections the game is in
----@return table { state, platform = id | nil, candidates = { ids }, title = title without tag, signals = { ... } }
+---@return table { state, platform = id | nil, candidates = { ids }, title = title without tag, signals = { ... }, disputed = bool, dispute_reason = string|nil }
 function M.verdict(title, entry, steam, choice, collections)
   local tag, bare = M.platform_tag(title)
   local signals = {}
@@ -199,9 +273,16 @@ function M.verdict(title, entry, steam, choice, collections)
   for _, s in ipairs(consoles) do signals[#signals + 1] = s end
   if steam then signals[#signals + 1] = { kind = "steam", platforms = { "steam" }, detail = tostring(steam.appid) } end
 
-  local function result(state, platform, candidates)
-    return { state = state, platform = platform, candidates = candidates or (platform and { platform } or {}),
-      title = bare, signals = signals }
+  local function result(state, platform, candidates, disputed, dispute_reason)
+    return {
+      state = state,
+      platform = platform,
+      candidates = candidates or (platform and { platform } or {}),
+      title = bare,
+      signals = signals,
+      disputed = disputed or false,
+      dispute_reason = dispute_reason,
+    }
   end
 
   if type(choice) == "table" and choice.platform then
@@ -209,22 +290,37 @@ function M.verdict(title, entry, steam, choice, collections)
     return result(platforms.STEAM_SIDE[p] and "steam" or "other", p)
   end
 
-  local console_list, console_conflict = narrow(consoles)
+  local console_list, console_conflict, all_console_candidates = narrow(consoles)
   local is_console = #consoles > 0
 
   if tag and platforms.STEAM_SIDE[tag] then
-    if is_console then return result("conflict", nil, console_list) end
+    if is_console then
+      local all_cands = { tag, unpack(all_console_candidates or console_list or {}) }
+      local best_p, _, reason = resolve_best(signals, all_cands)
+      return result("conflict", best_p, all_cands, true, reason)
+    end
     return result("steam", tag)
   end
 
   if tag then
-    if console_conflict then return result("conflict", nil) end
-    if console_list and not set_of(console_list)[tag] then return result("conflict", nil, { tag, unpack(console_list) }) end
+    if console_conflict then
+      local all_cands = { tag, unpack(all_console_candidates or {}) }
+      local best_p, _, reason = resolve_best(signals, all_cands)
+      return result("conflict", best_p, all_cands, true, reason)
+    end
+    if console_list and not set_of(console_list)[tag] then
+      local all_cands = { tag, unpack(all_console_candidates or console_list) }
+      local best_p, _, reason = resolve_best(signals, all_cands)
+      return result("conflict", best_p, all_cands, true, reason)
+    end
     return result("other", tag)
   end
 
   if is_console then
-    if console_conflict then return result("conflict", nil) end
+    if console_conflict then
+      local best_p, _, reason = resolve_best(signals, all_console_candidates)
+      return result("conflict", best_p, all_console_candidates, true, reason)
+    end
     if console_list and #console_list == 1 then return result("other", console_list[1]) end
     return result("other", nil, console_list)
   end

@@ -24,7 +24,7 @@ export function RulesSection() {
         copy.splice(index, 1);
         setRules(copy);
         if (gone) backend.logEvent("rules", `deleted ${gone.action}/${gone.conditionType} (${copy.length} rules left)`);
-        ctx.ingest.trigger(100, "rules");
+        ctx.ingest.markStale("rules");
     };
 
     return (

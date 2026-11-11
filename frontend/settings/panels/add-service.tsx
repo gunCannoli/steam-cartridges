@@ -1,6 +1,6 @@
 // The "Add source" window of the Metadata and Achievements sections. A popup that opens a dropdown is its own
 // window (guardrail 18.8): an overlay inside another window ate clicks and the dropdown would not open (seen 2026-10-26).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DialogButton, Dropdown, PanelSection } from "@steambrew/client";
 import { useSetting } from "../settings";
 import { usePanelContext } from "../context";
@@ -32,6 +32,7 @@ export const DESCRIPTIONS: Record<AddableId, string> = {
 export function AddServiceWindow({ title, options, onAdded, closeModal }: { title: string; options: Addable[]; onAdded?: () => void; closeModal?: () => void }) {
     const ctx = usePanelContext();
     const [services, setServices] = useSetting("services");
+    const [available, setAvailable] = useState<Addable[]>(options);
     const [selected, setSelected] = useState<AddableId>(options[0]?.id ?? "steam_store");
     const [ssUser, setSsUser] = useState("");
     const [ssPass, setSsPass] = useState("");
@@ -43,10 +44,23 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
     const [msg, setMsg] = useState("");
     const [saving, setSaving] = useState(false);
 
+    useEffect(() => {
+        setAvailable(options);
+        if (options.length > 0 && options[0] && !options.some((o) => o.id === selected)) {
+            setSelected(options[0].id);
+        }
+    }, [options]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const done = (text: string) => {
         backend.logEvent("sources", `${selected} added`);
         setMsg(`✓ ${text}`);
-        ctx.ingest.trigger(250, "services");
+        ctx.ingest.markStale("services");
+        const remaining = available.filter((o) => o.id !== selected);
+        setAvailable(remaining);
+        if (remaining.length > 0 && remaining[0]) {
+            setSelected(remaining[0].id);
+        }
+        setSaving(false);
         onAdded?.(); // the opener re-reads, so the source leaves its list of what can still be added
     };
     const fail = (text: string) => {
@@ -100,35 +114,41 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
         }
     };
 
-    const finished = msg.startsWith("✓");
     return (
         <WindowFrame
             footer={
                 <ActionRow message={msg}>
-                    {!finished && (
+                    {available.length > 0 && (
                         <DialogButton disabled={saving} onClick={() => void add()} style={BUTTON_STYLE}>
                             Add
                         </DialogButton>
                     )}
                     <DialogButton onClick={() => closeModal?.()} style={BUTTON_STYLE}>
-                        {finished ? "Close" : "Cancel"}
+                        {available.length > 0 ? "Cancel" : "Close"}
                     </DialogButton>
                 </ActionRow>
             }
         >
             <PanelSection title={title}>
                 <Blocks>
-                    <FullWidthRows label="Source" description={DESCRIPTIONS[selected]}>
-                        <Dropdown
-                            rgOptions={options.map((s) => ({ data: s.id, label: s.label }))}
-                            selectedOption={selected}
-                            onChange={(o) => {
-                                setSelected(o.data as AddableId);
-                                setMsg("");
-                                setSaving(false);
-                            }}
-                            contextMenuPositionOptions={{ bMatchWidth: true }}
-                        />
+                    <FullWidthRows
+                        label="Source"
+                        description={available.length > 0 ? DESCRIPTIONS[selected] : "All available sources have been added."}
+                    >
+                        {available.length > 0 ? (
+                            <Dropdown
+                                rgOptions={available.map((s) => ({ data: s.id, label: s.label }))}
+                                selectedOption={selected}
+                                onChange={(o) => {
+                                    setSelected(o.data as AddableId);
+                                    setMsg("");
+                                    setSaving(false);
+                                }}
+                                contextMenuPositionOptions={{ bMatchWidth: true }}
+                            />
+                        ) : (
+                            <div style={{ color: "#8f98a0", fontSize: 13, padding: "8px 0" }}>None left to add</div>
+                        )}
                     </FullWidthRows>
                     {selected === "screenscraper" && (
                         <div>

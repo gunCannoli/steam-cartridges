@@ -24,7 +24,7 @@ function M._reset() state = nil end
 
 --- The onboarding the user has to have seen (ADR-0093). A state written by an older build has a lower `version`: its owner
 --- is asked once whether to run the new onboarding (frontend/settings/panels/library-setup.tsx).
-M.ONBOARDING_VERSION = 2
+M.ONBOARDING_VERSION = 3
 
 --- { done = boolean, onboarded = boolean, at = number | nil, why = string | nil }
 --- `done`: the user gave consent (the first Detect, or a library that already held records). `onboarded`: the user

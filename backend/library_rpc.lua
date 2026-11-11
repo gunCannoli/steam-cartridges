@@ -19,9 +19,14 @@ M.LibraryScan = method("LibraryScan", function(data)
   return library.scan(data.collections)
 end)
 
---- { appid, collections = { names } } -> row. Lookups only; stores the proposal.
+--- { appid, collections = { names }, platform? } -> row. Lookups only; stores the proposal.
 M.LibraryDetect = method("LibraryDetect", function(data)
-  return library.detect(need(data, "appid"), data.collections)
+  return library.detect(need(data, "appid"), data.collections, data.platform)
+end, { user_action = true })
+
+--- { appids = [ number ], collections = { names } } -> { games = [ row ] }. Lookups only; stores proposals.
+M.LibraryDetectAll = method("LibraryDetectAll", function(data)
+  return { games = library.detect_all(type(data.appids) == "table" and data.appids or {}, data.collections) }
 end, { user_action = true })
 
 --- { appid, answer = { yes | no | linked | no_achievements | skip | reset = true }, collections = { names } }

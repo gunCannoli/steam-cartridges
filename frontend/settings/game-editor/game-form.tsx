@@ -19,7 +19,7 @@ import { tint, type RunAction } from "./styles";
 import { Missing } from "./missing";
 
 /** The game `appid`: loads its snapshot, edits a draft, runs every action. Mount it with `key={appid}` to switch game. */
-export function GameForm({ appid, library, single = false }: { appid: number; library: LibraryIssues; single?: boolean }) {
+export function GameForm({ appid, library, single = false, onUpdated }: { appid: number; library: LibraryIssues; single?: boolean; onUpdated?: () => void }) {
     const ctx = usePanelContext();
     const editor = ctx.editor;
     const [ignoredMap] = useSetting("ignoredIssues");
@@ -43,18 +43,32 @@ export function GameForm({ appid, library, single = false }: { appid: number; li
     }, [appid]);
 
     /** Runs one action: `progress` (with Steam's spinner) in the card `from` while it runs, then `done` or the error
-     *  there; then reloads the game and the issues so the form shows what was stored. */
+     *  there; then reloads the game and the issues so the form shows what was stored. If `delayUpdate` is set (e.g. manual
+     *  linking), delays library refresh and parent update by 5 s so the user can see confirmation. */
     const run: RunAction = (work, done, progress, from) => {
         const id = appid;
         setBusy(true);
         setMessage({ text: progress ?? "Working...", error: false, progress: true, from });
         work()
             .then(async (res) => {
-                if (res && res.error) setMessage({ text: res.error, error: true, from });
-                else setMessage({ text: done, error: false, from });
+                if (res && res.error) {
+                    setMessage({ text: res.error, error: true, from });
+                    return;
+                }
+                const msgText = (res as { message?: string } | undefined)?.message ?? done;
+                setMessage({ text: msgText, error: false, from });
                 await ctx.records.refreshAchievements?.(id);
-                await library.refresh();
                 await load(id);
+                const delayMs = (res as { delayUpdate?: boolean } | undefined)?.delayUpdate ? 5000 : 0;
+                if (delayMs > 0) {
+                    setTimeout(async () => {
+                        await library.refresh();
+                        onUpdated?.();
+                    }, delayMs);
+                } else {
+                    await library.refresh();
+                    onUpdated?.();
+                }
             })
             .catch((e) => setMessage({ text: String(e?.message ?? e), error: true, from }))
             .finally(() => setBusy(false));
@@ -109,75 +123,101 @@ export function GameForm({ appid, library, single = false }: { appid: number; li
     return (
         <div style={{ maxWidth: 1600, margin: "0 auto" }}>
             <Blocks>
-                <Card style={tint(issues.length > 0)}>
-                    <Missing on={issues.length > 0}>
-                        <ItemRow>
-                            <Field label={<span style={{ fontSize: 18 }}>{name}</span>} description={summary} bottomSeparator="none" />
-                        </ItemRow>
-                    </Missing>
-                    <ButtonRow
-                        label="Fetch now"
-                        description="Looks the game up again in every source"
-                        buttonLabel="Fetch now"
-                        disabled={busy}
-                        onClick={() => run(() => ctx.ingest.start({ forceAll: true, onlyAppids: [appid], reason: "fetch-now" }), "Looked up again.", "Looking the game up in every source...")}
-                    />
-                    <ButtonRow
-                        label={ignored ? "Stop ignoring" : "Ignore issues"}
-                        description={ignored ? "Puts the game back in the issues list" : "Takes the game off the issues list; nothing else changes"}
-                        buttonLabel={ignored ? "Stop ignoring" : "Ignore"}
-                        disabled={busy || (!ignored && issues.length === 0)}
-                        onClick={() => setIgnored(appid, !ignored)}
-                    />
-                    {statusFor(undefined) && <ActionRow message={statusFor(undefined)} />}
-                </Card>
-                {draft && (
-                    <div style={{ display: "grid", gridTemplateColumns: single ? "minmax(0, 1fr)" : "repeat(auto-fit, minmax(480px, 1fr))", gap: BLOCK_GAP, alignItems: "start" }}>
-                        {column([
-                            <DetailsCard
-                                key="details"
-                                draft={draft}
-                                onChange={setDraft}
-                                errors={errors}
-                                dirty={dirty}
-                                custom={snapshot.custom}
-                                linked={snapshot.linked ? (snapshot.linked.source === "igdb" ? "IGDB" : "ScreenScraper") : undefined}
-                                hasMetadata={snapshot.hasMetadata}
-                                busy={busy}
-                                onSave={() => run(() => editor.save(snapshot.appid, draft), "Saved.", "Saving...", "details")}
-                                onRevert={() => run(() => editor.revert(snapshot.appid), "Reverted to fetched data.", "Fetching the game's data again...", "details")}
-                                status={statusFor("details")}
-                                missing={missing}
-                            />,
-                            <ControllerCard
-                                key="controller"
-                                appid={snapshot.appid}
-                                missing={missing.has("controller")}
-                                onNotice={(text) => {
-                                    setMessage({ text, error: false });
-                                    void library.refresh();
-                                }}
-                            />,
-                            <PlayersCard key="players" draft={draft} onChange={setDraft} />,
-                        ])}
-                        {column([
-                            // The game's achievements on top, then where its data comes from.
-                            <AchievementsCard
-                                key="achievements"
-                                appid={snapshot.appid}
-                                state={library.achievementsOf(snapshot.appid)}
-                                waiting={waiting}
-                                missing={missing.has("achievements")}
-                                busy={busy}
-                                run={run}
-                                status={statusFor("achievements")}
-                            />,
-                            <SteamLink key="steam" snapshot={snapshot} busy={busy} run={run} status={statusFor("steam")} />,
-                            <IgdbLink key="igdb" snapshot={snapshot} busy={busy} run={run} status={statusFor("igdb")} />,
-                            <ScreenscraperLink key="screenscraper" snapshot={snapshot} busy={busy} run={run} status={statusFor("screenscraper")} />,
-                        ])}
-                    </div>
+                {!single && (
+                    <Card style={tint(issues.length > 0)}>
+                        <Missing on={issues.length > 0}>
+                            <ItemRow>
+                                <Field label={<span style={{ fontSize: 18 }}>{name}</span>} description={summary} bottomSeparator="none" />
+                            </ItemRow>
+                        </Missing>
+                        <ButtonRow
+                            label="Fetch now"
+                            description="Looks the game up again in every source"
+                            buttonLabel="Fetch now"
+                            disabled={busy}
+                            onClick={() => run(() => ctx.ingest.start({ forceAll: true, onlyAppids: [appid], reason: "fetch-now" }), "Looked up again.", "Looking the game up in every source...")}
+                        />
+                        <ButtonRow
+                            label={ignored ? "Stop ignoring" : "Ignore issues"}
+                            description={ignored ? "Puts the game back in the issues list" : "Takes the game off the issues list; nothing else changes"}
+                            buttonLabel={ignored ? "Stop ignoring" : "Ignore"}
+                            disabled={busy || (!ignored && issues.length === 0)}
+                            onClick={() => setIgnored(appid, !ignored)}
+                        />
+                        {statusFor(undefined) && <ActionRow message={statusFor(undefined)} />}
+                    </Card>
                 )}
+                {draft && (() => {
+                    const detailsCard = (
+                        <DetailsCard
+                            key="details"
+                            draft={draft}
+                            onChange={setDraft}
+                            errors={errors}
+                            dirty={dirty}
+                            custom={snapshot.custom}
+                            linked={snapshot.linked ? (snapshot.linked.source === "igdb" ? "IGDB" : "ScreenScraper") : undefined}
+                            hasMetadata={snapshot.hasMetadata}
+                            busy={busy}
+                            onSave={() => run(() => editor.save(snapshot.appid, draft), "Saved.", "Saving...", "details")}
+                            onRevert={() => run(() => editor.revert(snapshot.appid), "Reverted to fetched data.", "Fetching the game's data again...", "details")}
+                            status={statusFor("details")}
+                            missing={missing}
+                        />
+                    );
+                    const controllerCard = (
+                        <ControllerCard
+                            key="controller"
+                            appid={snapshot.appid}
+                            missing={missing.has("controller")}
+                            onNotice={(text) => {
+                                setMessage({ text, error: false });
+                                void library.refresh();
+                            }}
+                        />
+                    );
+                    const playersCard = <PlayersCard key="players" draft={draft} onChange={setDraft} />;
+                    const achievementsCard = (
+                        <AchievementsCard
+                            key="achievements"
+                            appid={snapshot.appid}
+                            state={library.achievementsOf(snapshot.appid)}
+                            waiting={waiting}
+                            missing={missing.has("achievements")}
+                            busy={busy}
+                            run={run}
+                            status={statusFor("achievements")}
+                        />
+                    );
+                    const sourceLinks = [
+                        <SteamLink key="steam" snapshot={snapshot} busy={busy} run={run} status={statusFor("steam")} />,
+                        <IgdbLink key="igdb" snapshot={snapshot} busy={busy} run={run} status={statusFor("igdb")} />,
+                        <ScreenscraperLink key="screenscraper" snapshot={snapshot} busy={busy} run={run} status={statusFor("screenscraper")} />,
+                    ];
+
+                    if (single) {
+                        const noMatch = !snapshot.hasMetadata || !snapshot.linked;
+                        const missingAch = missing.has("achievements");
+                        const singleCards = noMatch
+                            ? [...sourceLinks, achievementsCard, detailsCard, controllerCard, playersCard]
+                            : missingAch
+                              ? [achievementsCard, detailsCard, ...sourceLinks, controllerCard, playersCard]
+                              : [detailsCard, controllerCard, playersCard, achievementsCard, ...sourceLinks];
+
+                        return (
+                            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: BLOCK_GAP, alignItems: "start" }}>
+                                {column(singleCards)}
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(480px, 1fr))", gap: BLOCK_GAP, alignItems: "start" }}>
+                            {column([detailsCard, controllerCard, playersCard])}
+                            {column([achievementsCard, ...sourceLinks])}
+                        </div>
+                    );
+                })()}
                 <Card>
                     <ButtonRow
                         label="Delete metadata"

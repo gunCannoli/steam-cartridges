@@ -42,6 +42,10 @@ export interface PanelContext {
         onProgress(fn: (p: SyncProgress) => void): () => void;
         trigger(delayMs?: number, reason?: string): void;
         start(opts?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void>;
+        markStale(reason: string): void;
+        staleCount(): number;
+        onStaleChange(fn: (count: number) => void): () => void;
+        resetStale(): void;
     };
     records: {
         achievementsOf(appid: number): { nAchieved: number; nTotal: number } | undefined;
@@ -58,7 +62,7 @@ export interface PanelContext {
     /** Opens a dialog in its own window, as big as the screen (steam/modal.ts; ADR-0076): the settings window is narrow. */
     /** `from`: the window the user clicked in (its screen sizes the popup, and the popup opens over it). `scale`: the share
      *  of the screen it takes (the Library Setup window: 0.6, plan Q4); the whole screen when left out. */
-    dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window, scale?: number): void };
+    dialog: { open(element: ReactElement, title: string, onClose?: () => void, from?: Window, scale?: number | { width?: number; height?: number }): void };
     /** Library Setup (ADR-0086): structural copy of app/library-setup.ts (settings never import app/). */
     setup: {
         isDone(): Promise<boolean | undefined>;
@@ -69,10 +73,18 @@ export interface PanelContext {
         forgetConsent(): void;
         finish(info: { skipped: boolean; step?: number; pending?: number }): Promise<void>;
         scan(): Promise<{ games: SetupGame[]; platforms: SetupPlatform[]; error?: string }>;
-        detect(appid: number): Promise<SetupGame>;
+        detect(appid: number, platform?: string): Promise<SetupGame>;
+        detectAll(
+            appids: number[],
+            onProgress?: (done: number, total: number, name?: string) => void,
+            onChunk?: (rows: SetupGame[]) => void,
+        ): Promise<SetupGame[]>;
         validate(appid: number, answer: SetupAnswer): Promise<SetupGame & { fetchError?: string }>;
         /** Confirm every proposed game at once; the confirmed games are then fetched. */
-        validateAll(appids: number[], onProgress?: (done: number, total: number) => void): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
+        validateAll(
+            appids: number[],
+            onProgress?: (done: number, total: number, phase?: "confirming" | "fetching", name?: string) => void,
+        ): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
     };
     editor: {
         load(appid: number): Promise<EditorSnapshot>;
@@ -103,7 +115,16 @@ const INERT: PanelContext = {
         serviceAllowed: () => true,
         reloadProfiles: async () => {},
     },
-    ingest: { progress: () => EMPTY_PROGRESS, onProgress: () => () => {}, trigger: () => {}, start: async () => {} },
+    ingest: {
+        progress: () => EMPTY_PROGRESS,
+        onProgress: () => () => {},
+        trigger: () => {},
+        start: async () => {},
+        markStale: () => {},
+        staleCount: () => 0,
+        onStaleChange: () => () => {},
+        resetStale: () => {},
+    },
     records: { achievementsOf: () => undefined },
     controller: { load: async () => {}, inferredFor: () => undefined, refresh: () => {} },
     dialog: { open: () => {} },
@@ -117,6 +138,7 @@ const INERT: PanelContext = {
         finish: async () => {},
         scan: async () => ({ games: [], platforms: [], error: 'not ready' }),
         detect: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
+        detectAll: async () => [],
         validate: async (appid) => ({ appid, name: String(appid), error: 'not ready' }),
         validateAll: async () => ({ confirmed: [], skipped: 0, failed: {} }),
     },

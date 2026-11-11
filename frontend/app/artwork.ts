@@ -59,6 +59,9 @@ export function createArtwork(deps: ArtworkDeps): ArtworkResolver {
                 if (!key || !url) return;
                 const image = await deps.fetchImage(url, slot === 2).catch(() => null);
                 if (image) deps.images.put(appid, key, image);
+                // A logo is optional: many Steam apps (a store page with no logo asset, e.g. an unreleased game) have none,
+                // so its 404 is an answer, not a fault. Any other slot missing is still a warning.
+                else if (slot === 2) logger.info(`Artwork ${appid}: no logo on the source (the other slots are unaffected)`);
                 else logger.warn(`Artwork ${appid}: ${key} image not fetched`);
             }),
         );

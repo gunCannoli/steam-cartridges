@@ -113,9 +113,11 @@ SaveSettings = SETTINGS_RPC.SaveSettings
 ResetPluginData = RESET_RPC.ResetPluginData
 DeleteGameMetadata = RESET_RPC.DeleteGameMetadata
 ClientLog = LOG_RPC.ClientLog
+SetSignedInAccount = LOG_RPC.SetSignedInAccount
 
 LibraryScan   = LIBRARY_RPC.LibraryScan
 LibraryDetect = LIBRARY_RPC.LibraryDetect
+LibraryDetectAll = LIBRARY_RPC.LibraryDetectAll
 ValidateGame  = LIBRARY_RPC.ValidateGame
 ValidateAllProposed = LIBRARY_RPC.ValidateAllProposed
 
@@ -231,6 +233,13 @@ local function on_load()
     plog.event("startup", string.format("shortcuts file: %s (%s); entries=%d, without an appid of their own=%d%s",
       tostring(sp), okf and there and "found" or "NOT FOUND", #list, derived,
       read_err and ("; READ ERROR: " .. read_err) or ""))
+    -- Which of Steam's own files looked wrong (a custom, portable or emulated install): counts and yes/no only. Each odd
+    -- finding is its own WARN line so a report shows it without the reporter sending any file.
+    pcall(function()
+      local line, odd = steam_paths.diagnosis()
+      plog.event("startup", line)
+      for _, what in ipairs(odd) do logger:warn("[startup] steam folders: " .. what) end
+    end)
   end
 
   -- What the plugin holds from earlier runs (counts only, never a title, id or value): a report answers
@@ -315,8 +324,8 @@ local function late_startup_reports()
       if port then
         local r = ports.unlock_report(port)
         plog.event("startup", string.format(
-          "native port %s: unlock files known places=%d present=%d (first at place %d), found by name=%d, read=%d, unlocks=%d",
-          tostring(port.def.id), r.known, r.present, r.first, r.found_by_name, r.parsed, r.unlocks))
+          "native port %s: unlock files known places=%d present=%d (first at place %d), found by name=%d, read=%d (%d bytes), unlocks=%d",
+          tostring(port.def.id), r.known, r.present, r.first, r.found_by_name, r.parsed, r.bytes or 0, r.unlocks))
       end
     end
   end)

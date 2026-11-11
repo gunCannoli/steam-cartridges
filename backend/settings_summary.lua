@@ -100,8 +100,8 @@ function M.lines(values)
   local buckets = type(values.buckets) == "table" and values.buckets or {}
   return {
     "sources: " .. table.concat(parts, ", "),
-    string.format("options: full-controller=%s, hardcore=%s, activity(added=%s,first=%s,achievements=%s), community(trailers=%s,manuals=%s,artworks=%s,links=%s), media-cache-days=%s, controller-overrides=%d, ignored-issues=%d, kill-switches=%s",
-      onoff(values.defaultFullController), onoff(values.raHardcoreMode),
+    string.format("options: full-controller=%s, hardcore=%s, game-info-open=%s, activity(added=%s,first=%s,achievements=%s), community(trailers=%s,manuals=%s,artworks=%s,links=%s), media-cache-days=%s, controller-overrides=%d, ignored-issues=%d, kill-switches=%s",
+      onoff(values.defaultFullController), onoff(values.raHardcoreMode), onoff(values.showGameInfoByDefault),
       onoff(values.activityShowAddedToLibrary), onoff(values.activityShowFirstPlayed), onoff(values.activityShowAchievements),
       onoff(values.communityShowTrailers), onoff(values.communityShowManuals), onoff(values.communityShowArtworks), onoff(values.communityShowExternalLinks),
       number_or(values.mediaCacheDays), count_keys(values.controllerOverrides), count_true(values.ignoredIssues),

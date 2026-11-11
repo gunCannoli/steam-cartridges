@@ -124,23 +124,54 @@ export function SliderRow({
 }
 
 /** A number on the right of a row (the Library Analytics counts). `warn` colours it when it asks for attention. */
-export function StatRow({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+export function StatRow({
+    label,
+    value,
+    warn,
+    onClick,
+}: {
+    label: string;
+    value: number;
+    warn?: boolean;
+    onClick?: () => void;
+}) {
+    const [hover, setHover] = useState(false);
     return (
         <ItemRow>
             <Field label={label}>
-                <span style={{ fontWeight: 700, color: warn && value > 0 ? "#e5a00d" : undefined }}>{value}</span>
+                <span
+                    onClick={onClick}
+                    onMouseEnter={() => setHover(true)}
+                    onMouseLeave={() => setHover(false)}
+                    title={onClick ? "Click to view games" : undefined}
+                    style={{
+                        fontWeight: 700,
+                        color: warn && value > 0 ? "#e5a00d" : hover && onClick ? "#ffffff" : undefined,
+                        cursor: onClick ? "pointer" : undefined,
+                        background: onClick && hover ? "rgba(255, 255, 255, 0.15)" : onClick ? "rgba(255, 255, 255, 0.07)" : undefined,
+                        padding: onClick ? "3px 10px" : undefined,
+                        borderRadius: onClick ? "4px" : undefined,
+                        border: onClick ? "1px solid rgba(255, 255, 255, 0.12)" : undefined,
+                        boxShadow: onClick && hover ? "0 0 6px rgba(255, 255, 255, 0.2)" : undefined,
+                        transition: "all 0.15s ease",
+                        userSelect: "none",
+                        display: "inline-block",
+                    }}
+                >
+                    {value}
+                </span>
             </Field>
         </ItemRow>
     );
 }
 
 /** A row's small icon button (remove, edit, info). One fixed size, so different glyphs line up. */
-export function IconButton({ onClick, title, children }: { onClick: () => void; title?: string; children: React.ReactNode }) {
+export function IconButton({ onClick, title, children, style }: { onClick: () => void; title?: string; children: React.ReactNode; style?: React.CSSProperties }) {
     return (
         <DialogButton
             onClick={onClick}
             title={title}
-            style={{ padding: 0, minWidth: 0, width: "40px", fontSize: "14px", lineHeight: "normal" }}
+            style={{ padding: 0, minWidth: 0, width: "40px", fontSize: "14px", lineHeight: "normal", ...style }}
         >
             {children}
         </DialogButton>
@@ -290,7 +321,7 @@ export function Overlay({ on, color, edge, children }: { on: boolean; color: str
 /** The eye of the password field: open while the password is shown, crossed out while it is hidden. */
 function EyeIcon({ open }: { open: boolean }) {
     return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
             <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
             <circle cx="12" cy="12" r="3" />
             {!open && <path d="M3 3l18 18" />}
@@ -325,19 +356,145 @@ export function TextRows({
     return (
         <ItemRow>
             <Field label={label} description={description} disabled={disabled} childrenLayout="below" childrenContainerWidth="max" bottomSeparator="none">
-                <div style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: CONTROL_GAP, marginBottom: description ? -(STEAM_TRAILING - 16) : -STEAM_TRAILING }}>
+                <div
+                    className={`cartridges-input-track${password ? " has-trailing" : ""}`}
+                    style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "stretch",
+                        gap: 0,
+                        minHeight: "38px",
+                    }}
+                >
+                    <style>{`
+                        .cartridges-input-track .DialogInput_Wrapper {
+                            width: 100% !important;
+                            max-width: 100% !important;
+                            flex: 1 1 auto !important;
+                            min-width: 0 !important;
+                            display: flex !important;
+                            align-items: stretch !important;
+                        }
+                        .cartridges-input-track .DialogInput_Wrapper > input.DialogInput {
+                            width: 100% !important;
+                            max-width: 100% !important;
+                            min-height: 38px !important;
+                            height: auto !important;
+                            box-sizing: border-box !important;
+                            padding: 8px 12px !important;
+                            line-height: normal !important;
+                        }
+                        .cartridges-input-track.has-trailing .DialogInput_Wrapper > input.DialogInput {
+                            border-top-right-radius: 0 !important;
+                            border-bottom-right-radius: 0 !important;
+                        }
+                    `}</style>
                     {/* `-webkit-text-security` masks the text whatever the TextField does with `bIsPassword` (it showed the typed text in a popup window). */}
-                    <div style={{ flex: 1, minWidth: 0, ...(hidden ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : {}) }}>
-                        <TextField value={value} bIsPassword={hidden} disabled={disabled} onChange={(e) => onChange(e.target.value)} onKeyDown={onKeyDown} />
+                    <div
+                        style={{
+                            flex: "1 1 auto",
+                            minWidth: 0,
+                            display: "flex",
+                            width: "100%",
+                            ...(hidden ? ({ WebkitTextSecurity: "disc" } as React.CSSProperties) : {}),
+                        }}
+                    >
+                        <TextField
+                            value={value}
+                            bIsPassword={hidden}
+                            disabled={disabled}
+                            onChange={(e) => onChange(e.target.value)}
+                            onKeyDown={onKeyDown}
+                            style={{
+                                width: "100%",
+                                maxWidth: "100%",
+                                minHeight: "38px",
+                                height: "auto",
+                                padding: "8px 12px",
+                                lineHeight: "normal",
+                                boxSizing: "border-box",
+                                borderTopRightRadius: password ? 0 : "3px",
+                                borderBottomRightRadius: password ? 0 : "3px",
+                            }}
+                        />
                     </div>
                     {password && (
-                        <IconButton onClick={() => setShown(!shown)} title={shown ? "Hide" : "Show"}>
+                        <DialogButton
+                            onClick={() => setShown(!shown)}
+                            title={shown ? "Hide" : "Show"}
+                            style={{
+                                flex: "0 0 auto",
+                                margin: 0,
+                                padding: 0,
+                                minWidth: "40px",
+                                width: "40px",
+                                minHeight: "38px",
+                                height: "auto",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                boxSizing: "border-box",
+                                borderTopLeftRadius: 0,
+                                borderBottomLeftRadius: 0,
+                                borderTopRightRadius: "3px",
+                                borderBottomRightRadius: "3px",
+                                borderLeft: "1px solid rgba(255, 255, 255, 0.08)",
+                                fontSize: "14px",
+                                lineHeight: "normal",
+                            }}
+                        >
                             <EyeIcon open={shown} />
-                        </IconButton>
+                        </DialogButton>
                     )}
                 </div>
             </Field>
         </ItemRow>
+    );
+}
+
+/**
+ * Clean native select styled like Steam's DialogDropDown.
+ * Completely immune to modal portal, z-index, or context menu event interception issues.
+ */
+export function Select({
+    options,
+    value,
+    onChange,
+    disabled,
+    style,
+}: {
+    options: Array<{ value: string; label: string }>;
+    value: string;
+    onChange: (val: string) => void;
+    disabled?: boolean;
+    style?: React.CSSProperties;
+}) {
+    return (
+        <select
+            value={value}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.value)}
+            style={{
+                width: "100%",
+                backgroundColor: "rgba(59, 63, 72, 0.5)",
+                color: "#dfe3e6",
+                border: "1px solid rgba(255, 255, 255, 0.15)",
+                borderRadius: "3px",
+                padding: "8px 12px",
+                fontSize: "14px",
+                height: "38px",
+                outline: "none",
+                cursor: disabled ? "not-allowed" : "pointer",
+                boxSizing: "border-box",
+                ...style,
+            }}
+        >
+            {options.map((opt) => (
+                <option key={opt.value} value={opt.value} style={{ background: "#1b2838", color: "#dfe3e6" }}>
+                    {opt.label}
+                </option>
+            ))}
+        </select>
     );
 }
 

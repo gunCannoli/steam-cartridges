@@ -29,6 +29,7 @@ M.deps = {
                              -- M.screenscraper_to_metadata; fun(appid, title, shortcut_info) -> meta|nil
   igdb_fetch = nil,       -- nil = igdb.fetch_game_metadata
   igdb_by_id = nil,       -- fun(appid, igdb_id, title) -> meta|nil, err ; nil = igdb.fetch_by_id (a linked game's refresh)
+  igdb_batch = nil,       -- fun(items) -> { [appid] = meta } ; nil = igdb.fetch_by_ids
   screenscraper_by_id = nil, -- fun(appid, ss_id, title) -> meta|nil, err ; nil = screenscraper_media.jeu_by_id, mapped
   appdetails_fetch = nil, -- nil = appdetails.fetch
   web_creds = nil,          -- fun() -> { igdb = bool, screenscraper = bool } ; nil = the accounts on disk (web_config, no network)
@@ -583,6 +584,30 @@ function M.link_screenscraper(s_appid, ss_id, title, preview)
   metadata_db.set(s_appid, meta, true)
   require("fresh_policy").touch(s_appid, "metadata", now_ms())
   return { ok = true, metadata = meta }
+end
+
+--- Link multiple shortcuts to IGDB in a single batched query and store their Game Info.
+---@param items table { { appid = number, igdb_id = number, raw_title? = string }, ... }
+---@return table<number, table> map of appid -> metadata
+function M.link_igdb_batch(items)
+  if type(items) ~= "table" or #items == 0 then return {} end
+  local fetch_fn = M.deps.igdb_batch or igdb.fetch_by_ids
+  local metas = fetch_fn(items)
+  local now = now_ms()
+  local fresh = require("fresh_policy")
+  local out = {}
+  if type(metas) == "table" then
+    for _, it in ipairs(items) do
+      local meta = metas[it.appid]
+      if meta then
+        meta.linked, meta.custom_override = { source = "igdb", id = tonumber(it.igdb_id) }, false
+        metadata_db.set(it.appid, meta, true)
+        fresh.touch(it.appid, "metadata", now)
+        out[it.appid] = meta
+      end
+    end
+  end
+  return out
 end
 
 return M

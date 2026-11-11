@@ -29,13 +29,13 @@ local jeu_cache = {}
 ---@param name string|nil  a title to search by when there is no ROM file name
 ---@return table|nil jeu
 ---@return string|nil err  "no-credentials" | "request-failed" | "not-found"
-function M.fetch_jeu(appid, rom_path, system_id, crc, md5, name)
-  if not appid then return nil, "not-found" end
-  if jeu_cache[appid] then return jeu_cache[appid] end
+function M.put_jeu(appid, jeu)
+  if appid then jeu_cache[appid] = jeu end
+end
 
+function M.jeu_url(appid, rom_path, system_id, crc, md5, name)
   local creds = config.get_screenscraper_credentials()
   if not creds or (creds.dev_user == "" and creds.user == "") then
-    -- Fail silently if no ScreenScraper credentials configured (ADR-0014)
     return nil, "no-credentials"
   end
 
@@ -67,6 +67,15 @@ function M.fetch_jeu(appid, rom_path, system_id, crc, md5, name)
   if md5 and #md5 > 0 then
     url = url .. "&md5=" .. utils.url_encode(md5)
   end
+  return url
+end
+
+function M.fetch_jeu(appid, rom_path, system_id, crc, md5, name)
+  if not appid then return nil, "not-found" end
+  if jeu_cache[appid] then return jeu_cache[appid] end
+
+  local url, uerr = M.jeu_url(appid, rom_path, system_id, crc, md5, name)
+  if not url then return nil, uerr or "no-credentials" end
 
   local ok, res = pcall(net.get, url, {
     source = "screenscraper",

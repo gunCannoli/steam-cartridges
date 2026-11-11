@@ -8,13 +8,13 @@ import { asList } from "../kernel/lists.ts";
 import type { backend as Backend, SetupAnswer, SetupGame, SetupPlatform } from "../ports/backend";
 
 export interface LibrarySetupDeps {
-    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "validateGame" | "validateAllProposed">;
+    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "libraryDetectAll" | "validateGame" | "validateAllProposed">;
     /** Every shortcut in the library. */
     shortcuts(): { appid: number }[];
     /** The names of the Steam collections a shortcut is in (app/routing). */
     collectionsOf(appid: number): string[];
     /** Fetch these games now (app/ingest, a per-game run). */
-    fetchGames(appids: number[]): Promise<void>;
+    fetchGames(appids: number[], onProgress?: (done: number, total: number, name?: string) => void): Promise<void>;
     /** Forget every saved setting (settings.ts): the "start from zero" of the new-onboarding prompt. */
     resetSettings(): Promise<void>;
 }
@@ -54,11 +54,20 @@ export interface LibrarySetup {
     /** Every shortcut with its verdict and its answer or proposal. Offline. */
     scan(): Promise<LibraryScanResult>;
     /** Look one game up; stores only the proposal. Marks setup done the first time. */
-    detect(appid: number): Promise<SetupGame>;
+    detect(appid: number, platform?: string): Promise<SetupGame>;
+    /** Look a batch of games up in parallel chunks; stores proposals. Marks setup done the first time. */
+    detectAll(
+        appids: number[],
+        onProgress?: (done: number, total: number, name?: string) => void,
+        onChunk?: (rows: SetupGame[]) => void,
+    ): Promise<SetupGame[]>;
     /** Store the user's answer; a Yes or a manual link then fetches the game. */
     validate(appid: number, answer: SetupAnswer): Promise<ValidatedGame>;
     /** Confirm every proposed game at once; the confirmed games are then fetched. Answered games and games with nothing proposed are skipped, never clobbered. */
-    validateAll(appids: number[], onProgress?: (done: number, total: number) => void): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
+    validateAll(
+        appids: number[],
+        onProgress?: (done: number, total: number, phase?: "confirming" | "fetching", name?: string) => void,
+    ): Promise<{ confirmed: number[]; skipped: number; failed: Record<string, string>; fetchError?: string }>;
 }
 
 /**
@@ -68,7 +77,15 @@ export interface LibrarySetup {
  * failed chunk throws while the earlier chunks stand (the backend call is idempotent: answered games are
  * skipped, so clicking again resumes where it stopped).
  */
-export const VALIDATE_ALL_CHUNK = 10;
+export const VALIDATE_ALL_CHUNK = 25;
+export const DETECT_ALL_CHUNK = 5;
+
+/** First batches ramp up (5, then 10, then 25) so users see prompt progress without feeling stuck. */
+export function validateChunkSize(at: number): number {
+    if (at === 0) return 5;
+    if (at < 15) return 10;
+    return VALIDATE_ALL_CHUNK;
+}
 
 /** Lua sends an empty list as `{}`: the window reads plain arrays. */
 function normalize(row: SetupGame): SetupGame {
@@ -148,10 +165,32 @@ export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {
             };
         },
 
-        async detect(appid) {
+        async detect(appid, platform) {
             await markDone();
-            const row = await deps.backend.libraryDetect(appid, deps.collectionsOf(appid));
+            const row = await (platform !== undefined
+                ? deps.backend.libraryDetect(appid, deps.collectionsOf(appid), platform)
+                : deps.backend.libraryDetect(appid, deps.collectionsOf(appid)));
             return { ...normalize(row), collections: deps.collectionsOf(appid) };
+        },
+
+        async detectAll(appids, onProgress, onChunk) {
+            await markDone();
+            const collections: Record<string, string[]> = {};
+            for (const id of appids) {
+                const names = deps.collectionsOf(id);
+                if (names.length > 0) collections[String(id)] = names;
+            }
+            const out: SetupGame[] = [];
+            for (let at = 0; at < appids.length; at += DETECT_ALL_CHUNK) {
+                const chunk = appids.slice(at, at + DETECT_ALL_CHUNK);
+                const res = await deps.backend.libraryDetectAll(chunk, collections);
+                if (res?.error) throw new Error(res.error);
+                const rows = asList<SetupGame>(res?.games).map((g) => ({ ...normalize(g), collections: deps.collectionsOf(g.appid) }));
+                out.push(...rows);
+                onChunk?.(rows);
+                onProgress?.(Math.min(at + chunk.length, appids.length), appids.length, rows[rows.length - 1]?.name);
+            }
+            return out;
         },
 
         async validate(appid, answer) {
@@ -175,21 +214,24 @@ export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {
             const confirmed: number[] = [];
             let skipped = 0;
             const failed: Record<string, string> = {};
-            for (let at = 0; at < appids.length; at += VALIDATE_ALL_CHUNK) {
-                const chunk = appids.slice(at, at + VALIDATE_ALL_CHUNK);
+            onProgress?.(0, appids.length, "confirming");
+            for (let at = 0; at < appids.length;) {
+                const size = validateChunkSize(at);
+                const chunk = appids.slice(at, at + size);
                 const res = await deps.backend.validateAllProposed(chunk);
                 if (res?.error) throw new Error(res.error);
                 confirmed.push(...asList<number>(res?.confirmed));
                 skipped += res?.skipped ?? 0;
                 Object.assign(failed, res?.failed ?? {});
-                onProgress?.(Math.min(at + chunk.length, appids.length), appids.length);
+                at += chunk.length;
+                onProgress?.(Math.min(at, appids.length), appids.length, "confirming");
             }
             const out = { confirmed, skipped, failed };
             if (confirmed.length === 0) return out;
             // The games are the user's now: fetch them in one run (as one Yes fetches one game).
             try {
                 await markDone();
-                await deps.fetchGames(confirmed);
+                await deps.fetchGames(confirmed, (done, total, name) => onProgress?.(done, total, "fetching", name));
             } catch (e) {
                 logger.warn(`Library Setup: ${confirmed.length} validated, their fetch failed:`, e);
                 return { ...out, fetchError: String((e as Error)?.message ?? e) };

@@ -10,13 +10,19 @@
 import { logger } from "../logger.ts";
 import type { ShortcutId } from "../kernel/appid";
 import type { Identity, OwnedCandidate, Part, Route, SyncProgress } from "../kernel/record";
-import type { backend as Backend } from "../ports/backend";
+import type { backend as Backend, SetupGame } from "../ports/backend";
 import { asList } from "../kernel/lists.ts";
+import { askOf } from "../domain/library-setup.ts";
 
 export interface IngestDeps {
-    backend: Pick<typeof Backend, "getNewShortcuts" | "markKnown" | "ensureFresh" | "getSetupState">;
+    backend: Pick<typeof Backend, "getNewShortcuts" | "markKnown" | "ensureFresh" | "getSetupState"> & {
+        logEvent?(tag: string, message: string): void;
+        libraryScan?(collections: Record<string, string[]>): Promise<{ games?: unknown; platforms?: unknown; error?: string }>;
+    };
     /** Every shortcut in the library (the full-sync source). */
     shortcuts(): { appid: number; name: string }[];
+    /** The names of the Steam collections a shortcut is in (app/routing). */
+    collectionsOf?(appid: number): string[];
     /** Routing inputs are loaded (auto-routing profiles, collections). */
     ready(): Promise<void>;
     routeOf(appid: ShortcutId): Route;
@@ -49,6 +55,10 @@ export interface Ingest {
     startSync(options?: { forceAll?: boolean; onlyAppids?: number[]; reason?: string }): Promise<void>;
     /** Debounced startSync(): queued whenever settings or rules change. */
     triggerSync(delayMs?: number, reason?: string): void;
+    markStale(reason: string): void;
+    staleCount(): number;
+    onStaleChange(fn: (count: number) => void): () => void;
+    resetStale(): void;
     getSyncProgress(): SyncProgress;
     onSyncProgress(fn: (p: SyncProgress) => void): () => void;
 }
@@ -70,9 +80,35 @@ export function createIngest(deps: IngestDeps): Ingest {
     let progress: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: "", phase: "idle", failed: 0 };
     const listeners = new Set<(p: SyncProgress) => void>();
     let running = false;
+    let staleCounter = 0;
+    const staleListeners = new Set<(count: number) => void>();
     /** Runs requested while one was running, merged into one follow-up (scope is kept, not dropped). */
     let pending: { forceAll: boolean; only: Set<number> | null; waiters: (() => void)[]; reason: string } | null = null;
     let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    function markStale(reason: string): void {
+        staleCounter++;
+        deps.backend.logEvent?.("ingest", `trigger suppressed (${reason})`);
+        deps.report?.(`trigger suppressed (${reason})`);
+        for (const l of staleListeners) {
+            try {
+                l(staleCounter);
+            } catch (e) {
+                logger.warn("stale listener threw:", e);
+            }
+        }
+    }
+
+    function resetStale(): void {
+        staleCounter = 0;
+        for (const l of staleListeners) {
+            try {
+                l(staleCounter);
+            } catch (e) {
+                logger.warn("stale listener threw:", e);
+            }
+        }
+    }
 
     function setProgress(update: Partial<SyncProgress>): void {
         progress = { ...progress, ...update };
@@ -175,6 +211,43 @@ export function createIngest(deps: IngestDeps): Ingest {
         const force = options?.forceAll === true;
         try {
             await deps.ready();
+
+            // Startup is strictly count-only (ADR-0086, plan § 1 decision 6): reads shortcuts, applies rules, reports counts, fetches nothing.
+            if (reason === "startup") {
+                const all = deps.shortcuts();
+                const inScope = all.filter((s) => deps.isAllowed(s.appid as ShortcutId));
+                const n = all.length;
+                const a = inScope.length;
+                const b = n - a;
+                let c = 0;
+                let d = 0;
+                if (deps.backend.libraryScan) {
+                    const collections: Record<string, string[]> = {};
+                    if (deps.collectionsOf) {
+                        for (const s of all) {
+                            const names = deps.collectionsOf(s.appid);
+                            if (names?.length) collections[String(s.appid)] = names;
+                        }
+                    }
+                    const scan = await deps.backend.libraryScan(collections).catch(() => undefined);
+                    const gamesMap = new Map((scan?.games ? asList<SetupGame>(scan.games) : []).map((g) => [g.appid, g]));
+                    for (const s of inScope) {
+                        const g = gamesMap.get(s.appid);
+                        if (g && askOf(g) === "done") d++;
+                        else c++;
+                    }
+                } else if (deps.needsFetch) {
+                    for (const s of inScope) {
+                        if (deps.needsFetch(s.appid as ShortcutId)) c++;
+                        else d++;
+                    }
+                } else {
+                    c = a;
+                }
+                deps.report?.(`startup: ${n} detected, ${a} in scope, ${b} out, ${c} need you, ${d} set up`);
+                setProgress({ isSyncing: false, phase: "idle", total: 0, current: 0, failed: 0 });
+                return;
+            }
 
             // Library Setup (ADR-0086): until the user has run it nothing is fetched, and no game is marked known (it
             // would drop out of the "new games" count unfetched). An answer we cannot read is no gate (fail open).
@@ -293,6 +366,13 @@ export function createIngest(deps: IngestDeps): Ingest {
                 void startSync({ reason });
             }, delayMs);
         },
+        markStale,
+        staleCount: () => staleCounter,
+        onStaleChange(fn) {
+            staleListeners.add(fn);
+            return () => staleListeners.delete(fn);
+        },
+        resetStale,
         getSyncProgress: () => progress,
         onSyncProgress(fn) {
             listeners.add(fn);

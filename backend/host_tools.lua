@@ -57,8 +57,19 @@ local tools = {}
 ---@param name string
 ---@return boolean
 function M.has(name)
-  if is_windows() or type(name) ~= "string" or not name:match("^[%w_%-]+$") then return false end
-  if tools[name] == nil then tools[name] = run("command -v " .. name .. " >/dev/null 2>&1") and true or false end
+  if type(name) ~= "string" or not name:match("^[%w_%-]+$") then return false end
+  if tools[name] == nil then
+    if is_windows() then
+      local root = (require("platform").getenv("SystemRoot") or ""):gsub("\\", "/")
+      if root ~= "" then
+        local f = io.open(root .. "/System32/" .. name .. ".exe", "rb")
+        if f then f:close() tools[name] = true return true end
+      end
+      tools[name] = false
+    else
+      tools[name] = run("command -v " .. name .. " >/dev/null 2>&1") and true or false
+    end
+  end
   return tools[name]
 end
 

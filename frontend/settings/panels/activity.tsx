@@ -1,4 +1,4 @@
-// Settings: Activity Feed (migration plan M8c, moved verbatim).
+// Settings: General (Game Info start) and the Activity Feed cards (migration plan M8c).
 import { PanelSection } from "@steambrew/client";
 import { useSetting } from "../settings";
 import { Blocks, ToggleRow } from "../components";
@@ -8,6 +8,7 @@ import { Blocks, ToggleRow } from "../components";
 // ===========================================================================
 
 export function ActivitySection() {
+    const [showInfo, setShowInfo] = useSetting("showGameInfoByDefault");
     const [showAdded, setShowAdded] = useSetting("activityShowAddedToLibrary");
     const [showFirstPlayed, setShowFirstPlayed] = useSetting(
         "activityShowFirstPlayed",
@@ -15,24 +16,30 @@ export function ActivitySection() {
     const [showAchievements, setShowAchievements] = useSetting("activityShowAchievements");
 
     return (
-        <PanelSection title="Activity Feed">
+        <PanelSection title="General">
             <Blocks>
                 <>
                     <ToggleRow
+                        label="Show Game Info"
+                        description="Open Game Info on every game's page. Off: it stays behind the info button, like Steam's own games"
+                        value={showInfo}
+                        onChange={setShowInfo}
+                    />
+                    <ToggleRow
                         label="Added to Library"
-                        description="Card when game is added to library"
+                        description="Activity feed card when a game is added to the library"
                         value={showAdded}
                         onChange={setShowAdded}
                     />
                     <ToggleRow
                         label="First Time Played"
-                        description="Card when game is played for first time"
+                        description="Activity feed card when a game is played for the first time"
                         value={showFirstPlayed}
                         onChange={setShowFirstPlayed}
                     />
                     <ToggleRow
                         label="Achievements"
-                        description="Card for each day achievements were unlocked, from every source"
+                        description="Activity feed card for each day achievements were unlocked, from every source"
                         value={showAchievements}
                         onChange={setShowAchievements}
                     />
