@@ -160,6 +160,9 @@ const surfaceDeps: SurfaceDeps = {
     reportError: (id, err) => features.reportError(id as FeatureId, err),
 };
 
+/** One line to the plugin log, for a surface that must not hold a backend call itself (architecture test, ADR-0044). */
+const logToPlugin = (tag: string, message: string): void => backend.logEvent(tag, message);
+
 /** The one surface runner (plan § 4.4): installs each surface in isolation, in registration order. */
 const runner = createSurfaceRunner({
     isEnabled: surfaceDeps.isEnabled,
@@ -956,7 +959,7 @@ async function init() {
         }),
     );
     // A Cartridge page in a shortcut's Properties dialog: the game's editable data, in the dialog (surfaces/properties, ADR-0080).
-    runner.register(createPropertiesSurface({ ...surfaceDeps, body: CartridgeBody }));
+    runner.register(createPropertiesSurface({ ...surfaceDeps, body: CartridgeBody, log: logToPlugin }));
     // Custom artwork slots and logo position for mapped games (surfaces/artwork, plan M3.9).
     runner.register(
         createArtworkSurface({ ...surfaceDeps, images, bus }),

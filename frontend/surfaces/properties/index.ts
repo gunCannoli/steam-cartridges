@@ -15,10 +15,13 @@ import type { Surface, SurfaceDeps } from "../../kernel/surface";
 import { keepJsxPatched } from "../../steam/jsx-hook";
 import { jsxRuntime } from "../../steam/modules";
 import { appidOfLink, CARTRIDGE_ROUTE, shortcutPages, type PageEntry } from "./core";
+import { PageBoundary } from "./boundary";
 
 export interface PropertiesDeps extends SurfaceDeps {
     /** The page body for a game (an opaque component; the surface never knows what it does). */
     body: ComponentType<{ appid: number }>;
+    /** Writes one `[tag] message` line to the plugin log (counts and error text only). */
+    log?: (tag: string, message: string) => void;
 }
 
 const ID = "properties";
@@ -39,6 +42,9 @@ function wrapperFor(type: object): ComponentType<{ pages: PageEntry[] }> {
     if (!wrapper) {
         const original = type as unknown as ComponentType<{ pages: PageEntry[] }>;
         wrapper = function CartridgeSidebar(props: { pages: PageEntry[] }) {
+            // React calls a component with no props to build a component stack when something else threw: not a render,
+            // and never an error of ours (0.7.3.1-debug log: four fake `reading 'pages'` errors used up the error budget).
+            if (!props || typeof props !== "object") return null;
             try {
                 const appid = appidOfLink(props.pages[0]?.link ?? "");
                 if (appid !== undefined && deps.isEnabled(ID) && shortcutPages(props)) {
@@ -46,7 +52,7 @@ function wrapperFor(type: object): ComponentType<{ pages: PageEntry[] }> {
                         title: "Cartridge",
                         route: CARTRIDGE_ROUTE,
                         link: `/app/${props.pages[0]!.link.split("/")[2]}/properties/cartridge`,
-                        content: createElement("div", { className: "DialogBody" }, createElement(deps.body, { appid })),
+                        content: createElement("div", { className: "DialogBody" }, createElement(PageBoundary, { appid, log: deps.log }, createElement(deps.body, { appid }))),
                     };
                     added++;
                     return createElement(original, { ...props, pages: [...props.pages, page] });

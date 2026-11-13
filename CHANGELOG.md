@@ -7,6 +7,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.2-debug] - 2026-11-13
+
+A debug build for a crash while searching Steam to link a game by hand (Properties > Cartridge). The window now stays
+open if the Cartridge page fails, and the log says why: please send the top of `steam-cartridges.log` and any
+`[properties]` and `[link-search]` lines after trying a search (a title with a typo, so the list comes back empty, is
+the case that failed).
+
+### Fixed
+
+- Searching Steam to link a game could end with Properties closing or going blank. The Cartridge page now sits inside
+  its own safety net: if it fails to draw, you see "The Cartridge page hit a problem" with a Try again button, and
+  the rest of the Properties window keeps working.
+- A failure elsewhere on that page made React probe our Properties wrapper with no data, which counted as four
+  errors of ours and brought the Cartridge page close to being switched off for the session. That probe is ignored now.
+- A search that fails to run shows "The search could not run. Try again." instead of an unhandled error.
+
+### Added
+
+- Log lines `[properties] Cartridge page failed to render: ...` (error text and the top of the component stack) and
+  `[link-search] search started / answered / threw` (counts and error text only, never the title typed).
+
 ## [0.7.3.1-debug] - 2026-11-13
 
 A debug build for the start-up crash some users see with steam-non-steam-playtimes installed. Its log says, step by step,

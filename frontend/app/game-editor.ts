@@ -59,7 +59,7 @@ export interface GameEditor {
 }
 
 export interface GameEditorDeps {
-    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbLink" | "screenscraperLink" | "deleteGameMetadata">;
+    backend: Pick<typeof Backend, "saveCustomMetadata" | "clearCustomMetadata" | "steamStoreSearchCandidates" | "steamStoreGetMapping" | "igdbLink" | "screenscraperLink" | "deleteGameMetadata" | "logEvent">;
     records: RecordStore;
     ensureBase(appid: ShortcutId): void;
     titleOf(appid: number): string | undefined;
@@ -140,8 +140,18 @@ export function createGameEditor(deps: GameEditorDeps): GameEditor {
         },
 
         async search(term) {
-            const res = await deps.backend.steamStoreSearchCandidates(term);
-            return { candidates: res.candidates ?? [], error: res.error };
+            // Sensor (0.7.3.2-debug): counts and the error text only, never the title typed.
+            const log = (m: string) => deps.backend.logEvent?.("link-search", m);
+            log(`search started: term length ${term.trim().length}`);
+            try {
+                const res = await deps.backend.steamStoreSearchCandidates(term);
+                const n = Array.isArray(res?.candidates) ? res.candidates.length : -1;
+                log(`search answered: ${n} candidate(s), error=${res?.error ? String(res.error).slice(0, 120) : "none"}`);
+                return { candidates: Array.isArray(res?.candidates) ? res.candidates : [], error: res?.error };
+            } catch (err) {
+                log(`search threw: ${String(err).slice(0, 200)}`);
+                return { candidates: [], error: "The search could not run. Try again." };
+            }
         },
 
         async link(appid, steamAppid, name) {
