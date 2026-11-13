@@ -53,6 +53,7 @@ export function createGameInfoSurface(
         showByDefault(): boolean;
         descriptionMaxLength?(): number;
         playtimeOf?(appid: number): PlaytimeEntry | undefined;
+        playtimeAdopt?(appid: number, steam: { minutes: number; last_played: number }): void;
         hideOtherPlaytime?(): boolean;
     },
 ): Surface {
@@ -62,6 +63,7 @@ export function createGameInfoSurface(
     deps.showByDefault = d.showByDefault;
     if (d.descriptionMaxLength) deps.descriptionMaxLength = d.descriptionMaxLength;
     if (d.playtimeOf) deps.playtimeOf = d.playtimeOf;
+    if (d.playtimeAdopt) deps.playtimeAdopt = d.playtimeAdopt;
     if (d.hideOtherPlaytime) deps.hideOtherPlaytime = d.hideOtherPlaytime;
     return {
         id: "game-info",

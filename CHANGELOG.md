@@ -21,6 +21,9 @@ what the play-time import did; please send the top of `steam-cartridges.log` aft
 
 ### Fixed
 
+- Properties > Cartridge showed 0 for a game whose page showed Steam's own play time (e.g. 70 minutes). Steam loads a
+  game's play time only when its page opens, after the plugin had looked at start. The plugin now takes Steam's count
+  when the game's page or its Properties open, so both show the same total and new sessions add to it.
 - With steam-non-steam-playtimes installed, the plugin could stop at every Steam start ("stopped unexpectedly",
   0xC0000005) right after reading that plugin's play times, so the one-time import never finished and ran again at
   the next start. The import now checks each value in that plugin's file before reading it, skips entries it cannot use

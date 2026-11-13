@@ -31,6 +31,8 @@ export interface PanelContext {
         enabled(): boolean;
         /** steam-non-steam-playtimes is loaded (Track Playtime's "Automatic" then leaves the job to it). */
         otherLoaded?(): boolean;
+        /** Seed the game from Steam's own count when we track nothing for it yet (app/playtime adopt). */
+        adopt?(appid: number): Promise<PlaytimeEntry | undefined>;
         of(appid: number): PlaytimeEntry | undefined;
         set(appid: number, minutes: number): Promise<PlaytimeEntry | undefined>;
     };

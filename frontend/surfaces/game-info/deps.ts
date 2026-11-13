@@ -12,10 +12,13 @@ export const deps: SurfaceDeps & {
     descriptionMaxLength(): number;
     /** A shortcut's tracked playtime when the Track Playtime setting is on (app/playtime), else undefined: Steam's own. */
     playtimeOf(appid: number): PlaytimeEntry | undefined;
+    /** No tracked entry yet but Steam's details carry a count: seed it (app/playtime adopt), so every view agrees. */
+    playtimeAdopt(appid: number, steam: { minutes: number; last_played: number }): void;
     /** Remove the steam-non-steam-playtimes plugin's injected play-bar stats (ours show in Steam's own components). */
     hideOtherPlaytime(): boolean;
 } = {
     playtimeOf: () => undefined,
+    playtimeAdopt: () => {},
     hideOtherPlaytime: () => false,
     showByDefault: () => false,
     descriptionMaxLength: () => 360,

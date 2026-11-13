@@ -34,6 +34,13 @@ export interface Playtime {
     /** Set a game's total by hand (Properties > Cartridge). */
     setMinutes(appid: number, minutes: number): Promise<PlaytimeEntry | undefined>;
     /**
+     * Seed one game we have nothing for from Steam's own count, once Steam knows it: Steam loads a shortcut's details (its
+     * count) only when its page opens, so start() can miss it (2026-11-13: Metroid Fusion's page said 70 min, Properties >
+     * Cartridge said 0). `steam` is the count the caller just read (the play bar); without it the sensor is asked. Resolves
+     * to the game's entry, or undefined when Steam has no count either.
+     */
+    adopt(appid: number, steam?: { minutes: number; last_played: number }): Promise<PlaytimeEntry | undefined>;
+    /**
      * Import what the steam-non-steam-playtimes plugin recorded (per game name) for the games we have nothing for. Returns
      * how many games were added; names that match no shortcut, or more than one, are left out.
      */
@@ -70,8 +77,14 @@ export function createPlaytime(d: PlaytimeDeps): Playtime {
         });
     }
 
+    let loaded = false;
+    const adopting = new Map<number, Promise<PlaytimeEntry | undefined>>();
+    /** Seeds that did not land: not asked again this session (the play bar asks on every render; changed() re-renders). */
+    const gaveUp = new Set<number>();
+
     async function reload(): Promise<void> {
         const all = (await d.load()) ?? {};
+        loaded = true;
         totals.clear();
         for (const [k, e] of Object.entries(all)) if (e) totals.set(Number(k), e);
     }
@@ -110,6 +123,36 @@ export function createPlaytime(d: PlaytimeDeps): Playtime {
             const e = await d.set(appid, Math.max(0, Math.round(minutes)));
             put(appid, e);
             return e;
+        },
+        adopt(appid, steam) {
+            if (!d.enabled() || !loaded) return Promise.resolve(undefined);
+            const have = totals.get(appid);
+            if (have) return Promise.resolve(have);
+            const inflight = adopting.get(appid);
+            if (inflight) return inflight;
+            if (gaveUp.has(appid)) return Promise.resolve(undefined);
+            const fromSensor = d.steamCounts().find((s) => s.appid === appid);
+            const minutes = Math.round(steam?.minutes ?? fromSensor?.minutes ?? 0);
+            const last = steam?.last_played ?? fromSensor?.lastPlayed ?? 0;
+            if (!(minutes > 0)) return Promise.resolve(undefined);
+            const job = (async () => {
+                try {
+                    const added = await d.seed([{ appid, minutes, last_played: last, source: "steam" }]);
+                    await reload();
+                    if (added) d.log(`playtime: seeded 1 game from Steam's own count once its page loaded`);
+                    const entry = totals.get(appid);
+                    if (!entry) gaveUp.add(appid);
+                    else d.changed(appid);
+                    return entry;
+                } catch (err) {
+                    gaveUp.add(appid);
+                    throw err;
+                } finally {
+                    adopting.delete(appid);
+                }
+            })();
+            adopting.set(appid, job);
+            return job;
         },
         async importByName(games) {
             await reload(); // what we already track is never replaced

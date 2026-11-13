@@ -179,7 +179,16 @@ const detailsProxies = new WeakMap<object, { key: string; proxy: object }>();
 function withPlaytime(details: any, appid: unknown): any {
     if (!details || typeof details !== "object") return details;
     const p = deps.playtimeOf(Number(appid));
-    if (!p) return details;
+    if (!p) {
+        // Steam's details carry its own count for the game (loaded only once its page opens): adopt it, so Properties >
+        // Cartridge and later sessions start from what this play bar shows. Shown as Steam's until the seed lands.
+        const minutes = Number(details.nPlaytimeForever);
+        if (Number.isFinite(minutes) && minutes > 0) {
+            const last = Number(details.rtLastTimePlayed);
+            deps.playtimeAdopt(Number(appid), { minutes, last_played: Number.isFinite(last) ? last : 0 });
+        }
+        return details;
+    }
     const key = `${p.minutes}:${p.last_played}`;
     const cached = detailsProxies.get(details);
     if (cached && cached.key === key) return cached.proxy;

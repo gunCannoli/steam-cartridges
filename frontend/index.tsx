@@ -620,6 +620,8 @@ const playtime = createPlaytime({
 /** For CDP checks: the tracked totals and the running sessions. */
 export const playtimeDiagnostics = () => ({ on: playtimeOn(), mode: setting("playtimeMode"), oldPluginLoaded: oldPlaytimePluginLoaded(), running: playtime.running() });
 export const playtimeOf = (appid: number) => playtime.of(appid);
+/** For CDP checks: seed one game from Steam's own count (what Properties > Cartridge does on open). */
+export const playtimeAdopt = (appid: number) => playtime.adopt(appid);
 
 /**
  * The one-time import of steam-non-steam-playtimes' sessions, the first time ours is active. One line per step (counts
@@ -766,6 +768,7 @@ async function init() {
         playtime: {
             enabled: playtimeOn,
             otherLoaded: oldPlaytimePluginLoaded,
+            adopt: (appid) => playtime.adopt(appid),
             of: (appid) => playtime.of(appid),
             set: (appid, minutes) => playtime.setMinutes(appid, minutes),
         },
@@ -986,6 +989,7 @@ async function init() {
             showByDefault: () => setting("showGameInfoByDefault") === true,
             descriptionMaxLength: () => (setting("descriptionMaxLength") as number) || 360,
             playtimeOf: (appid) => playtime.of(appid),
+            playtimeAdopt: (appid, steam) => void playtime.adopt(appid, steam).catch(() => undefined),
             hideOtherPlaytime: () => playtimeOn() && oldPlaytimePluginLoaded(),
         }),
     );

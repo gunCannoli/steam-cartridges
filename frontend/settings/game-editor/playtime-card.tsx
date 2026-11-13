@@ -15,9 +15,22 @@ export function PlaytimeCard({ appid }: { appid: number }) {
     const [status, setStatus] = useState<string | undefined>();
 
     useEffect(() => {
+        let live = true;
         const e = api?.of(appid);
         setEntry(e);
         setText(formatHours(e?.minutes ?? 0));
+        // Nothing tracked yet: start from Steam's own count, the number the game's page shows (2026-11-13: it said 70 min
+        // while this card said 0).
+        if (!e && api?.adopt) {
+            void api.adopt(appid).then((adopted) => {
+                if (!live || !adopted) return;
+                setEntry(adopted);
+                setText(formatHours(adopted.minutes));
+            });
+        }
+        return () => {
+            live = false;
+        };
     }, [appid]);
 
     if (!api?.enabled()) return null;
