@@ -3,6 +3,8 @@ import { isShortcutAppId } from "../../kernel/appid";
 import type { AchievementSet } from "../../kernel/record";
 import { deps } from "./deps";
 import { simpleEvent } from "./synthetic-event";
+import { canRender, hardenEvent, looksLikeSteamDay, makeDay } from "./activity-shapes";
+import { seedShortcutStoreItem } from "../../steam/query-client";
 import { achievementDays, type ActivityAchievementDay } from "./achievement-days";
 import { achievementIcon } from "../../steam/achievement-icon";
 import {
@@ -62,47 +64,6 @@ function getCommunityIconUrl(appid: number, overview: any): string {
     return "";
 }
 
-function createActivityDay(dayBegin: number): AppActivityDay {
-    const eventsList: any[] = [];
-    return {
-        m_rtDayBegin: dayBegin,
-        get dayBegin() {
-            return this.m_rtDayBegin;
-        },
-        set dayBegin(v: number) {
-            this.m_rtDayBegin = v;
-        },
-        m_rgEvents: eventsList,
-        get events() {
-            return this.m_rgEvents.filter((e: any) => e.BIsValid());
-        },
-        BHasEvents() {
-            return this.events.length > 0;
-        },
-        get isValid() {
-            return this.events.length > 0;
-        },
-        GetLatestEventTime() {
-            return this.m_rgEvents.length
-                ? this.m_rgEvents[0].rtEventTime
-                : this.m_rtDayBegin;
-        },
-        GetEarliestEventTime() {
-            return this.m_rgEvents.length
-                ? this.m_rgEvents[this.m_rgEvents.length - 1].rtEventTime
-                : this.m_rtDayBegin;
-        },
-        SortEvents() {
-            this.m_rgEvents.sort(
-                (a: any, b: any) => (b.rtEventTime ?? 0) - (a.rtEventTime ?? 0),
-            );
-        },
-        AddEvent(e: any) {
-            this.m_rgEvents.push(e);
-        },
-    };
-}
-
 /**
  * The Per-Day Activity Feed API.
  *
@@ -151,14 +112,34 @@ export function setAchievementSource(appid: number, set: AchievementSet | undefi
 
 /** Steam's own CAppActivity class, once an entry Steam made has been seen this session. */
 let steamActivityClass: (new (appid: number) => AppActivity) | undefined;
+/** Steam's own day class (CActivityDay), once a day Steam made has been seen this session (activity-shapes.ts). */
+let steamDayClass: (new () => any) | undefined;
+/** Remember Steam's day class from any of its days; logs the first sighting. */
+function rememberDayClass(days: Iterable<unknown>): void {
+    if (steamDayClass) return;
+    for (const d of days) {
+        if (!looksLikeSteamDay(d)) continue;
+        steamDayClass = (d as object).constructor as new () => any;
+        deps.report?.("Steam activity day class seen: shortcut feeds use it from now on");
+        return;
+    }
+}
+/** The store-item seed's last result, so the log says it once per change (guardrail 17.2). */
+let lastSeed: string | undefined;
+
 /** The methods our stand-in (the literal in publishActivity) defines, for the gap sensor. */
 const STAND_IN_METHODS = new Set([
     "MergeUserNews",
     "MergeGameActivity",
     "GetNewestActivityTime",
+    "GetOldestActivityTime",
     "GetAchievementMapCache",
+    "RestoreAchievementMapFromCache",
     "GetUserNewsCache",
     "GetGameActivityCache",
+    "GetActivityCache",
+    "LoadDetails",
+    "SortEvents",
     "BHasEvents",
 ]);
 let standInNoted = false;
@@ -195,6 +176,39 @@ function noteStandIn(): void {
     if (standInNoted) return;
     standInNoted = true;
     deps.report?.("stand-in activity entry used: Steam has made no activity entry of its own yet this session");
+}
+
+/** The entry we last published per shortcut: Steam's store must not replace it (guardActivityMap). */
+const publishedEntry = new Map<number, unknown>();
+let guardedMap: unknown;
+const replaceBlocked = new Set<number>();
+
+/**
+ * Keep a shortcut's published entry in Steam's activity map. Opening the page makes Steam restore and fetch activity for the
+ * appid; its MergeLatestActivityFromServer (Steam 1794424036) holds the entry it read before the network call and writes it
+ * back afterwards, so Steam's empty entry replaced the feed we published in between ("There's no recent activity"). Only
+ * shortcuts we published are kept, and only against a different object; native apps are untouched.
+ */
+function guardActivityMap(store: AppActivityStore): void {
+    const map = store.m_mapAppActivity as any;
+    if (!map || guardedMap === map || typeof map.set !== "function") return;
+    guardedMap = map;
+    const set = map.set;
+    map.set = function (key: number, value: unknown) {
+        try {
+            const ours = publishedEntry.get(key);
+            if (ours !== undefined && value !== ours && isShortcutAppId(key)) {
+                if (!replaceBlocked.has(key)) {
+                    replaceBlocked.add(key);
+                    deps.report?.(`feed for game ${key}: Steam tried to replace the published entry, kept ours`);
+                }
+                return this;
+            }
+        } catch {
+            /* fail open: Steam's own write goes through */
+        }
+        return set.apply(this, arguments as any);
+    };
 }
 
 /** What the feed last published per app, so an unchanged feed writes nothing (guardrail 17.2). */
@@ -234,7 +248,7 @@ function achievementEvent(appid: number, day: ActivityAchievementDay, actor: unk
     ev.BSupportsCommentThreads = () => false;
     ev.BUserCanDelete = () => false;
     ev.GetActiveCommentThread = () => null;
-    return ev;
+    return hardenEvent(ev);
 }
 
 /**
@@ -487,31 +501,62 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
     // a request for an appid the server does not know).
     appActivity.m_bNoMoreHistoryAvailable = true;
     appActivity.m_mapActivityByDay.clear();
+    // Steam must not write a shortcut's feed into its activity cache (SaveActivity -> GetActivityCache, 2026-11): the
+    // feed is rebuilt by every publish, and our made-up events have no protobuf cache entries to give.
+    (appActivity as any).GetActivityCache = () => [];
+    if (!CAppActivity) {
+        // The rest of what Steam's 2026-11 CAppActivity has and its store calls (RestoreActivity, LoadDetailsAndSave).
+        const a = appActivity as any;
+        a.m_rtOldestActivityTime = 4294967295;
+        a.m_rtNewestActivityTime = 0;
+        a.GetOldestActivityTime = () => a.m_rtOldestActivityTime;
+        a.LoadDetails = async () => false;
+        a.RestoreAchievementMapFromCache = () => {};
+        a.SortEvents = () => {};
+    }
 
-    const getOrCreateDay = (dayBegin: number): AppActivityDay => {
-        let day = appActivity.m_mapActivityByDay.get(dayBegin);
-        if (!day) {
-            day = createActivityDay(dayBegin);
-            appActivity.m_mapActivityByDay.set(dayBegin, day);
-        }
-        if (!Array.isArray(day.m_rgEvents)) day.m_rgEvents = [];
-        return day;
+    // 1b. Steam 1794424036 reads the store item from React Query, not StoreItemCache: a shortcut's item must be there and
+    // visible, or every event renders nothing and the feed shows empty day headings (query-client.ts).
+    const seed = seedShortcutStoreItem(appid, displayName);
+    if (seed !== lastSeed) {
+        lastSeed = seed;
+        deps.report?.(
+            seed === "ok"
+                ? "store item for shortcut feeds: seeded in Steam's query cache"
+                : "store item for shortcut feeds: Steam's query client not found, events may render as empty days",
+        );
+    }
+
+    // Events per local day, then one day object each (activity-shapes.ts makeDay: Steam's own day class when seen).
+    const byDay = new Map<number, any[]>();
+    const dayEvents = (dayBegin: number): any[] => {
+        let list = byDay.get(dayBegin);
+        if (!list) byDay.set(dayBegin, (list = []));
+        return list;
     };
+    rememberDayClass(nativeDays.map(([, d]) => d));
+    if (!steamDayClass) {
+        for (const e of actStore.m_mapAppActivity.values()) {
+            if (e?.m_mapActivityByDay instanceof Map && e.constructor !== Object) rememberDayClass(e.m_mapActivityByDay.values());
+            if (steamDayClass) break;
+        }
+    }
 
     // 4. Native news and friend events for a mapped shortcut (parity plan D): Steam's
     // own event objects, added to the same local day as the rest.
     let nativeEvents = 0;
     for (const [nativeKey, nativeDay] of nativeDays) {
-        const day = getOrCreateDay(getLocalMidnight(nativeKey));
-        for (const event of [...(nativeDay.m_rgEvents ?? [])]) {
-            day.m_rgEvents.push(event);
+        const list = dayEvents(getLocalMidnight(nativeKey));
+        for (const event of [...((nativeDay as any).allEvents ?? nativeDay.m_rgEvents ?? [])]) {
+            if (!canRender(event)) continue;
+            list.push(event);
             nativeEvents++;
         }
     }
 
     // 5. Achievements (ADR-0056): one "achieved" event per day with unlocks, from the record's part.
     for (const d of achDays) {
-        getOrCreateDay(d.day).m_rgEvents.push(achievementEvent(appid, d, currentSteamID));
+        dayEvents(d.day).push(achievementEvent(appid, d, currentSteamID));
     }
     const achievementCount = achDays.reduce((n, d) => n + d.items.length, 0);
 
@@ -522,25 +567,20 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
         const { addedTime, firstPlayedTime, hasPlayEvidence, evidence } = await playTimeline(appid, gameid, overview, showFirstPlayed);
         if (showFirstPlayed) firstPlayedWhy = `${hasPlayEvidence && firstPlayedTime ? "shown" : "left out, no play evidence"} (${evidence})`;
         if (showAdded && addedTime) {
-            getOrCreateDay(getLocalMidnight(addedTime)).m_rgEvents.push(
-                simpleEvent(V, appid, 3, `added_${appid}_${addedTime}`, addedTime, currentSteamID),
+            dayEvents(getLocalMidnight(addedTime)).push(
+                hardenEvent(simpleEvent(V, appid, 3, `added_${appid}_${addedTime}`, addedTime, currentSteamID)),
             );
             syntheticCount++;
         }
         if (showFirstPlayed && hasPlayEvidence && firstPlayedTime) {
-            getOrCreateDay(getLocalMidnight(firstPlayedTime)).m_rgEvents.push(
-                simpleEvent(V, appid, 30, `played_${appid}_${firstPlayedTime}`, firstPlayedTime, currentSteamID),
+            dayEvents(getLocalMidnight(firstPlayedTime)).push(
+                hardenEvent(simpleEvent(V, appid, 30, `played_${appid}_${firstPlayedTime}`, firstPlayedTime, currentSteamID)),
             );
             syntheticCount++;
         }
     }
 
-    // Sort events in each day chronologically descending
-    for (const day of appActivity.m_mapActivityByDay.values()) {
-        if (Array.isArray(day.m_rgEvents)) {
-            day.m_rgEvents.sort((a: any, b: any) => (b.rtEventTime ?? 0) - (a.rtEventTime ?? 0));
-        }
-    }
+    for (const [dayBegin, list] of byDay) appActivity.m_mapActivityByDay.set(dayBegin, makeDay(steamDayClass, dayBegin, list));
 
     // Hand Steam the new object only when the feed changed (guardrail 17.2): same native events, unlocks and
     // synthetic events -> nothing is written, nothing re-renders.
@@ -551,6 +591,8 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
     ]);
     const previous = actStore.m_mapAppActivity.get(appid);
     if (publishedSignature.get(appid) !== signature || !(previous?.m_mapActivityByDay instanceof Map)) {
+        guardActivityMap(actStore);
+        publishedEntry.set(appid, appActivity);
         actStore.m_mapAppActivity.set(appid, appActivity);
         publishedSignature.set(appid, signature);
         // Only on a change (guardrail 17.2 holds for the log too): what the feed shows, and why a part is missing.
@@ -577,6 +619,7 @@ export function clearActivity(appid: number): void {
     publishedSignature.delete(appid);
     const actStore = appActivityStore();
     if (actStore) {
+        publishedEntry.delete(appid);
         actStore.m_mapAppActivity.delete(appid);
     }
 

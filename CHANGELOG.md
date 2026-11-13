@@ -7,6 +7,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3-beta] - 2026-11-13
+
+No 0.7.2-beta was released; this follows 0.7.1-beta.
+
+### Added
+
+- **Captured Activity (Settings > General, off by default).** Your screenshots and recordings show as "{Username} captured" cards in every game's Activity feed, Steam games included. This was the separate Steam Captured Activity plugin; it is now part of Steam Cartridges. It stays off until you turn it on, and while the old plugin is installed Steam Cartridges leaves the job to it so nothing shows twice.
+- **Play time for non-Steam games (Settings > General > Track Playtime).** Steam Cartridges counts how long you play each non-Steam game and shows it in Steam's own Play Time and Last Played on the game page. The time is kept in its own file, so refreshing a game's details never resets it, and you can change it in Properties > Cartridge. If you used the Non-Steam Playtimes plugin, its times (including ones you set by hand) are imported once and its own copy on the game page is hidden.
+- **Game Info edits save themselves.** In the game editor (Library Setup step 4 and Properties), a changed field is saved when you leave it or press Enter, so adding a missing developer no longer needs a Save click (the button stays). The Description field now says it is stored in full and shown shortened on the game page (Settings > General).
+
+### Fixed
+
+- **Activity feed on the current Steam client (1794424036).** A Steam-linked game's Activity section showed "An error occurred while rendering this content", and every other game's days were empty headings: "Added to library", "Played for the first time", achievements and linked news did not appear. They show again. The feed now uses Steam's own day objects when it can, answers both the old and new questions Steam asks of an event, tells Steam's new store-item lookup that the game is visible, and keeps Steam's background refresh from replacing the feed with an empty one.
+- **Achievements section on the current Steam client (1794424036).** The game page's Achievements section (desktop and Big Picture) and "View My Achievements" were empty for non-Steam games: Steam now reads achievements from a new source. The plugin fills it, so your unlocks, locked achievements and global percentages show again.
+- **Big Picture achievement counts and other plugins' Reset Achievements after a Steam update.** Steam can throw away its saved achievement progress when it updates; the plugin now waits for Steam to rebuild it and then writes your non-Steam games' progress, and gives other plugins the progress directly.
+- **No error page when Steam opens a linked Steam game you do not own.** It now goes to the Library home, as Steam does for an unknown game.
+- **The description length setting is a limit.** A description now ends at the last sentence that fits, or at the last word with "...", and never runs past the length you set (it used to take the nearest sentence end, which could be 50 characters longer). Moving the slider updates the open game pages without a restart.
+- **Your Steam account is found at start on current Steam clients.** Steam no longer marks the last-used account in its login file, so the plugin guessed from the newest folder until Steam reported who is signed in, and logged a warning about it. It now reads the sign-in time Steam writes, and converts the account number exactly (a rounding error could name an account folder that does not exist).
+- **No Steam account number in Millennium's console.** The start-up line now says how the account was found, not which one.
+
 ## [0.7.1-beta] - 2026-11-11
 
 Consolidates the withdrawn 0.7.0-beta and the fixes after it.

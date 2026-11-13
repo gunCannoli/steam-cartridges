@@ -169,6 +169,63 @@ export function applyGameInfoDefault(): void {
     }
 }
 
+/**
+ * Steam's own Play Time and Last Played stats (the play bar's GameStatsSection: `Ie` reads details.nPlaytimeForever, `ht`
+ * details.rtLastTimePlayed; Steam 1794424036) with a shortcut's tracked playtime (app/playtime). A Proxy over Steam's details,
+ * not a copy: every other field, and MobX's tracking of them, stays Steam's. Steam's stores are never written, so Steam's own
+ * details refresh cannot undo it. No tracked entry: Steam's details as they are.
+ */
+const detailsProxies = new WeakMap<object, { key: string; proxy: object }>();
+function withPlaytime(details: any, appid: unknown): any {
+    if (!details || typeof details !== "object") return details;
+    const p = deps.playtimeOf(Number(appid));
+    if (!p) return details;
+    const key = `${p.minutes}:${p.last_played}`;
+    const cached = detailsProxies.get(details);
+    if (cached && cached.key === key) return cached.proxy;
+    const proxy = new Proxy(details, {
+        get(target, prop, receiver) {
+            if (prop === "nPlaytimeForever") return p.minutes;
+            if (prop === "rtLastTimePlayed" && p.last_played > 0) return p.last_played;
+            return Reflect.get(target, prop, receiver === proxy ? target : receiver);
+        },
+    });
+    detailsProxies.set(details, { key, proxy });
+    return proxy;
+}
+
+/**
+ * The steam-non-steam-playtimes plugin injects its own copy of these stats into the play bar, with a <style> that hides
+ * Steam's own while its copy is in the page. With ours on, its nodes are removed whenever it adds them (it re-adds on
+ * every page and heartbeat). One observer per window document; it does nothing once the setting is off.
+ */
+const observedDocs = new WeakSet<Document>();
+function hideOtherPlaytime(): void {
+    if (!deps.hideOtherPlaytime()) return;
+    try {
+        const windows = (globalThis as any).SteamUIStore?.WindowStore?.SteamUIWindows ?? [];
+        for (const w of windows) {
+            const doc: Document | undefined = w?.BrowserWindow?.document;
+            if (!doc?.body || observedDocs.has(doc)) continue;
+            observedDocs.add(doc);
+            const sweep = () => doc.querySelectorAll("[data-nsp]").forEach((n) => n.remove());
+            sweep();
+            new MutationObserver((records) => {
+                if (!deps.hideOtherPlaytime()) return;
+                for (const r of records) {
+                    for (const n of r.addedNodes) {
+                        if (n.nodeType === 1 && (n as Element).hasAttribute("data-nsp")) {
+                            (n as Element).remove();
+                        }
+                    }
+                }
+            }).observe(doc.body, { childList: true, subtree: true });
+        }
+    } catch (err) {
+        deps.reportError("playbar", err);
+    }
+}
+
 export function patchPlayBar(): void {
     patchGameInfoStart();
     const targetPlayBar = resolveOnce<any>(
@@ -193,7 +250,9 @@ export function patchPlayBar(): void {
                     this.props = {
                         ...this.props,
                         overview: createPatchedOverview(overview),
+                        details: withPlaytime(this.props?.details, overview.appid),
                     };
+                    hideOtherPlaytime();
                 }
             } catch (err) {
                 deps.reportError("playbar", err); // fail-open (plan § 7.0 D6)

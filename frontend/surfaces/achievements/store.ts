@@ -5,7 +5,8 @@ import { isShortcutAppId, toUnsigned } from "../../kernel/appid";
 import type { AchievementSchemaRecord, AchievementUnlockRecord } from "../../kernel/record";
 import type { SurfaceDeps } from "../../kernel/surface";
 import type { SteamAppAchievements } from "../../steam/achievement-types";
-import { buildAchievementProgress, buildSteamAchievements, getAchievementsAction } from "./core";
+import { buildAchievementProgress, buildAchievementQueries, buildSteamAchievements, getAchievementsAction } from "./core";
+import { onPinGivenUp, pinQueryData } from "../../steam/query-client";
 import { resolveSingleton } from "../../steam/modules";
 import { achievementIcon } from "../../steam/achievement-icon";
 
@@ -285,6 +286,111 @@ export function ensureAchievementsStoreHooked(): boolean {
 }
 
 /**
+ * Steam's progress cache (`appAchievementProgressCache.m_achievementProgress.mapCache`). Steam 1794424036 discards it when its
+ * file version changes and builds a new one only on the first game whose progress something asks for, so for a while (a
+ * whole session, seen 2026-11-12) there is no map to write to. Entries wait here and go in once Steam has built it.
+ */
+const pendingProgress = new Map<number, [number, SteamAppAchievements]>();
+let progressTimer: ReturnType<typeof setTimeout> | undefined;
+let progressWaitNoted = false;
+
+function progressMap(): Map<number, unknown> | undefined {
+    const m = (window as any).appAchievementProgressCache?.m_achievementProgress?.mapCache;
+    return m && typeof m.set === "function" ? m : undefined;
+}
+
+function writeProgress(rawId: number, signedId: number, achievements: SteamAppAchievements): void {
+    const cache = progressMap();
+    if (!cache) {
+        pendingProgress.set(rawId, [signedId, achievements]);
+        if (!progressWaitNoted) {
+            progressWaitNoted = true;
+            logger.info("Steam's achievement progress cache is not built yet; shortcut progress waits for it.");
+        }
+        if (!progressTimer) {
+            const retry = () => {
+                progressTimer = undefined;
+                if (!progressMap()) {
+                    progressTimer = setTimeout(retry, 10_000);
+                    return;
+                }
+                const waiting = [...pendingProgress.entries()];
+                pendingProgress.clear();
+                for (const [raw, [signed, a]] of waiting) writeProgress(raw, signed, a);
+                logger.info(`Steam built its achievement progress cache: ${waiting.length} shortcut entr${waiting.length === 1 ? "y" : "ies"} written.`);
+            };
+            progressTimer = setTimeout(retry, 10_000);
+        }
+        return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const unsignedEntry = buildAchievementProgress(achievements, rawId, now);
+    const signedEntry = buildAchievementProgress(achievements, signedId, now);
+    if (unsignedEntry && signedEntry) {
+        cache.set(rawId, unsignedEntry);
+        cache.set(signedId, signedEntry);
+    }
+}
+
+let querySeedState: string | undefined;
+// The query pins' loop brake reports here (a [render] warn line; the steamid in a key is masked).
+onPinGivenUp((key) =>
+    logger.warn(`query ${key.replace(/\d{15,}/g, "<steamid>")}: Steam kept replacing our data, stopped re-pinning it (loop brake)`),
+);
+/** Shortcuts waiting for the signed-in user (the start-up preload runs before login): pinned once a steamid exists. */
+const pendingQueries = new Map<number, [number, SteamAppAchievements]>();
+let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The signed-in user's 64-bit id as Steam's achievement queries key it, once logged in. */
+function currentSteamId(): string | undefined {
+    try {
+        const id = (window as any).friendStore?.currentUserSteamID?.ConvertTo64BitString?.();
+        return typeof id === "string" && id !== "0" && id !== "" ? id : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/** Write a shortcut's achievements into Steam's achievement queries, for the unsigned and the signed appid. */
+function pinAchievementQueries(rawId: number, signedId: number, achievements: SteamAppAchievements): void {
+    const steamid = currentSteamId();
+    let clients = 0;
+    if (!steamid) {
+        pendingQueries.set(rawId, [signedId, achievements]);
+        // Retry until login (every 2 s, at most 5 minutes), then pin every waiting shortcut at once.
+        if (!pendingTimer) {
+            let tries = 0;
+            const retry = () => {
+                pendingTimer = undefined;
+                if (!currentSteamId()) {
+                    if (++tries < 150) pendingTimer = setTimeout(retry, 2000);
+                    return;
+                }
+                const waiting = [...pendingQueries.entries()];
+                pendingQueries.clear();
+                for (const [raw, [signed, a]] of waiting) pinAchievementQueries(raw, signed, a);
+            };
+            pendingTimer = setTimeout(retry, 2000);
+        }
+    } else {
+        for (const id of rawId === signedId ? [rawId] : [rawId, signedId]) {
+            const q = buildAchievementQueries(id, steamid, achievements);
+            clients = pinQueryData(["achievements", id, "schema"], q.schema, ["achievements", id]);
+            pinQueryData(["achievements", id, "globalpercentages"], q.percentages);
+            pinQueryData(["achievements", id, "user_achievements", steamid], q.user);
+        }
+    }
+    // Once per change of state (guardrail 17.2): a Steam build that moves the queries or the client shows up in the log.
+    if (!steamid) return; // waiting for login: not a state worth a line
+    const state = clients === 0 ? "no-client" : "ok";
+    if (state !== querySeedState) {
+        querySeedState = state;
+        if (state === "ok") logger.info(`Achievement queries seeded in ${clients} Steam query client(s).`);
+        else logger.warn("achievement queries not seeded (no Steam query client found): the app page's Achievements section stays hidden for shortcuts");
+    }
+}
+
+/**
  * Updates achievements state for a shortcut and synchronizes with Steam's internal caches.
  */
 export function setShortcutAchievements(
@@ -306,16 +412,7 @@ export function setShortcutAchievements(
     // own shape per key. cache_time = now: Steam's GetAchievementProgress asks its server again for an entry
     // older than the game's rt_last_time_played (ADR-0045).
     try {
-        const cache = (window as any).appAchievementProgressCache?.m_achievementProgress?.mapCache;
-        if (cache && typeof cache.set === "function") {
-            const now = Math.floor(Date.now() / 1000);
-            const unsignedEntry = buildAchievementProgress(achievements, rawId, now);
-            const signedEntry = buildAchievementProgress(achievements, signedId, now);
-            if (unsignedEntry && signedEntry) {
-                cache.set(rawId, unsignedEntry);
-                cache.set(signedId, signedEntry);
-            }
-        }
+        writeProgress(rawId, signedId, achievements);
     } catch (e) {
         logger.warn("Could not update Big Picture achievement progress cache:", e);
     }
@@ -334,6 +431,15 @@ export function setShortcutAchievements(
         }
     } catch (e) {
         logger.warn("Could not update appDetailsStore appData:", e);
+    }
+
+    // Steam 1794424036 (stable 2026-11): the app page's Achievements section (desktop and Big Picture) reads React Query
+    // (`["achievements", appid, "schema" | "globalpercentages" | "user_achievements", steamid]`), not the stores above, and
+    // hides itself with nothing achievable. Pin ours there (query-client.ts keeps it against Steam's own empty answers).
+    try {
+        pinAchievementQueries(rawId, signedId, achievements);
+    } catch (e) {
+        logger.warn("Could not seed Steam's achievement queries:", e);
     }
 
     // Trigger re-render of desktop right-column section and other observers

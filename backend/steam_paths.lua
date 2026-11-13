@@ -63,7 +63,17 @@ local function most_recent_user(root)
   -- Walk block by block, remembering the last seen id until we hit the MostRecent flag that belongs to it.
   -- Every user block and every flag is counted, so a log can say whether the file is empty, has no user, or
   -- has users and none is marked (an edited, copied or emulated install).
+  -- Steam 1794424036 writes no MostRecent key at all, only "timestamp" (unix seconds of the last sign-in) per user:
+  -- with no user marked, the newest timestamp names the user (shape.by = "timestamp").
   local current, found = nil, nil
+  local newest_id, newest_ts = nil, -1
+  -- 64-bit SteamID -> 32-bit account id (low dword). Digit by digit: a 17-digit SteamID is past 2^53, so tonumber(id)
+  -- loses its last digits and `% 2^32` named a folder that does not exist (found 2026-11-13).
+  local function account(id)
+    local r = 0
+    for i = 1, #id do r = (r * 10 + (id:byte(i) - 48)) % 4294967296 end
+    return string.format("%d", r)
+  end
   for line in content:gmatch("[^\r\n]+") do
     local id = line:match('^%s*"(%d%d+)"%s*$')
     if id then
@@ -73,12 +83,17 @@ local function most_recent_user(root)
       local most_recent = line:match('"[Mm]ost[Rr]ecent"%s*"(%d)"')
       if most_recent == "1" then
         shape.flagged = shape.flagged + 1
-        if current and not found then
-          -- 64-bit SteamID -> 32-bit account id (low dword).
-          found = string.format("%d", tonumber(current) % 4294967296)
-        end
+        if current and not found then found = account(current) end
       end
+      local ts = tonumber(line:match('"[Tt]imestamp"%s*"(%d+)"') or "")
+      if ts and current and ts > newest_ts then newest_id, newest_ts = current, ts end
     end
+  end
+  if found then
+    shape.by = "most-recent"
+  elseif newest_id then
+    found = account(newest_id)
+    shape.by = "timestamp"
   end
   return found, shape
 end
@@ -176,7 +191,8 @@ function steam_paths.resolve(force)
     recordings       = fs.join(user_root, "gamerecordings"),
   }
 
-  logger:info("Steam root: " .. root .. " (user " .. user_id .. ")")
+  -- No account id here: logger also prints to Millennium's console, which the file log's masking does not cover (AGENTS rule 7).
+  logger:info("Steam root: " .. root .. " (user found via " .. via .. ")")
   return cached
 end
 
@@ -190,13 +206,13 @@ function steam_paths.diagnosis()
   local l, c = d.login, d.census
   local function yn(v) if v == nil then return "n/a" end return v and "yes" or "no" end
   local line = string.format(
-    "steam folders: user chosen via=%s; loginusers.vdf: present=%s, bytes=%d, users=%d, marked most-recent=%d, names a user=%s, its folder=%s, its shortcuts.vdf=%s; signed-in user reported by Steam=%s, its folder=%s; userdata: accounts=%d, with shortcuts.vdf=%d, placeholder 0=%s; config folder=%s",
-    d.via, yn(l.file), l.bytes, l.users, l.flagged, yn(d.named), yn(d.named_dir), yn(d.named_shortcuts), yn(d.signed_reported), d.signed_reported and yn(d.signed_dir) or "n/a",
+    "steam folders: user chosen via=%s; loginusers.vdf: present=%s, bytes=%d, users=%d, marked most-recent=%d, named by=%s, names a user=%s, its folder=%s, its shortcuts.vdf=%s; signed-in user reported by Steam=%s, its folder=%s; userdata: accounts=%d, with shortcuts.vdf=%d, placeholder 0=%s; config folder=%s",
+    d.via, yn(l.file), l.bytes, l.users, l.flagged, l.by or "none", yn(d.named), yn(d.named_dir), yn(d.named_shortcuts), yn(d.signed_reported), d.signed_reported and yn(d.signed_dir) or "n/a",
     c.accounts, c.with_shortcuts, yn(c.placeholder), yn(d.config_dir))
   local odd = {}
   if not l.file then odd[#odd + 1] = "loginusers.vdf is missing: this looks like a portable, copied or emulated Steam folder" end
   if l.file and l.users == 0 then odd[#odd + 1] = "loginusers.vdf has no user block (empty, or a format this plugin does not read)" end
-  if l.file and l.users > 0 and l.flagged == 0 then odd[#odd + 1] = "loginusers.vdf has users but none is marked most-recent" end
+  if l.file and l.users > 0 and not l.by then odd[#odd + 1] = "loginusers.vdf has users but names none (no MostRecent mark, no timestamp)" end
   if l.flagged > 1 then odd[#odd + 1] = "loginusers.vdf marks " .. l.flagged .. " users as most-recent" end
   if d.named and not d.named_dir then odd[#odd + 1] = "loginusers.vdf names a user that has no userdata folder" end
   if d.named and d.named_dir and not d.named_shortcuts and c.with_shortcuts > 0 then

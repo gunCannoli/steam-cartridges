@@ -1,7 +1,7 @@
 // The record facade RPC client (migration plan M4b/M4c; M5a extends it with
 // metadata and GetAllRecords). Imports kernel types only; transport from
 // ports/transport.ts.
-import type { AchievementSet, AchievementUnlockRecord, ArtworkUrls, GameMetadata, Identity, OwnedCandidate, Part, RecordPart, Route, StoreApplied } from "../kernel/record";
+import type { AchievementSet, AchievementUnlockRecord, ArtworkUrls, GameMetadata, Identity, OwnedCandidate, Part, PlaytimeEntry, RecordPart, Route, StoreApplied } from "../kernel/record";
 import { call, type CallOptions } from "./transport";
 
 export type { CallOptions, Lane } from "./transport";
@@ -426,6 +426,26 @@ export const backend = {
     /** Disk only: every DB record and every saved mapping (M5a). */
     getAllRecords(opts?: CallOptions): Promise<{ records: Record<string, RecordResponse["parts"]> }> {
         return call<{ records: Record<string, RecordResponse["parts"]> }>("GetAllRecords", {}, opts);
+    },
+    /** Every non-Steam game's playtime (playtime_store.lua, its own file: no metadata refresh touches it). */
+    getPlaytimes(): Promise<{ games?: Record<string, PlaytimeEntry>; error?: string }> {
+        return call<{ games?: Record<string, PlaytimeEntry>; error?: string }>("GetPlaytimes", {});
+    },
+    /** A session of a non-Steam game (unix seconds); the same `started` again updates its end (checkpoint, then quit). */
+    recordPlaySession(appid: number, started: number, ended: number): Promise<{ playtime?: PlaytimeEntry; error?: string }> {
+        return call<{ playtime?: PlaytimeEntry; error?: string }>("RecordPlaySession", { appid, started, ended });
+    },
+    /** Set a game's total by hand (Properties > Cartridge). */
+    setPlaytime(appid: number, minutes: number): Promise<{ playtime?: PlaytimeEntry; error?: string }> {
+        return call<{ playtime?: PlaytimeEntry; error?: string }>("SetPlaytime", { appid, minutes });
+    },
+    /** Seed games we have nothing for (an import, or Steam's own count); returns how many were added. */
+    seedPlaytimes(items: { appid: number; minutes: number; last_played: number; source: string }[]): Promise<{ added?: number; error?: string }> {
+        return call<{ added?: number; error?: string }>("SeedPlaytimes", { items });
+    },
+    /** What the steam-non-steam-playtimes plugin recorded, per game name (read only). */
+    readOtherPlaytimes(): Promise<{ found?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }> {
+        return call<{ found?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }>("ReadOtherPlaytimes", {});
     },
     /** Provider credentials present, and how many games the database holds. */
     getStatus(): Promise<ProviderStatus> {

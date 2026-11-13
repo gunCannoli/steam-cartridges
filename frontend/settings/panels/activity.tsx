@@ -17,6 +17,8 @@ export function ActivitySection() {
         "activityShowAchievements",
     );
     const [watchLocal, setWatchLocal] = useSetting("watchLocalAchievements");
+    const [capturedActivity, setCapturedActivity] = useSetting("capturedActivity");
+    const [trackPlaytime, setTrackPlaytime] = useSetting("trackPlaytime");
     const [maxDescLength, setMaxDescLength] = useSetting(
         "descriptionMaxLength",
     );
@@ -48,6 +50,18 @@ export function ActivitySection() {
                         description="Activity feed card for each day achievements were unlocked, from every source"
                         value={showAchievements}
                         onChange={setShowAchievements}
+                    />
+                    <ToggleRow
+                        label="Captured Activity"
+                        description="Your screenshots and recordings in every game's Activity feed, Steam games included"
+                        value={capturedActivity}
+                        onChange={setCapturedActivity}
+                    />
+                    <ToggleRow
+                        label="Track Playtime"
+                        description="Count how long non-Steam games are played and show it in Steam's Play Time"
+                        value={trackPlaytime}
+                        onChange={setTrackPlaytime}
                     />
                     <ToggleRow
                         label="Track Local Achievements"

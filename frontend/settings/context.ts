@@ -3,7 +3,7 @@
 // never an import of app/, surfaces/ or features/. Backend calls go through ports/backend.ts.
 import type { AutoRoutingProfile, ServiceTarget } from '../domain/routing/policy';
 import type { MetadataDraft } from '../domain/metadata-edit';
-import type { GameMetadata, SyncProgress } from '../kernel/record';
+import type { GameMetadata, PlaytimeEntry, SyncProgress } from '../kernel/record';
 import type { SetupAnswer, SetupGame, SetupPlatform, StoreCandidate, StoreMapping } from '../ports/backend';
 import type { ReactElement } from 'react';
 
@@ -26,6 +26,12 @@ export interface EditorSnapshot {
 }
 
 export interface PanelContext {
+    /** Track Playtime (app/playtime): a game's tracked total and setting it by hand. Absent on an older composition root. */
+    playtime?: {
+        enabled(): boolean;
+        of(appid: number): PlaytimeEntry | undefined;
+        set(appid: number, minutes: number): Promise<PlaytimeEntry | undefined>;
+    };
     routing: {
         listCollections(): { id: string; name: string; dynamic: boolean; shortcutCount: number }[];
         listShortcuts(): { appid: number; name: string }[];

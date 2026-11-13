@@ -5,7 +5,7 @@ import { logger } from "../../logger";
 import type { Surface, SurfaceDeps } from "../../kernel/surface";
 import { keepJsxPatched, type JsxHookDiagnostics } from "../../steam/jsx-hook";
 import { jsxRuntime, steamRequire } from "../../steam/modules";
-import { cleanLinksProps, MARK_PRIVATE_SOURCE, navigationTarget, redirectProps, shortcutSafeApps, type RedirectKind } from "./core";
+import { cleanLinksProps, MARK_PRIVATE_SOURCE, navigationTarget, redirectProps, shortcutSafeApps, unownedOverviewFallback, type RedirectKind } from "./core";
 
 /** Set by createNativeLinksSurface (plan § 7.0 D6); open defaults until then. */
 let deps: SurfaceDeps = { isEnabled: () => true, reportError: () => {} };
@@ -108,7 +108,14 @@ const isKnownApp = (appid: number): boolean => {
  * Tagged with FALLBACK_TAG (see above) so it never masquerades as a real,
  * owned AppOverview to any other consumer of the same store method.
  */
-const UNOWNED_NATIVE_APP_FALLBACK = { BIsApplicationOrTool: () => false, [FALLBACK_TAG]: true };
+const UNOWNED_NATIVE_APP_FALLBACK = unownedOverviewFallback(FALLBACK_TAG, noteUnknownOverviewMethod);
+
+const unknownOverviewMethods = new Set<string>();
+function noteUnknownOverviewMethod(name: string): void {
+    if (unknownOverviewMethods.has(name)) return;
+    unknownOverviewMethods.add(name);
+    logger.warn(`native-links: Steam asked the unowned-app overview fallback for ${name}() (answered with a safe default)`);
+}
 
 /** appStore.GetAppOverviewByAppID already patched (idempotent, one appStore). */
 let appOverviewPatched = false;

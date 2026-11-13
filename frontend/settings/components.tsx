@@ -340,6 +340,7 @@ export function TextRows({
     value,
     onChange,
     onKeyDown,
+    onCommit,
     password,
     disabled,
 }: {
@@ -348,6 +349,8 @@ export function TextRows({
     value: string;
     onChange: (value: string) => void;
     onKeyDown?: (e: React.KeyboardEvent) => void;
+    /** Called when the field loses focus or Enter is pressed (auto-save). */
+    onCommit?: () => void;
     password?: boolean;
     disabled?: boolean;
 }) {
@@ -408,7 +411,11 @@ export function TextRows({
                             bIsPassword={hidden}
                             disabled={disabled}
                             onChange={(e) => onChange(e.target.value)}
-                            onKeyDown={onKeyDown}
+                            onKeyDown={(e: React.KeyboardEvent) => {
+                                onKeyDown?.(e);
+                                if (onCommit && e.key === "Enter") onCommit();
+                            }}
+                            onBlur={onCommit}
                             style={{
                                 width: "100%",
                                 maxWidth: "100%",

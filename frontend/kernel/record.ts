@@ -118,6 +118,18 @@ export interface GameMetadata {
 }
 
 /**
+ * A non-Steam game's playtime (playtime_store.lua `view`, 2026-11-12). Its own backend file, never the metadata database: a
+ * refresh, a revert or a re-scrape replaces metadata. app/playtime holds it per game; the play bar shows it.
+ */
+export interface PlaytimeEntry {
+    minutes: number;
+    two_weeks: number;
+    /** Unix seconds; 0 when never seen played. */
+    last_played: number;
+    source?: "tracked" | "manual" | "imported" | "steam";
+}
+
+/**
  * The empty record written when no source knew the game (backend `fallback_record`): the title and nothing else. A
  * game saved like this before IGDB or ScreenScraper was set up must be looked up again once one is. Records saved
  * before the backend marked them are recognised by having no source id and no text.

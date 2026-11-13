@@ -11,6 +11,15 @@ export interface Events {
     "shortcut.left": { appid: ShortcutId; mode: "desktop" | "gamepad" };
     "shortcut.launched": { appid: ShortcutId; name: string };
     "shortcut.quit": { appid: ShortcutId; name: string };
+    /** Any app's page was opened, Steam games included (sensors/captures, the captured-activity feature). */
+    "app.viewed": { appid: number; mode: "desktop" | "gamepad" };
+    /** Any app quit, Steam games included (new captures exist then). */
+    "app.quit": { appid: number };
+    /** Steam said a screenshot was written or deleted, or a clip created or deleted, for this app. */
+    "capture.changed": { appid: number; what: "screenshot-written" | "screenshot-deleted" | "clip-created" | "clip-deleted" };
+    /** A Steam window opened or closed (Big Picture styling). `document` is the window's document, when known. */
+    "window.opened": { mode: "desktop" | "gamepad"; document: unknown };
+    "window.closed": { mode: "desktop" | "gamepad"; document: unknown };
     /** Parts of a GameRecord changed; surfaces re-render only if they read one of `parts`. */
     "record.updated": { appid: ShortcutId; parts: RecordPart[] };
     /** New unlocks (app/achievements), with what the toast and the Post-Game Summary show. */

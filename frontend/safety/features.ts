@@ -25,6 +25,8 @@ export const FEATURE_IDS = [
     "toasts",
     "artwork",
     "community",
+    "captured-activity",
+    "playtime",
 ] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 

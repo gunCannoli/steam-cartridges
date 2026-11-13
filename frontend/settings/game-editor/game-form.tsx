@@ -14,6 +14,7 @@ import { SteamLink } from "./steam-link";
 import { IgdbLink } from "./igdb-link";
 import { ScreenscraperLink } from "./screenscraper-link";
 import { AchievementsCard } from "./achievements-card";
+import { PlaytimeCard } from "./playtime-card";
 import { useLibraryIssues, type LibraryIssues } from "./library-issues";
 import { tint, type RunAction } from "./styles";
 import { Missing } from "./missing";
@@ -177,6 +178,7 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
                         />
                     );
                     const playersCard = <PlayersCard key="players" draft={draft} onChange={setDraft} />;
+                    const playtimeCard = <PlaytimeCard key="playtime" appid={snapshot.appid} />;
                     const achievementsCard = (
                         <AchievementsCard
                             key="achievements"
@@ -203,6 +205,7 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
                             : missingAch
                               ? [achievementsCard, detailsCard, ...sourceLinks, controllerCard, playersCard]
                               : [detailsCard, controllerCard, playersCard, achievementsCard, ...sourceLinks];
+                        singleCards.splice(Math.min(1, singleCards.length), 0, playtimeCard);
 
                         return (
                             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: BLOCK_GAP, alignItems: "start" }}>
@@ -213,7 +216,7 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
 
                     return (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(480px, 1fr))", gap: BLOCK_GAP, alignItems: "start" }}>
-                            {column([detailsCard, controllerCard, playersCard])}
+                            {column([detailsCard, playtimeCard, controllerCard, playersCard])}
                             {column([achievementsCard, ...sourceLinks])}
                         </div>
                     );

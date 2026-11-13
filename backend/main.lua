@@ -40,6 +40,7 @@ local LIBRARY_RPC = require("library_rpc")
 local SETTINGS_RPC = require("settings_rpc")
 local RESET_RPC = require("reset_rpc")
 local LOG_RPC = require("log_rpc")
+local PLAYTIME_RPC = require("playtime_rpc")
 
 -- Library Setup gate (ADR-0086): the plugin fetches on its own only after the user ran setup; a call the user started
 -- passes anyway (rpc.method's user_action). net knows nothing of setup; this is where the two meet.
@@ -77,6 +78,11 @@ CartridgesAchievementsGetNativePortsStatus = ACH_RPC.CartridgesAchievementsGetNa
 -- Record facade (migration M4b; M5a adds GetAllRecords; M10 removed the uncalled GetGameRecord).
 EnsureFresh    = RECORD_RPC.EnsureFresh
 GetAllRecords  = RECORD_RPC.GetAllRecords
+GetPlaytimes       = PLAYTIME_RPC.GetPlaytimes
+RecordPlaySession  = PLAYTIME_RPC.RecordPlaySession
+SetPlaytime        = PLAYTIME_RPC.SetPlaytime
+SeedPlaytimes      = PLAYTIME_RPC.SeedPlaytimes
+ReadOtherPlaytimes = PLAYTIME_RPC.ReadOtherPlaytimes
 SaveCustomMetadata  = RECORD_RPC.SaveCustomMetadata
 ClearCustomMetadata = RECORD_RPC.ClearCustomMetadata
 SetAchievementSource = RECORD_RPC.SetAchievementSource

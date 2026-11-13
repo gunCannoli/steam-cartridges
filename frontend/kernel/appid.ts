@@ -66,3 +66,28 @@ export function lookupStored<T>(map: Record<string, T> | undefined, raw: unknown
     }
     return undefined;
 }
+/**
+ * The id Steam files an app's recordings under. A shortcut's clips use the 64-bit gameid
+ * `(appid << 32) | 0x02000000`; a Steam game's use its plain appid (AGENTS.md, "The two identifiers").
+ */
+export function clipGameId(appid: number): string {
+    if (!isShortcutAppId(appid)) return String(appid);
+    return ((BigInt(appid >>> 0) << 32n) | 0x0200_0000n).toString();
+}
+
+/**
+ * The appid a recording belongs to, from its game id (a shortcut's 64-bit `(appid << 32) | 0x02000000`, a Steam
+ * game's plain appid), or from a clip id `clip_<gameid>_<date>_<time>` when no game id is given. Undefined for junk.
+ */
+export function appidFromGameId(gameid: unknown, clipId?: unknown): number | undefined {
+    let raw = typeof gameid === "string" || typeof gameid === "number" ? String(gameid) : "";
+    if (!/^\d+$/.test(raw) || raw === "0") {
+        const m = typeof clipId === "string" ? /^clip_(\d+)_\d{8}_\d{6}$/.exec(clipId) : null;
+        raw = m?.[1] ?? "";
+    }
+    if (!/^\d+$/.test(raw)) return undefined;
+    const g = BigInt(raw);
+    if (g <= 0xffff_ffffn) return toUnsigned(Number(g));
+    if ((g & 0xffff_ffffn) !== 0x0200_0000n) return undefined;
+    return toUnsigned(Number(g >> 32n));
+}

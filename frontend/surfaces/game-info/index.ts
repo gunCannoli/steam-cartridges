@@ -2,7 +2,7 @@
 // into Steam (AppDetailsStore descriptions/associations, overview release date and store
 // categories) and hooks Steam's Game Info components. The features reach its API only
 // through setters wired in index.tsx (plan § 7.0 D3, D4).
-import type { GameMetadata } from "../../kernel/record";
+import type { GameMetadata, PlaytimeEntry } from "../../kernel/record";
 import type { Surface, SurfaceDeps } from "../../kernel/surface";
 import { deps } from "./deps";
 import { enrichGameDetails, revertGameDetails } from "./metadata";
@@ -20,6 +20,20 @@ import {
 } from "./patch";
 
 export { applyGameInfoDefault };
+/** The description length setting changed: write every enriched game's description again at the new length (the page used to keep the old one until the app restarted). */
+export function reapplyDescriptions(): number {
+    let n = 0;
+    for (const appid of [...enrichedAppIds]) {
+        const meta = deps.metadataOf?.(appid);
+        if (!meta) continue;
+        try {
+            if (enrichGameDetails(appid, meta as never)) n++;
+        } catch {}
+    }
+    refreshGameInfoInstances();
+    return n;
+}
+
 export { gameInfoRepairDiagnostics, enrichGameDetails, revertGameDetails, isAppEnriched, refreshGameInfoInstances, ensureAppOverviewHooked, trackInstance };
 
 /** What the features call (structurally matched by their setters). */
@@ -38,6 +52,8 @@ export function createGameInfoSurface(
         metadataOf(appid: number): GameMetadata | undefined;
         showByDefault(): boolean;
         descriptionMaxLength?(): number;
+        playtimeOf?(appid: number): PlaytimeEntry | undefined;
+        hideOtherPlaytime?(): boolean;
     },
 ): Surface {
     deps.isEnabled = d.isEnabled;
@@ -45,6 +61,8 @@ export function createGameInfoSurface(
     deps.metadataOf = d.metadataOf;
     deps.showByDefault = d.showByDefault;
     if (d.descriptionMaxLength) deps.descriptionMaxLength = d.descriptionMaxLength;
+    if (d.playtimeOf) deps.playtimeOf = d.playtimeOf;
+    if (d.hideOtherPlaytime) deps.hideOtherPlaytime = d.hideOtherPlaytime;
     return {
         id: "game-info",
         touches: [

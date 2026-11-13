@@ -58,6 +58,12 @@ import { createManualShelf } from "./kernel/manual-shelf";
 import { bus } from "./app/bus";
 import { installViewSensor } from "./sensors/view";
 import { installLifecycleSensor } from "./sensors/lifecycle";
+import { installCapturesSensor } from "./sensors/captures";
+import { createCapturedActivitySurface } from "./surfaces/captured-activity";
+import { createPublisher as createCapturedActivity, SWEEP_MS as CAPTURES_SWEEP_MS, SWEEP_NO_EVENTS_MS as CAPTURES_SWEEP_NO_EVENTS_MS } from "./app/captured-activity";
+import { capturedActivityActive, migratePlaytime } from "./domain/merged-plugins";
+import { clipsOf, screenshotsOf } from "./steam/captures";
+import { clipGameId, isShortcutAppId } from "./kernel/appid";
 import { collectionsSource } from "./sensors/collections";
 import { listShortcuts, shortcutTitle, shortcutData } from "./sensors/shortcuts";
 import { watchProgressCache } from "./sensors/progress-cache";
@@ -66,11 +72,16 @@ import { backend } from "./ports/backend";
 import {
     createSectionsSurface,
     onCapturesPublished as sectionsOnCapturesPublished,
+    refreshSections,
 } from "./surfaces/sections";
 import {
     createGameInfoSurface,
     applyGameInfoDefault,
+    reapplyDescriptions,
+    refreshGameInfoInstances,
 } from "./surfaces/game-info";
+import { createPlaytime } from "./app/playtime";
+import { steamShortcutPlaytimes } from "./sensors/playtime";
 import { createController } from "./app/controller";
 import { setPanelContext } from "./settings/context";
 import { CartridgeBody } from "./settings/game-editor/game-form";
@@ -124,6 +135,16 @@ const features = createFeatureSwitches({
 onSettingChange((key) => {
     if (key === "disabledFeatures") features.reload();
     if (key === "showGameInfoByDefault") applyGameInfoDefault();
+});
+/** The description length slider: once it settles, every enriched page gets its description again at the new length. */
+let descTimer: ReturnType<typeof setTimeout> | undefined;
+onSettingChange((key) => {
+    if (key !== "descriptionMaxLength") return;
+    clearTimeout(descTimer);
+    descTimer = setTimeout(() => {
+        const n = reapplyDescriptions();
+        backend.logEvent?.("settings", `description length ${String(setting("descriptionMaxLength"))}: ${n} game page(s) updated`);
+    }, 500);
 });
 /** A slider drag sends many values: prune the disk cache once it settles (ADR-0051). */
 let pruneTimer: ReturnType<typeof setTimeout> | undefined;
@@ -489,6 +510,16 @@ export const achievementResetSources = (shortcutAppId: number) => achievements.r
  */
 export const achievementsResettable = (shortcutAppId: number) => achievements.resettable(shortcutAppId);
 
+/**
+ * A shortcut's achievement progress, `{ unlocked, total }`, or null when it has none. Synchronous. For other plugins
+ * (steam-cheers' Reset Achievements) that used to read Steam's progress cache: Steam 1794424036 discards that cache on a
+ * version change and rebuilds it only per game on demand, so it can be empty for a long time.
+ */
+export const achievementProgress = (shortcutAppId: number): { unlocked: number; total: number } | null => {
+    const a = getLocalAchievements(shortcutAppId);
+    return a ? { unlocked: a.nAchieved, total: a.nTotal } : null;
+};
+
 /** One unlock check against the backend observer; resolves to the number of new unlocks. */
 export const checkObserverUnlocks = (shortcutAppId: number, nativeAppId: number, gameTitle?: string) =>
     achievements.checkNow(shortcutAppId as ShortcutId, { native: nativeAppId, title: gameTitle });
@@ -557,6 +588,158 @@ const LEGACY_PLUGINS = [
     "steamgriddb-artwork-dev",
 ];
 
+/** The steam-non-steam-playtimes plugin, if it is still loaded next to us (PLUGIN_LIST). */
+function oldPlaytimePluginLoaded(): boolean {
+    const list = (window as any).PLUGIN_LIST ?? {};
+    return !!(list["non-steam-playtimes"] || list["non-steam-playtimes-dev"]);
+}
+const playtimeOn = () => setting("trackPlaytime") === true && features.isEnabled("playtime");
+
+// ===== Playtime (app/playtime; the steam-non-steam-playtimes plugin's job, taken over 2026-11-12) =====
+// Sessions from the lifecycle sensor, totals in the backend's own playtime.json, shown in Steam's own play-bar stats
+// (surfaces/game-info). Off unless Track Playtime is on.
+const playtime = createPlaytime({
+    enabled: playtimeOn,
+    now: () => Math.floor(Date.now() / 1000),
+    every: (ms, fn) => {
+        const id = setInterval(fn, ms);
+        return () => clearInterval(id);
+    },
+    load: async () => (await backend.getPlaytimes())?.games,
+    record: async (appid, started, ended) => (await backend.recordPlaySession(appid, started, ended))?.playtime,
+    set: async (appid, minutes) => (await backend.setPlaytime(appid, minutes))?.playtime,
+    seed: async (items) => (await backend.seedPlaytimes(items))?.added ?? 0,
+    steamCounts: () => steamShortcutPlaytimes(),
+    changed: () => refreshGameInfoInstances(),
+    log: (message) => logger.info(message),
+});
+/** For CDP checks: the tracked totals and the running sessions. */
+export const playtimeDiagnostics = () => ({ on: playtimeOn(), oldPluginLoaded: oldPlaytimePluginLoaded(), running: playtime.running() });
+export const playtimeOf = (appid: number) => playtime.of(appid);
+
+/** Start playtime once Steam's stores are up: the one-time migration (setting and import), then the totals. */
+function startPlaytime(): void {
+    bus.on("shortcut.launched", ({ appid }) => playtime.launched(appid));
+    bus.on("shortcut.quit", ({ appid }) => void playtime.quit(appid));
+    let started = false;
+    // The migration switches Track Playtime on before it imports: the setting listener must not start (and seed from
+    // Steam's own count) until the import is in, or every imported game is already "tracked" and skipped.
+    let migrating = false;
+    const begin = async () => {
+        if (started || migrating || !playtimeOn()) return;
+        started = true;
+        await playtime.start();
+        backend.logEvent("playtime", `tracking on${oldPlaytimePluginLoaded() ? "; steam-non-steam-playtimes is still loaded: its play-bar copy is hidden, ours shows in Steam's own stats" : ""}`);
+    };
+    onSettingChange((key) => {
+        if (key !== "trackPlaytime") return;
+        void begin();
+        refreshGameInfoInstances();
+        backend.logEvent("playtime", `track playtime ${setting("trackPlaytime") ? "on" : "off"}`);
+    });
+    setTimeout(async () => {
+        try {
+            if (setting("playtimeMigrated") !== true) {
+                migrating = true;
+                const loaded = oldPlaytimePluginLoaded();
+                const other = await backend.readOtherPlaytimes();
+                const games = Array.isArray(other?.games) ? other.games : [];
+                const value = migratePlaytime({ loaded, sessionsFound: other?.found === true && games.length > 0 });
+                if (value !== undefined) await setSetting("trackPlaytime", value);
+                if (value && games.length) {
+                    // Import before Steam's own count seeds anything: the old plugin's totals include time set by hand.
+                    const r = await playtime.importByName(games);
+                    backend.logEvent("playtime", `imported from steam-non-steam-playtimes: ${r.added} game(s), ${r.unmatched} name(s) not in the library, ${r.ambiguous} name(s) on two or more shortcuts`);
+                }
+                await setSetting("playtimeMigrated", true);
+                backend.logEvent("playtime", `migration from steam-non-steam-playtimes: ${value === undefined ? "not installed, tracking stays off" : "tracking on"}`);
+            }
+        } catch (err) {
+            logger.warn("playtime migration failed:", err);
+        }
+        migrating = false;
+        await begin();
+    }, 9000);
+}
+
+/** The steam-captured-activity plugin, if it is still loaded next to us (PLUGIN_LIST). */
+const OLD_CAPTURES_PLUGIN = ["steam-captured-activity", "steam-captured-activity-dev"] as const;
+function oldCapturesPluginLoaded(): boolean {
+    const list = (window as any).PLUGIN_LIST ?? {};
+    return OLD_CAPTURES_PLUGIN.some((n) => !!list[n]);
+}
+
+/** Wire the captured-activity feature once; its toggle and the old plugin decide, at every read, whether it shows anything. */
+function startCapturedActivity(): void {
+    const surface = createCapturedActivitySurface(surfaceDeps);
+    runner.register(surface);
+    const active = () => features.isEnabled("captured-activity") && capturedActivityActive(setting("capturedActivity") === true, oldCapturesPluginLoaded());
+    const publisher = createCapturedActivity({
+        scope: () => (active() ? { steamGames: true, nonSteamGames: true } : { steamGames: false, nonSteamGames: false }),
+        readCaptures: async (appid) => {
+            const [screenshots, clips] = await Promise.all([screenshotsOf(appid), clipsOf(clipGameId(appid))]);
+            return { screenshots, clips };
+        },
+        publish: (appid, days) => surface.publish(appid, days),
+        clear: (appid) => surface.clearApp(appid),
+        needsRepair: (appid) => surface.needsRepair(appid),
+        contentChanged: (appid) => {
+            if (isShortcutAppId(appid)) refreshSections();
+        },
+        // Local midnight in unix seconds: the day Steam's feed groups by (time is the composition root's to inject).
+        dayOf: (unixSeconds) => {
+            const d = new Date(unixSeconds * 1000);
+            d.setHours(0, 0, 0, 0);
+            return Math.floor(d.getTime() / 1000);
+        },
+        every: (ms, fn) => {
+            const id = setInterval(fn, ms);
+            return () => clearInterval(id);
+        },
+        after: (ms, fn) => void setTimeout(fn, ms),
+        log: (message) => logger.info(message),
+    });
+    capturedActivityDiagnostics = () => ({ active: active(), oldPluginLoaded: oldCapturesPluginLoaded(), tracked: publisher.tracked(), surface: surface.diagnostics() });
+    capturedActivitySweep = () => publisher.sweep();
+
+    let started = false;
+    const begin = () => {
+        if (started || !active()) return;
+        started = true;
+        // Patches and sensors only once the feature is on: off means nothing of it is installed.
+        features.run("captured-activity", () => surface.start());
+        bus.on("app.viewed", ({ appid }) => void publisher.viewed(appid));
+        bus.on("app.quit", ({ appid }) => void publisher.quit(appid));
+        bus.on("capture.changed", ({ appid }) => publisher.changed(appid));
+        bus.on("window.opened", (p) => surface.windowOpened(p));
+        bus.on("window.closed", (p) => surface.windowClosed(p));
+        const live = installCapturesSensor(bus);
+        if (live < 3) logger.warn(`captured activity: only ${live} of Steam's 3 capture events are available; the sweep runs every ${CAPTURES_SWEEP_NO_EVENTS_MS / 60000} min.`);
+        publisher.start(live === 3 ? CAPTURES_SWEEP_MS : CAPTURES_SWEEP_NO_EVENTS_MS);
+        backend.logEvent("captures", `captured activity on: ${live} of 3 Steam capture events live`);
+    };
+    onSettingChange((key) => {
+        if (key !== "capturedActivity") return;
+        if (active()) begin();
+        void publisher.scopeChanged(); // off: every app loses its capture events; on: the tracked apps get them
+        backend.logEvent("captures", `captured activity ${setting("capturedActivity") ? "on" : "off"}${oldCapturesPluginLoaded() ? " (the steam-captured-activity plugin is still loaded: it keeps doing the job)" : ""}`);
+    });
+
+    // No migration from the standalone plugin (2026-11-13): the toggle stays off until the user turns it on. Late:
+    // PLUGIN_LIST is complete only once every plugin has loaded.
+    setTimeout(() => {
+        if (setting("capturedActivity") === true && oldCapturesPluginLoaded()) {
+            backend.logEvent("captures", "captured activity is on but the steam-captured-activity plugin is still loaded: it keeps doing the job");
+        }
+        begin();
+    }, 8000);
+}
+
+let capturedActivityDiagnostics: () => unknown = () => ({ active: false });
+let capturedActivitySweep: () => Promise<void> = async () => {};
+/** For CDP checks: what the captured-activity feature holds, and its sweep on demand. */
+export const capturedActivity = { diagnostics: () => capturedActivityDiagnostics(), sweepNow: () => capturedActivitySweep() };
+
 async function init() {
     const extensionApi = initGlobalExtensionAPI();
     // Panels reach the app only through this context (plan M8b, § 7.0 D3).
@@ -569,6 +752,11 @@ async function init() {
             getAutoRoutingProfile: (appid) => routing.getAutoRoutingProfile(appid),
             serviceAllowed: (service, appid) => routing.serviceAllowed(service, appid),
             reloadProfiles: () => routing.loadAutoRoutingProfiles(),
+        },
+        playtime: {
+            enabled: playtimeOn,
+            of: (appid) => playtime.of(appid),
+            set: (appid, minutes) => playtime.setMinutes(appid, minutes),
         },
         ingest: {
             progress: ingest.getSyncProgress,
@@ -733,6 +921,11 @@ async function init() {
     );
     runner.installAll();
 
+    // ===== Captured activity (surfaces/captured-activity; the steam-captured-activity plugin, merged 2026-11-12) =====
+    // "{Username} captured" days in every game's Activity feed. Off unless the General toggle is on, and dormant while the
+    // old plugin is still loaded (two copies would show every capture twice). sensors/captures -> app -> the surface.
+    startCapturedActivity();
+
     // ===== Native sections for mapped games (parity plan C) =====
     // Steam's own Links / Friends / Community sections read the native appid
     // of a Steam Store match; unmatched shortcuts keep Steam's stock sections.
@@ -781,8 +974,11 @@ async function init() {
             metadataOf: (appid) => records.store.get(appid as ShortcutId)?.metadata?.data,
             showByDefault: () => setting("showGameInfoByDefault") === true,
             descriptionMaxLength: () => (setting("descriptionMaxLength") as number) || 360,
+            playtimeOf: (appid) => playtime.of(appid),
+            hideOtherPlaytime: () => playtimeOn() && oldPlaytimePluginLoaded(),
         }),
     );
+    startPlaytime();
     runner.installAll();
 
     // ===== Game Info data (ex steamgriddb-artwork) =====

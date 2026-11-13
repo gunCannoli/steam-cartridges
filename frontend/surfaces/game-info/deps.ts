@@ -1,6 +1,6 @@
 // Surface `game-info`: what the composition root gives it (migration plan M3.3, § 7.0 D6).
 // Set once by createGameInfoSurface; open defaults until then.
-import type { GameMetadata } from "../../kernel/record";
+import type { GameMetadata, PlaytimeEntry } from "../../kernel/record";
 import type { SurfaceDeps } from "../../kernel/surface";
 
 export const deps: SurfaceDeps & {
@@ -10,7 +10,13 @@ export const deps: SurfaceDeps & {
     showByDefault(): boolean;
     /** Maximum length for game descriptions, breaking cleanly at sentence end. Default 360. */
     descriptionMaxLength(): number;
+    /** A shortcut's tracked playtime when the Track Playtime setting is on (app/playtime), else undefined: Steam's own. */
+    playtimeOf(appid: number): PlaytimeEntry | undefined;
+    /** Remove the steam-non-steam-playtimes plugin's injected play-bar stats (ours show in Steam's own components). */
+    hideOtherPlaytime(): boolean;
 } = {
+    playtimeOf: () => undefined,
+    hideOtherPlaytime: () => false,
     showByDefault: () => false,
     descriptionMaxLength: () => 360,
     isEnabled: () => true,

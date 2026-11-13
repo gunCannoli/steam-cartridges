@@ -169,3 +169,33 @@ export function shortcutSafeApps<T extends { appid?: number }>(rgApps: readonly 
 
 /** The component source that identifies the "Mark as Private" item (its localisation token). */
 export const MARK_PRIVATE_SOURCE = 'GameAction_MarkAsPrivate_NoShortcuts';
+
+/**
+ * The fallback answers any method Steam asks, not only the one known when it was written: Steam 1794424036 (2026-11)
+ * added `BIsAppBlocked()` in the library route (`!overview || overview.BIsAppBlocked() ? <Redirect home>`), and the
+ * one-method object turned that into "An error occurred while rendering this content". `B...` questions answer false,
+ * except `BIsAppBlocked`, which answers true so the route does what it does for no overview (go to Library Home);
+ * `Get...` answers undefined. A name it did not know is logged once (a `[render]` warn line), so a Steam change shows.
+ */
+export function unownedOverviewFallback(tag: symbol, onUnknown: (name: string) => void): object {
+    const known: Record<string, unknown> = {
+        BIsApplicationOrTool: () => false,
+        BIsAppBlocked: () => true,
+        [tag as unknown as string]: true,
+    };
+    return new Proxy(known, {
+        get(target, prop) {
+            if (prop in target) return (target as any)[prop];
+            if (typeof prop !== "string") return undefined;
+            if (/^B[A-Z]/.test(prop)) {
+                onUnknown(prop);
+                return () => false;
+            }
+            if (/^Get[A-Z]/.test(prop)) {
+                onUnknown(prop);
+                return () => undefined;
+            }
+            return undefined;
+        },
+    });
+}

@@ -31,6 +31,9 @@ const VALIDATORS: { [K in SettingKey]: (raw: unknown) => Settings[K] } = {
             ? Math.min(DESCRIPTION_MAX_LENGTH.max, Math.max(DESCRIPTION_MAX_LENGTH.min, Math.round(raw)))
             : DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: (raw) => raw !== false,
+    capturedActivity: (raw) => raw === true,
+    trackPlaytime: (raw) => raw === true,
+    playtimeMigrated: (raw) => raw === true,
     disabledFeatures: (raw) => (typeof raw === 'string' ? raw : ''),
     routingRules: (raw) => Array.isArray(raw) ? (raw as RoutingRule[]) : [],
     services: (raw) => {
@@ -75,6 +78,9 @@ const current: Settings = {
     mediaCacheDays: MEDIA_CACHE_DAYS.default,
     descriptionMaxLength: DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: true,
+    capturedActivity: false,
+    trackPlaytime: false,
+    playtimeMigrated: false,
     disabledFeatures: '',
 };
 const listeners = new Set<(key: SettingKey) => void>();

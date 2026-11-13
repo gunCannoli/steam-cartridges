@@ -53,6 +53,10 @@ export function DetailsCard({
     /** This card's action status (Save / Revert), shown as its last row. */
     status?: string;
 }) {
+    // Auto-save (0.7.2): a field that loses focus, or Enter in it, saves the edit; the Save button stays for a keyboard-free check.
+    const commit = () => {
+        if (!busy && dirty && errors.length === 0) onSave();
+    };
     const missingField = (key: string) => missing.has(key as IssueKey) && String(draft[key as keyof MetadataDraft] ?? "").trim() === "";
 
     return (
@@ -68,17 +72,17 @@ export function DetailsCard({
                 <Missing key={f.key} on={missingField(f.key)}>
                     {f.kind === "textarea" ? (
                         <ItemRow>
-                            <Field label={f.label} childrenLayout="below" childrenContainerWidth="max" bottomSeparator="none">
-                                <textarea rows={6} value={draft[f.key]} onChange={(e) => onChange({ ...draft, [f.key]: e.target.value })} style={TEXTAREA_STYLE} />
+                            <Field label={f.label} description="Stored in full. The game page shows it shortened to the length set in Settings > General (Game description length)." childrenLayout="below" childrenContainerWidth="max" bottomSeparator="none">
+                                <textarea rows={6} value={draft[f.key]} onChange={(e) => onChange({ ...draft, [f.key]: e.target.value })} onBlur={commit} style={TEXTAREA_STYLE} />
                             </Field>
                         </ItemRow>
                     ) : (
-                        <TextRows label={f.label} description={NOTES[f.kind]} value={draft[f.key]} onChange={(v) => onChange({ ...draft, [f.key]: v })} />
+                        <TextRows label={f.label} description={NOTES[f.kind]} value={draft[f.key]} onChange={(v) => onChange({ ...draft, [f.key]: v })} onCommit={commit} />
                     )}
                 </Missing>
             ))}
             {errors.length > 0 && <ActionRow message={errors[0]} />}
-            <ButtonRow label="Save" description="Saves your changes as your own edit" buttonLabel="Save" disabled={busy || !dirty || errors.length > 0} onClick={onSave} />
+            <ButtonRow label="Save" description="Saves your changes as your own edit (also when you leave a field or press Enter)" buttonLabel="Save" disabled={busy || !dirty || errors.length > 0} onClick={onSave} />
             <ButtonRow
                 label="Revert to fetched data"
                 description={

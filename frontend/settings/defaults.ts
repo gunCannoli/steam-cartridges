@@ -66,6 +66,20 @@ export interface Settings {
     descriptionMaxLength: number;
     /** Watch emulator achievement files and game logs in real-time while playing (ADR-0063). Default true. */
     watchLocalAchievements: boolean;
+    /**
+     * Captures in every game's Activity feed: "{Username} captured" days with Steam's own Post-Game Summary cards, for Steam
+     * games and non-Steam games (the steam-captured-activity plugin, merged 2026-11-12). Default false, and never switched on
+     * for the user: no migration from that plugin (it froze Steam at start, 2026-11-13; ADR-0105).
+     */
+    capturedActivity: boolean;
+    /**
+     * Track how long non-Steam games are played and show it in Steam's own Play Time and Last Played stats (the
+     * steam-non-steam-playtimes plugin's job, taken over 2026-11-12). Default false; switched on once by the migration
+     * when that plugin was installed (playtimeMigrated), which also imports its sessions.
+     */
+    trackPlaytime: boolean;
+    /** The one-time trackPlaytime migration (setting and sessions import) from steam-non-steam-playtimes ran. */
+    playtimeMigrated: boolean;
     /** Kill switches (migration plan M0b): comma-separated feature ids skipped at start-up. Default "". */
     disabledFeatures: string;
 }
@@ -100,5 +114,8 @@ export const DEFAULTS: Settings = {
     mediaCacheDays: MEDIA_CACHE_DAYS.default,
     descriptionMaxLength: DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: true,
+    capturedActivity: false,
+    trackPlaytime: false,
+    playtimeMigrated: false,
     disabledFeatures: '',
 };
