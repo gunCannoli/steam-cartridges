@@ -8,7 +8,7 @@ import { asList } from "../kernel/lists.ts";
 import type { backend as Backend, SetupAnswer, SetupGame, SetupPlatform } from "../ports/backend";
 
 export interface LibrarySetupDeps {
-    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "libraryDetectAll" | "validateGame" | "validateAllProposed">;
+    backend: Pick<typeof Backend, "getSetupState" | "setSetupDone" | "finishOnboarding" | "answerOnboardingPrompt" | "resetPluginData" | "libraryScan" | "libraryDetect" | "libraryDetectAll" | "validateGame" | "validateAllProposed" | "logEvent">;
     /** Every shortcut in the library. */
     shortcuts(): { appid: number }[];
     /** The names of the Steam collections a shortcut is in (app/routing). */
@@ -183,9 +183,30 @@ export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {
             const out: SetupGame[] = [];
             for (let at = 0; at < appids.length; at += DETECT_ALL_CHUNK) {
                 const chunk = appids.slice(at, at + DETECT_ALL_CHUNK);
-                const res = await deps.backend.libraryDetectAll(chunk, collections);
-                if (res?.error) throw new Error(res.error);
-                const rows = asList<SetupGame>(res?.games).map((g) => ({ ...normalize(g), collections: deps.collectionsOf(g.appid) }));
+                let rows: SetupGame[];
+                try {
+                    const res = await deps.backend.libraryDetectAll(chunk, collections);
+                    if (res?.error) throw new Error(res.error);
+                    rows = asList<SetupGame>(res?.games).map((g) => ({ ...normalize(g), collections: deps.collectionsOf(g.appid) }));
+                } catch (err) {
+                    // Fallback (0.7.3.3-debug): a chunk the host stopped waiting for (a slow source) used to end the whole run
+                    // and drop its rows although the backend had stored them. Ask for its games one by one instead; a game
+                    // that fails alone stays unanswered ("waiting") and is counted, the rest carry on.
+                    deps.backend.logEvent?.("setup", `Find matches: a batch of ${chunk.length} failed (${String((err as Error)?.message ?? err).slice(0, 100)}); asking one game at a time`);
+                    rows = [];
+                    let failed = 0;
+                    for (const id of chunk) {
+                        try {
+                            const row = await deps.backend.libraryDetect(id, deps.collectionsOf(id));
+                            rows.push({ ...normalize(row), collections: deps.collectionsOf(id) });
+                        } catch (one) {
+                            failed++;
+                            deps.backend.logEvent?.("setup", `Find matches: one game failed alone (${String((one as Error)?.message ?? one).slice(0, 100)})`);
+                        }
+                    }
+                    deps.backend.logEvent?.("setup", `Find matches: batch retried one by one, ${rows.length} answered, ${failed} failed`);
+                    if (rows.length === 0) throw err;
+                }
                 out.push(...rows);
                 onChunk?.(rows);
                 onProgress?.(Math.min(at + chunk.length, appids.length), appids.length, rows[rows.length - 1]?.name);

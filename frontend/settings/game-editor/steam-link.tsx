@@ -22,7 +22,7 @@ export function SteamLink({ snapshot, busy, run, status }: { snapshot: EditorSna
         try {
             const res = await editor.search(term);
             setResults(res.candidates);
-            if (res.error) setSearchError(res.error);
+            if (res.error) setSearchError(res.error === "offline" ? "Steam's store did not answer. Check your connection and press Search again." : res.error);
         } finally {
             setSearching(false);
         }

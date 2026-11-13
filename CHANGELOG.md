@@ -7,6 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.3-debug] - 2026-11-13
+
+A debug build for "Search failed: offline" when linking a game by hand, and for places that can fail the same way. If
+anything still fails, please send the top of `steam-cartridges.log` and the lines that mention `[net] steam-store`,
+`[link-search]` and `Find matches`.
+
+### Fixed
+
+- Properties > Cartridge: **Search Steam answered "offline" without searching.** One Steam Store request that got no
+  reply (for example the 8 second wait during Find matches) switched the store off for 5 minutes, and that also blocked
+  the search you press yourself. A search you start now always goes out, and its answer ends the offline state.
+- The Steam Store offline state now heals itself: it lasts 1 minute instead of 5, and while it lasts one request is let
+  through every 15 seconds to find out whether the store is back.
+- Library Setup > Find matches: when the plugin stopped waiting for a batch of games (a slow source), the whole run
+  ended and the batch's results were dropped, although they had been found. The batch is now asked again one game at a
+  time, and a game that still fails is left for another try instead of ending the run.
+- The search error says "Steam's store did not answer. Check your connection and press Search again." instead of
+  "offline".
+
+### Added
+
+- Log lines `[net] steam-store offline breaker opened ...` / `closed ...` (how many requests it turned away),
+  `[setup] Find matches: a batch of N game(s) took Ns` for slow batches, and `[setup] Find matches: a batch of N
+  failed (...); asking one game at a time` with its result.
+
 ## [0.7.3.2-debug] - 2026-11-13
 
 A debug build for a crash while searching Steam to link a game by hand (Properties > Cartridge). The window now stays

@@ -26,7 +26,16 @@ end, { user_action = true })
 
 --- { appids = [ number ], collections = { names } } -> { games = [ row ] }. Lookups only; stores proposals.
 M.LibraryDetectAll = method("LibraryDetectAll", function(data)
-  return { games = library.detect_all(type(data.appids) == "table" and data.appids or {}, data.collections) }
+  local appids = type(data.appids) == "table" and data.appids or {}
+  local started = os.time()
+  local games = library.detect_all(appids, data.collections)
+  -- Sensor (0.7.3.3-debug): a chunk that takes longer than the host waits for an answer is lost to the window (the
+  -- log showed "RPC timeout for child" with the rows already stored). Say how long each slow chunk took.
+  local took = os.time() - started
+  if took >= 10 then
+    pcall(function() require("plog").event("setup", string.format("Find matches: a batch of %d game(s) took %ds", #appids, took)) end)
+  end
+  return { games = games }
 end, { user_action = true })
 
 --- { appid, answer = { yes | no | linked | no_achievements | skip | reset = true }, collections = { names } }

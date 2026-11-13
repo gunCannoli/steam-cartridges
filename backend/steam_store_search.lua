@@ -75,7 +75,8 @@ local MAX_CANDIDATES = 10
 function M.candidates(term, http_get)
   term = tostring(term or ""):match("^%s*(.-)%s*$")
   if #term < 2 then return { candidates = {} } end
-  http_get = http_get or throttle.http_get
+  -- The user's own search: never held back by the offline breaker (see steam_store_throttle.http_get).
+  http_get = http_get or function(url) return throttle.http_get(url, { user_action = true }) end
   local body, err = http_get(M.url(term))
   if not body then return { error = tostring(err or "request failed"), candidates = {} } end
   local ok, data = pcall(json.decode, body)
