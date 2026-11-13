@@ -83,6 +83,7 @@ RecordPlaySession  = PLAYTIME_RPC.RecordPlaySession
 SetPlaytime        = PLAYTIME_RPC.SetPlaytime
 SeedPlaytimes      = PLAYTIME_RPC.SeedPlaytimes
 ReadOtherPlaytimes = PLAYTIME_RPC.ReadOtherPlaytimes
+FinishPlaytimeImport = PLAYTIME_RPC.FinishPlaytimeImport
 SaveCustomMetadata  = RECORD_RPC.SaveCustomMetadata
 ClearCustomMetadata = RECORD_RPC.ClearCustomMetadata
 SetAchievementSource = RECORD_RPC.SetAchievementSource

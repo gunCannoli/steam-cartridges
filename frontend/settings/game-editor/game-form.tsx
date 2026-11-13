@@ -178,7 +178,6 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
                         />
                     );
                     const playersCard = <PlayersCard key="players" draft={draft} onChange={setDraft} />;
-                    const playtimeCard = <PlaytimeCard key="playtime" appid={snapshot.appid} />;
                     const achievementsCard = (
                         <AchievementsCard
                             key="achievements"
@@ -205,7 +204,6 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
                             : missingAch
                               ? [achievementsCard, detailsCard, ...sourceLinks, controllerCard, playersCard]
                               : [detailsCard, controllerCard, playersCard, achievementsCard, ...sourceLinks];
-                        singleCards.splice(Math.min(1, singleCards.length), 0, playtimeCard);
 
                         return (
                             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: BLOCK_GAP, alignItems: "start" }}>
@@ -216,11 +214,14 @@ export function GameForm({ appid, library, single = false, onUpdated }: { appid:
 
                     return (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(480px, 1fr))", gap: BLOCK_GAP, alignItems: "start" }}>
-                            {column([detailsCard, playtimeCard, controllerCard, playersCard])}
+                            {column([detailsCard, controllerCard, playersCard])}
                             {column([achievementsCard, ...sourceLinks])}
                         </div>
                     );
                 })()}
+                {/* Playtime: full width at the bottom, just above Delete metadata (2026-11-13, the user). Left out entirely
+                    when Track Playtime is off: an empty child of Blocks would still add its gap. */}
+                {ctx.playtime?.enabled() && <PlaytimeCard key="playtime" appid={snapshot.appid} />}
                 <Card>
                     <ButtonRow
                         label="Delete metadata"

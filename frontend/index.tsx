@@ -61,7 +61,7 @@ import { installLifecycleSensor } from "./sensors/lifecycle";
 import { installCapturesSensor } from "./sensors/captures";
 import { createCapturedActivitySurface } from "./surfaces/captured-activity";
 import { createPublisher as createCapturedActivity, SWEEP_MS as CAPTURES_SWEEP_MS, SWEEP_NO_EVENTS_MS as CAPTURES_SWEEP_NO_EVENTS_MS } from "./app/captured-activity";
-import { capturedActivityActive, migratePlaytime } from "./domain/merged-plugins";
+import { capturedActivityActive, playtimeActive, shouldImportOtherPlaytimes } from "./domain/merged-plugins";
 import { clipsOf, screenshotsOf } from "./steam/captures";
 import { clipGameId, isShortcutAppId } from "./kernel/appid";
 import { collectionsSource } from "./sensors/collections";
@@ -593,11 +593,15 @@ function oldPlaytimePluginLoaded(): boolean {
     const list = (window as any).PLUGIN_LIST ?? {};
     return !!(list["non-steam-playtimes"] || list["non-steam-playtimes-dev"]);
 }
-const playtimeOn = () => setting("trackPlaytime") === true && features.isEnabled("playtime");
+/** Our playtime: the user's "on" / "off", or on "auto" only while steam-non-steam-playtimes is not loaded. */
+const playtimeOn = () => features.isEnabled("playtime") && playtimeActive(setting("playtimeMode"), oldPlaytimePluginLoaded());
+/** One log line of what decided it (the 0.7.3 crash report: a log must say which plugin keeps play time). */
+const playtimeState = () =>
+    `mode=${setting("playtimeMode")}, steam-non-steam-playtimes loaded=${oldPlaytimePluginLoaded() ? "yes" : "no"}, ours=${playtimeOn() ? "on" : `off${setting("playtimeMode") === "auto" && oldPlaytimePluginLoaded() ? " (steam-non-steam-playtimes keeps the job)" : ""}`}`;
 
 // ===== Playtime (app/playtime; the steam-non-steam-playtimes plugin's job, taken over 2026-11-12) =====
 // Sessions from the lifecycle sensor, totals in the backend's own playtime.json, shown in Steam's own play-bar stats
-// (surfaces/game-info). Off unless Track Playtime is on.
+// (surfaces/game-info). Active per the Track Playtime setting (playtimeMode; domain/merged-plugins).
 const playtime = createPlaytime({
     enabled: playtimeOn,
     now: () => Math.floor(Date.now() / 1000),
@@ -614,50 +618,56 @@ const playtime = createPlaytime({
     log: (message) => logger.info(message),
 });
 /** For CDP checks: the tracked totals and the running sessions. */
-export const playtimeDiagnostics = () => ({ on: playtimeOn(), oldPluginLoaded: oldPlaytimePluginLoaded(), running: playtime.running() });
+export const playtimeDiagnostics = () => ({ on: playtimeOn(), mode: setting("playtimeMode"), oldPluginLoaded: oldPlaytimePluginLoaded(), running: playtime.running() });
 export const playtimeOf = (appid: number) => playtime.of(appid);
 
-/** Start playtime once Steam's stores are up: the one-time migration (setting and import), then the totals. */
+/**
+ * The one-time import of steam-non-steam-playtimes' sessions, the first time ours is active. One line per step (counts
+ * only): a 0.7.3 report showed the backend dying at every start right after the read, so the log must say how far it got;
+ * the backend skips the read next time if this never reaches finishPlaytimeImport (playtime_rpc.lua).
+ */
+async function importOtherPlaytimesOnce(): Promise<void> {
+    if (!shouldImportOtherPlaytimes(playtimeOn(), setting("playtimeMigrated") === true)) return;
+    try {
+        backend.logEvent("playtime", `import: start; ${playtimeState()}`);
+        const other = await backend.readOtherPlaytimes();
+        const games = Array.isArray(other?.games) ? other.games : [];
+        backend.logEvent("playtime", `import: read answered: found=${other?.found === true ? "yes" : "no"}, skipped=${other?.skipped === true ? "yes" : "no"}, games=${games.length}${other?.error ? ", error" : ""}`);
+        if (games.length) {
+            // Import before Steam's own count seeds anything: the old plugin's totals include time set by hand.
+            backend.logEvent("playtime", `import: matching ${games.length} name(s) to shortcuts`);
+            const r = await playtime.importByName(games);
+            backend.logEvent("playtime", `imported from steam-non-steam-playtimes: ${r.added} game(s), ${r.unmatched} name(s) not in the library, ${r.ambiguous} name(s) on two or more shortcuts`);
+        }
+        await setSetting("playtimeMigrated", true);
+        await backend.finishPlaytimeImport().catch(() => undefined);
+        backend.logEvent("playtime", `import: done${other?.skipped ? " (skipped: the previous attempt did not finish)" : ""}`);
+    } catch (err) {
+        logger.warn("playtime import failed:", err);
+    }
+}
+
+/** Start playtime once Steam's stores are up and ours is active: the one-time import, then the totals. */
 function startPlaytime(): void {
     bus.on("shortcut.launched", ({ appid }) => playtime.launched(appid));
     bus.on("shortcut.quit", ({ appid }) => void playtime.quit(appid));
     let started = false;
-    // The migration switches Track Playtime on before it imports: the setting listener must not start (and seed from
-    // Steam's own count) until the import is in, or every imported game is already "tracked" and skipped.
-    let migrating = false;
+    // The import runs before start(): start seeds from Steam's own count, and an imported game must not be "tracked" first.
     const begin = async () => {
-        if (started || migrating || !playtimeOn()) return;
+        if (started || !playtimeOn()) return;
         started = true;
+        await importOtherPlaytimesOnce();
         await playtime.start();
-        backend.logEvent("playtime", `tracking on${oldPlaytimePluginLoaded() ? "; steam-non-steam-playtimes is still loaded: its play-bar copy is hidden, ours shows in Steam's own stats" : ""}`);
+        backend.logEvent("playtime", `tracking on${oldPlaytimePluginLoaded() ? "; steam-non-steam-playtimes is also loaded (Track Playtime set to On): its play-bar copy is hidden, ours shows in Steam's own stats" : ""}`);
     };
     onSettingChange((key) => {
-        if (key !== "trackPlaytime") return;
+        if (key !== "playtimeMode") return;
         void begin();
         refreshGameInfoInstances();
-        backend.logEvent("playtime", `track playtime ${setting("trackPlaytime") ? "on" : "off"}`);
+        backend.logEvent("playtime", `setting changed: ${playtimeState()}`);
     });
     setTimeout(async () => {
-        try {
-            if (setting("playtimeMigrated") !== true) {
-                migrating = true;
-                const loaded = oldPlaytimePluginLoaded();
-                const other = await backend.readOtherPlaytimes();
-                const games = Array.isArray(other?.games) ? other.games : [];
-                const value = migratePlaytime({ loaded, sessionsFound: other?.found === true && games.length > 0 });
-                if (value !== undefined) await setSetting("trackPlaytime", value);
-                if (value && games.length) {
-                    // Import before Steam's own count seeds anything: the old plugin's totals include time set by hand.
-                    const r = await playtime.importByName(games);
-                    backend.logEvent("playtime", `imported from steam-non-steam-playtimes: ${r.added} game(s), ${r.unmatched} name(s) not in the library, ${r.ambiguous} name(s) on two or more shortcuts`);
-                }
-                await setSetting("playtimeMigrated", true);
-                backend.logEvent("playtime", `migration from steam-non-steam-playtimes: ${value === undefined ? "not installed, tracking stays off" : "tracking on"}`);
-            }
-        } catch (err) {
-            logger.warn("playtime migration failed:", err);
-        }
-        migrating = false;
+        backend.logEvent("playtime", `start: ${playtimeState()}`);
         await begin();
     }, 9000);
 }
@@ -755,6 +765,7 @@ async function init() {
         },
         playtime: {
             enabled: playtimeOn,
+            otherLoaded: oldPlaytimePluginLoaded,
             of: (appid) => playtime.of(appid),
             set: (appid, minutes) => playtime.setMinutes(appid, minutes),
         },

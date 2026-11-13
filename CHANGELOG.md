@@ -7,6 +7,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.1-debug] - 2026-11-13
+
+A debug build for the start-up crash some users see with steam-non-steam-playtimes installed. Its log says, step by step,
+what the play-time import did; please send the top of `steam-cartridges.log` after two Steam starts.
+
+### Changed
+
+- Track Playtime (Settings > General) is now Automatic, On or Off. Automatic (the default) leaves play time to
+  steam-non-steam-playtimes while it is installed, and tracks it itself otherwise; On and Off are your choice whatever is
+  installed. The steam-non-steam-playtimes import runs once, the first time our play time is active.
+- Properties > Cartridge: the Playtime card is at the bottom, full width, just above Delete metadata.
+
+### Fixed
+
+- With steam-non-steam-playtimes installed, the plugin could stop at every Steam start ("stopped unexpectedly",
+  0xC0000005) right after reading that plugin's play times, so the one-time import never finished and ran again at
+  the next start. The import now checks each value in that plugin's file before reading it, skips entries it cannot use
+  and names that are not valid UTF-8, and logs each step (counts only). If an import is ever interrupted, the next start
+  skips it, says so in the log, and play time carries on from Steam's own counts.
+- A reply the backend cannot encode is now logged as `[rpc] <call>: reply could not be encoded` and answered as an
+  error, instead of stopping the plugin.
+
 ## [0.7.3-beta] - 2026-11-13
 
 No 0.7.2-beta was released; this follows 0.7.1-beta.

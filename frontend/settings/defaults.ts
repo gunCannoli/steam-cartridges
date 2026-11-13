@@ -1,6 +1,7 @@
 // Setting keys, types and defaults (migration plan M8a). Type-only imports: node can load this file
 // directly, which is how tests/settings-defaults.test.ts pins every default (do-not-touch 1).
 import type { BucketsConfig, RoutingRule } from '../domain/routing/policy';
+import type { PlaytimeMode } from '../domain/merged-plugins';
 
 export interface ServicesConfig {
     steamStoreEnabled: boolean;
@@ -74,11 +75,13 @@ export interface Settings {
     capturedActivity: boolean;
     /**
      * Track how long non-Steam games are played and show it in Steam's own Play Time and Last Played stats (the
-     * steam-non-steam-playtimes plugin's job, taken over 2026-11-12). Default false; switched on once by the migration
-     * when that plugin was installed (playtimeMigrated), which also imports its sessions.
+     * steam-non-steam-playtimes plugin's job, taken over 2026-11-12). "auto" (default): on, unless steam-non-steam-playtimes
+     * is loaded, which then keeps doing the job alone (2026-11-13, the user: a 0.7.3 user's backend crashed at every start
+     * with both installed). "on" / "off": the user's own choice, whatever is installed. Replaces `trackPlaytime` (0.7.3),
+     * which the migration set by itself and so is not a choice of the user's: it is ignored.
      */
-    trackPlaytime: boolean;
-    /** The one-time trackPlaytime migration (setting and sessions import) from steam-non-steam-playtimes ran. */
+    playtimeMode: PlaytimeMode;
+    /** The one-time sessions import from steam-non-steam-playtimes ran (only once our playtime is active). */
     playtimeMigrated: boolean;
     /** Kill switches (migration plan M0b): comma-separated feature ids skipped at start-up. Default "". */
     disabledFeatures: string;
@@ -115,7 +118,7 @@ export const DEFAULTS: Settings = {
     descriptionMaxLength: DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: true,
     capturedActivity: false,
-    trackPlaytime: false,
+    playtimeMode: 'auto',
     playtimeMigrated: false,
     disabledFeatures: '',
 };

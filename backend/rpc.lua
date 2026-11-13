@@ -100,7 +100,14 @@ local function method(name, func, opts)
 
     if result == nil then return "null" end
     note_error_answer(name, result)
-    return json.encode(result)
+    -- json.encode is a C function: an error escaping it here (outside the pcall above) kills the Lua host (knowledgebase,
+    -- crash trap item 2). A reply it cannot encode becomes an error answer and a log line instead.
+    local ok_enc, encoded = pcall(json.encode, result)
+    if not ok_enc or type(encoded) ~= "string" then
+      pcall(function() require("plog").event("rpc", name .. ": reply could not be encoded: " .. tostring(encoded):sub(1, 160)) end)
+      return '{"error":"reply could not be encoded"}'
+    end
+    return encoded
   end
 end
 

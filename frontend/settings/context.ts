@@ -29,6 +29,8 @@ export interface PanelContext {
     /** Track Playtime (app/playtime): a game's tracked total and setting it by hand. Absent on an older composition root. */
     playtime?: {
         enabled(): boolean;
+        /** steam-non-steam-playtimes is loaded (Track Playtime's "Automatic" then leaves the job to it). */
+        otherLoaded?(): boolean;
         of(appid: number): PlaytimeEntry | undefined;
         set(appid: number, minutes: number): Promise<PlaytimeEntry | undefined>;
     };

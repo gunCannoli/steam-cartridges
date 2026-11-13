@@ -32,7 +32,7 @@ const VALIDATORS: { [K in SettingKey]: (raw: unknown) => Settings[K] } = {
             : DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: (raw) => raw !== false,
     capturedActivity: (raw) => raw === true,
-    trackPlaytime: (raw) => raw === true,
+    playtimeMode: (raw) => (raw === 'on' || raw === 'off' ? raw : 'auto'),
     playtimeMigrated: (raw) => raw === true,
     disabledFeatures: (raw) => (typeof raw === 'string' ? raw : ''),
     routingRules: (raw) => Array.isArray(raw) ? (raw as RoutingRule[]) : [],
@@ -79,7 +79,7 @@ const current: Settings = {
     descriptionMaxLength: DESCRIPTION_MAX_LENGTH.default,
     watchLocalAchievements: true,
     capturedActivity: false,
-    trackPlaytime: false,
+    playtimeMode: 'auto',
     playtimeMigrated: false,
     disabledFeatures: '',
 };

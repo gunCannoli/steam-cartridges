@@ -444,8 +444,12 @@ export const backend = {
         return call<{ added?: number; error?: string }>("SeedPlaytimes", { items });
     },
     /** What the steam-non-steam-playtimes plugin recorded, per game name (read only). */
-    readOtherPlaytimes(): Promise<{ found?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }> {
-        return call<{ found?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }>("ReadOtherPlaytimes", {});
+    readOtherPlaytimes(): Promise<{ found?: boolean; skipped?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }> {
+        return call<{ found?: boolean; skipped?: boolean; games?: { name: string; minutes: number; last_played: number }[]; error?: string }>("ReadOtherPlaytimes", {});
+    },
+    /** The migration is saved: clears the backend's "import in progress" marker (see playtime_rpc.lua). */
+    finishPlaytimeImport(): Promise<{ ok?: boolean; error?: string }> {
+        return call<{ ok?: boolean; error?: string }>("FinishPlaytimeImport", {});
     },
     /** Provider credentials present, and how many games the database holds. */
     getStatus(): Promise<ProviderStatus> {
