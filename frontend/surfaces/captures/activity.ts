@@ -141,6 +141,11 @@ const STAND_IN_METHODS = new Set([
     "LoadDetails",
     "SortEvents",
     "BHasEvents",
+    "AddUserNewsEvent",
+    "AddGameActivityEvent",
+    "AddNewsEvents",
+    "DeleteEvent",
+    "RequestStoreItems",
 ]);
 let standInNoted = false;
 
@@ -513,6 +518,14 @@ export async function publishActivity(appid: number, gameid: string): Promise<nu
         a.LoadDetails = async () => false;
         a.RestoreAchievementMapFromCache = () => {};
         a.SortEvents = () => {};
+        // What Steam's class has beyond that (read live 2026-11-19): a server news event or a store-item request queued
+        // for the entry before it was ours reaches these. A shortcut has none; the next publish rebuilds the feed.
+        a.m_AchievementMap = new Map();
+        a.AddUserNewsEvent = () => {};
+        a.AddGameActivityEvent = () => {};
+        a.AddNewsEvents = () => {};
+        a.DeleteEvent = () => {};
+        a.RequestStoreItems = async () => {};
     }
 
     // 1b. Steam 1794424036 reads the store item from React Query, not StoreItemCache: a shortcut's item must be there and

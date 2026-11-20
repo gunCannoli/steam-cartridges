@@ -8,7 +8,7 @@ export type { CallOptions, Lane } from "./transport";
 
 /** A place a shortcut's unlocks come from, as the backend lists it (achievements_reset.lua). */
 export interface AchievementResetSource {
-    /** "rpcs3", "shadps4", "native_port" or "retroachievements"; extension sources use the provider's id (ADR-0063). */
+    /** "rpcs3", "shadps4", "vita3k", "xenia", "native_port" or "retroachievements"; extension sources use the provider's id (ADR-0063). */
     id: string;
     label: string;
     resettable: boolean;
@@ -277,13 +277,18 @@ export interface RecordResponse {
     requests?: number;
 }
 
+/** One GetAllRecords page, well under Millennium's 8 MB limit on an answer (the JSON text grows when it is escaped). */
+const ALL_RECORDS_PAGE_BYTES = 3_000_000;
+
 export const backend = {
     ensureFresh(appid: number, parts: RecordPart[], ctx: FreshContext, opts?: CallOptions): Promise<RecordResponse> {
         return call<RecordResponse>("EnsureFresh", { appid, parts, context: ctx }, opts);
     },
     /** New unlocks since the last check (M6a). `new_unlocks` may arrive as `{}` (K1): normalize it. */
-    checkUnlocks(appid: number, native: number, title?: string, opts?: CallOptions): Promise<{ new_unlocks?: unknown; error?: string }> {
-        return call<{ new_unlocks?: unknown; error?: string }>("CheckUnlocks", { appid, native, title }, opts);
+    checkUnlocks(appid: number, native: number, title?: string, opts?: CallOptions & { final?: boolean }): Promise<{ new_unlocks?: unknown; poll_ms?: number; error?: string }> {
+        const body: Record<string, unknown> = { appid, native, title };
+        if (opts?.final) body.final = true;
+        return call<{ new_unlocks?: unknown; poll_ms?: number; error?: string }>("CheckUnlocks", body, opts);
     },
     /** Test hook and manual unlock (`triggerAchievement`, public API). */
     unlockAchievement(appid: number, achievementId: string, unlockTime?: number) {
@@ -408,8 +413,12 @@ export const backend = {
         return call<{ removed?: number; kept?: number; error?: string }>("PruneMediaCache", { days }, opts);
     },
     /** ADR-0067: keep what an extension found for a shortcut (Game Info, media); `changed` when the core's copy changed. */
-    provideGame(appid: number, game: { source: string; provider: string; title?: string; metadata?: unknown; media?: unknown }, opts?: CallOptions) {
+    provideGame(appid: number, game: { source: string; provider: string; title?: string; metadata?: unknown; media?: unknown; artwork?: unknown; fill?: boolean }, opts?: CallOptions) {
         return call<{ ok?: boolean; changed?: boolean; error?: string }>("ProvideGame", { appid, ...game }, opts);
+    },
+    /** A picture a store pushed for the shortcut, fetched by the backend (the page's own fetch of it failed). */
+    fetchProvidedArt(appid: number, which: { url?: string; slot?: string }, opts?: CallOptions) {
+        return call<{ base64?: string; ext?: string; error?: string }>("FetchProvidedArt", { appid, ...which }, opts);
     },
     /** ADR-0067: drop what an extension pushed for a shortcut. */
     forgetProvidedGame(appid: number, opts?: CallOptions) {
@@ -421,11 +430,20 @@ export const backend = {
         set: { source: string; provider: string; key: string; schema: { title?: string; achievements: unknown[] }; unlocks: Record<string, number>; native?: number },
         opts?: CallOptions,
     ) {
-        return call<{ ok?: boolean; part?: Part<AchievementSet>; new?: string[]; error?: string }>("ProvideAchievements", { appid, ...set }, opts);
+        return call<{ ok?: boolean; part?: Part<AchievementSet>; new?: string[]; kept?: string[]; error?: string }>("ProvideAchievements", { appid, ...set }, opts);
     },
-    /** Disk only: every DB record and every saved mapping (M5a). */
-    getAllRecords(opts?: CallOptions): Promise<{ records: Record<string, RecordResponse["parts"]> }> {
-        return call<{ records: Record<string, RecordResponse["parts"]> }>("GetAllRecords", {}, opts);
+    /** Disk only: every DB record and every saved mapping (M5a). Read in pages: Read in pages: Millennium refuses an answer over 8 MB and the stored achievements carry their icons. */
+    async getAllRecords(opts?: CallOptions): Promise<{ records: Record<string, RecordResponse["parts"]> }> {
+        const records: Record<string, RecordResponse["parts"]> = {};
+        let after: string | undefined;
+        for (let page = 0; page < 200; page++) {
+            const res: { records?: Record<string, RecordResponse["parts"]>; next?: string; error?: string } = await call("GetAllRecords", { max_bytes: ALL_RECORDS_PAGE_BYTES, after }, opts);
+            if (res.error) throw new Error(res.error);
+            Object.assign(records, res.records ?? {});
+            if (!res.next) break;
+            after = res.next;
+        }
+        return { records };
     },
     /** Every non-Steam game's playtime (playtime_store.lua, its own file: no metadata refresh touches it). */
     getPlaytimes(): Promise<{ games?: Record<string, PlaytimeEntry>; error?: string }> {
@@ -469,6 +487,14 @@ export const backend = {
     /** Capture counts and newest timestamps per shortcut. */
     getLibraryStats(opts?: CallOptions) {
         return call<Record<string, LibraryStat>>("GetLibraryStats", {}, opts);
+    },
+    /** Screenshots Steam still indexes for a game whose file is gone from disk (deleted by hand); names only. */
+    getMissingScreenshots(gameid: string, opts?: CallOptions) {
+        return call<{ indexed?: number; missing?: string[]; thumbs_missing?: number; root?: boolean; error?: string }>(
+            "GetMissingScreenshots",
+            { gameid },
+            opts,
+        );
     },
     /** Controller support inferred from each shortcut's emulator (parity plan F); unknown games are absent. */
     getControllerInference(opts?: CallOptions) {

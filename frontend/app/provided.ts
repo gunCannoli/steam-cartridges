@@ -15,6 +15,11 @@ export interface ProvidedDeps {
     ensureBase(appid: ShortcutId): void;
     /** Re-read Game Info and community media for a shortcut whose pushed data changed (index.tsx: app/metadata, app/media). */
     refresh(appid: ShortcutId): void;
+    /**
+     * Plan the pushed art (reportGame's `artwork`) for a shortcut: once per session whatever the push changed (the grid files
+     * outlive a session, so an unchanged push still has to look), and again at once when the pushed art changed.
+     */
+    ensureArtwork(appid: ShortcutId, changed: boolean): void;
 }
 
 export interface ProvidedService {
@@ -35,6 +40,8 @@ export function createProvided(deps: ProvidedDeps): ProvidedService {
                 title: game.title,
                 metadata: game.metadata,
                 media: game.media,
+                artwork: game.artwork,
+                fill: game.fill,
             }, { lane: "background" });
             if (!res || res.error || !res.ok) {
                 if (res?.error) logger.warn(`${opts?.providerId ?? game.source}: the game for shortcut ${id} was not kept: ${res.error}`);
@@ -47,6 +54,7 @@ export function createProvided(deps: ProvidedDeps): ProvidedService {
                 logger.info(`${opts?.providerId ?? game.source} reported shortcut ${id} as a ${game.source} game.`);
                 deps.refresh(id);
             }
+            if (game.artwork) deps.ensureArtwork(id, res.changed === true);
             return { ok: true, changed: res.changed === true };
         },
         async forgetGame(appid, opts) {

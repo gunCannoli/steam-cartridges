@@ -43,3 +43,5 @@ export function gameIconUrl(appid: number): string {
 export function achievementIcon(icon: string | undefined | null, appid: number): string {
     return icon || gameIconUrl(appid) || TROPHY_BADGE;
 }
+
+export { steamIconUrl } from './steam-icon-url';

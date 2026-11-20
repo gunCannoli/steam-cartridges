@@ -148,6 +148,8 @@ export interface AchievementSchemaItem {
     name: string;
     description: string;
     icon: string;
+    /** The grey picture a locked achievement shows (Steam's own `icon_unachieved`); absent: the colour icon is used for it. */
+    icon_locked?: string;
     global_pct: number;
     /** A secret achievement: Steam lists it only once unlocked (bHidden; PS3/PS4/native-port trophies). */
     hidden?: boolean;

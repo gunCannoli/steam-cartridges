@@ -2,19 +2,37 @@
 // never touches Steam. The backend cannot do this: Millennium's Lua http.get cuts a binary body at
 // its first NUL byte (icon plan § 11).
 
+/** Why the last fetch failed ("HTTP 403", an error's text), for the warning that names the image: no host, no query. */
+let lastFailure = '';
+export function lastImageFailure(): string {
+    return lastFailure;
+}
+
 /** Bytes of one image URL as base64, or null. SteamGridDB's CDN blocks cross-origin fetches: retry through wsrv.nl. */
 export async function fetchImage(url: string, forcePng = false): Promise<{ base64: string; ext: string } | null> {
     const attempt = async (target: string): Promise<Blob | null> => {
         try {
             const resp = await fetch(target);
-            if (!resp.ok) return null;
+            if (!resp.ok) {
+                lastFailure = `HTTP ${resp.status}`;
+                return null;
+            }
             const blob = await resp.blob();
+            if (blob.size < 100) lastFailure = `only ${blob.size} bytes`;
             return blob.size >= 100 ? blob : null;
-        } catch {
+        } catch (e) {
+            lastFailure = String((e as Error)?.message ?? e).slice(0, 60);
             return null;
         }
     };
     let blob = await attempt(url);
+    // Right after Steam starts the network may not be up yet ("Failed to fetch" for a store's art, fine a minute later): two
+    // more tries, spaced out, before giving up.
+    for (const wait of [3000, 8000]) {
+        if (blob || url.includes('steamgriddb.com')) break;
+        await new Promise((r) => setTimeout(r, wait));
+        blob = await attempt(url);
+    }
     if (!blob && url.includes('steamgriddb.com')) blob = await attempt('https://wsrv.nl/?url=' + url.replace(/^https?:\/\//, '') + (forcePng ? '&output=png' : ''));
     if (!blob) return null;
     const found = blob;

@@ -10,6 +10,8 @@
 ---                     persists what the source answers, the source never writes the store
 ---   rpcs3             a PS3 trophy directory is found from the launch command
 ---   shadps4           a PS4 trophy directory is found from the launch command
+---   vita3k            a Vita title id in a Vita3K command, its trophy files found (vita3k_trophies.lua)
+---   xenia             a Xenia command whose game has a .gpd profile file (xenia_achievements.lua)
 ---   retroachievements a ROM path is found from the launch command
 ---   pack              an achievement pack matches the shortcut (achievement_packs.lua, ADR-0081): the last resort.
 ---                     A pack can also answer at native_port's place, replacing a built-in port that it is at least
@@ -35,6 +37,10 @@ M.deps = {
   ra = nil,    -- fun(appid, hardcore) -> res, err ; nil = retroachievements.get_or_fetch
   ps3_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps3_trophies.find_trophy_dir
   ps4_dir = nil,  -- fun(exe, launch_options) -> dir | nil ; nil = ps4_trophies.find_trophy_dir
+  vita = nil,     -- fun(appid) -> res, err          ; nil = vita3k_trophies.get_or_fetch
+  vita_dir = nil, -- fun(exe, launch_options) -> files | nil ; nil = vita3k_trophies.find_trophy_dir
+  xenia = nil,    -- fun(appid) -> res, err          ; nil = xenia_achievements.get_or_fetch
+  xenia_game = nil, -- fun(exe, launch_options, name) -> game | nil ; nil = xenia_achievements.find_game
   rom_path = nil, -- fun(exe, launch_options) -> path | nil ; nil = retroachievements.extract_rom_path
   provided = nil,    -- fun(appid) -> pushed record | nil ; nil = provided_store.get (ADR-0067)
   now = function() return os.time() end,
@@ -107,6 +113,21 @@ local SOURCES = {
       return entry ~= nil and dep("ps4_dir", "ps4_trophies", "find_trophy_dir")(entry.exe, entry.launch_options) ~= nil
     end,
     fetch = function(appid) return dep("ps4", "ps4_trophies", "get_or_fetch")(appid) end,
+  },
+  {
+    name = "vita3k",
+    supports = function(_, entry)
+      return entry ~= nil and dep("vita_dir", "vita3k_trophies", "find_trophy_dir")(entry.exe, entry.launch_options) ~= nil
+    end,
+    fetch = function(appid) return dep("vita", "vita3k_trophies", "get_or_fetch")(appid) end,
+  },
+  {
+    name = "xenia",
+    supports = function(_, entry)
+      return entry ~= nil
+        and dep("xenia_game", "xenia_achievements", "find_game")(entry.exe, entry.launch_options, entry.name or entry.appname) ~= nil
+    end,
+    fetch = function(appid) return dep("xenia", "xenia_achievements", "get_or_fetch")(appid) end,
   },
   {
     name = "retroachievements",
@@ -213,6 +234,14 @@ function M._resolve(appid, ctx)
   end
   tell_once(appid, "error", last_err or "no source returned a schema")
   return { status = "error", message = tostring(last_err or "no source returned a schema"), checkedAt = now_ms() }, nil
+end
+
+--- Whether a pack's stored schema can be rebuilt with more icons now (see src_native_ports.icons_due). Disk only.
+function M.icons_due(appid)
+  local entry = (M.deps.entry or default_entry)(appid)
+  if entry == nil then return false end
+  local ok, due = pcall(dep("icons_due", "src_native_ports", "icons_due"), entry, store.get_state(appid))
+  return ok and due == true
 end
 
 local signature = nil

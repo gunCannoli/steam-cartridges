@@ -156,6 +156,41 @@ function captures.non_steam_counts(paths)
   return counts
 end
 
+--- Which of a game's indexed screenshots no longer exist on disk.
+---
+--- Steam keeps a screenshot in its index (screenshots.vdf, and its in-memory copy) after the user deletes the file
+--- by hand outside Steam, and the Post-Game Summary keeps showing it. The frontend drops the ones named here.
+--- Only counts and bare file names leave this function (no folders), so the answer is safe to log.
+---@param paths steam_paths.Paths
+---@param game_id string  64-bit gameid, decimal
+---@return table info  { indexed, missing = string[] file names, thumbs_missing, root = boolean }
+function captures.missing_files(paths, game_id)
+  local games = load_index(paths)
+  local list = games[tostring(game_id)] or {}
+  local info = {
+    indexed = #list, missing = {}, thumbs_missing = 0, root = fs.is_directory(paths.screenshots_root) == true,
+    -- Why an empty answer is empty: no index file, an index without this game, or a game folder with no files.
+    vdf = fs.is_file(paths.screenshots_vdf) == true, games = 0, game_in_index = games[tostring(game_id)] ~= nil,
+    folder = fs.is_directory(fs.join(paths.screenshots_root, tostring(game_id))) == true,
+  }
+  for _ in pairs(games) do info.games = info.games + 1 end
+  -- No capture folder at all: say so, but do not call every shot missing (an unreadable or remapped folder would
+  -- then hide real screenshots).
+  if not info.root then return info end
+
+  for _, shot in ipairs(list) do
+    if shot.filename then
+      local name = shot.filename:match("([^/\\]+)$")
+      if name and not fs.is_file(fs.join(paths.screenshots_root, shot.filename)) then
+        info.missing[#info.missing + 1] = name
+      elseif shot.thumbnail and not fs.is_file(fs.join(paths.screenshots_root, shot.thumbnail)) then
+        info.thumbs_missing = info.thumbs_missing + 1
+      end
+    end
+  end
+  return info
+end
+
 --- Per-app capture summary for the library grid.
 ---
 --- `newest` is the most recent capture time and doubles as evidence the game

@@ -48,6 +48,12 @@ export interface Events {
         icon?: { path: string; previous: string };
     };
     "settings.changed": { key: string };
+    /** An extension's reported install state for this shortcut changed (app/install-state, ADR-0107): the install-state
+     *  surface redraws it. `drawn` false: nothing is reported any more, so Steam's own state comes back. */
+    "install-state.changed": { appid: ShortcutId; drawn: boolean };
+    /** Steam's Install / Uninstall for a shortcut the install-state surface draws (ADR-0107): app/install-state sends it to
+     *  the reporting extension's handler. `appid` is unsigned. */
+    "install-state.requested": { appid: number; kind: "install" | "uninstall" };
     /** The community surface showed Steam's viewer for a manual card (features plan F2c): app/manuals renders its pages. */
     "community.manual-opened": { appid: ShortcutId; key: string };
 }

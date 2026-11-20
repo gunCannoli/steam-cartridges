@@ -34,6 +34,20 @@ export function hardenEvent<T extends object>(ev: T): T {
     return ev;
 }
 
+/** The `Add*Event` methods of Steam's day class (read live 2026-11-19), which our stand-in day answers as no-ops. */
+export const STEAM_DAY_ADDERS = [
+    "AddAchievementEvent",
+    "AddPartnerEvent",
+    "AddPlayedGameFirstTimeEvent",
+    "AddReceivedGameEvent",
+    "AddRecommendedGameEvent",
+    "AddScreenshotEvent",
+    "AddSteamTradingCardEvent",
+    "AddUserStatusEvent",
+    "AddVideoEvent",
+    "AddWishlistedGameEvent",
+] as const;
+
 /** Our day, for when no Steam-made day has been seen yet: the shape of Steam's day class (2026-11) plus the old fields. */
 export function standInDay(dayBegin: number): any {
     return {
@@ -66,6 +80,10 @@ export function standInDay(dayBegin: number): any {
         AddEvent(e: any) {
             this.m_rgEvents.push(e);
         },
+        // Steam's entry class calls these on a day when a server event is merged into the entry (AddUserNewsEvent ->
+        // AddAchievementEvent, "is not a function" in a user's log 2026-11-19). A shortcut has no server events and the
+        // feed is rebuilt by every publish, so they add nothing. The names are Steam's own day class's (read live).
+        ...Object.fromEntries(STEAM_DAY_ADDERS.map((n) => [n, () => {}])),
     };
 }
 

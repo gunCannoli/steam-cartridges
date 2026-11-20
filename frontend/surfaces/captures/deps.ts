@@ -18,7 +18,15 @@ export const deps: SurfaceDeps & {
     bus: Pick<EventBus, "emit">;
     /** One line in the plugin log under [activity] (what a feed showed and why a part was left out), sent on the bus. */
     report(message: string): void;
+    /** One line in the plugin log under [captures] (screenshot and media sensors), sent on the bus. */
+    log(message: string): void;
+    /** File names of indexed screenshots whose file is gone from disk (deleted by hand); null when unknown. */
+    missingScreenshots(gameid: string): Promise<{ indexed: number; missing: string[] } | null>;
 } = {
+    missingScreenshots: async () => null,
+    log(message) {
+        deps.bus.emit("surface.report", { area: "captures", message });
+    },
     isEnabled: () => true,
     reportError: () => {},
     activityOptions: () => ({ showAdded: true, showFirstPlayed: true, showAchievements: true }),

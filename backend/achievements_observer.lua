@@ -322,9 +322,10 @@ function M.mark_logs_read(s_appid, game_title)
   save_offsets()
 end
 
-function M.check_unlocks(shortcut_appid, native_appid, game_title)
+function M.check_unlocks(shortcut_appid, native_appid, game_title, opts)
   local s_appid = tonumber(shortcut_appid) or 0
   local n_appid = tonumber(native_appid) or 0
+  local is_final = type(opts) == "table" and opts.final == true
   if s_appid <= 0 then
     return { new_unlocks = as_array({}) }
   end
@@ -347,10 +348,20 @@ function M.check_unlocks(shortcut_appid, native_appid, game_title)
 
   local sc_match, exe_dir = M.shortcut_entry(s_appid)
 
-  -- 1. Native ports' unlock files, the platinum included (native_ports.read_unlocks)
+  -- 1. Native ports' unlock files, the platinum included (native_ports.read_unlocks), plus pack watcher (file/memory)
   local port = M.native_port(st.schema, sc_match)
+  local poll_ms = nil
   if port then
     for id, info in pairs(require("native_ports").read_unlocks(port)) do candidate_unlocks[id] = info end
+    if port.def and port.def.watch then
+      local watched, w_ms = require("pack_watcher").poll(s_appid, port, existing_unlocks, is_final)
+      poll_ms = w_ms
+      for id, info in pairs(watched) do candidate_unlocks[id] = info end
+    elseif is_final then
+      require("pack_watcher").stop(s_appid)
+    end
+  elseif is_final then
+    require("pack_watcher").stop(s_appid)
   end
 
   -- 2. RPCS3 / shadPS4 trophy files
@@ -395,7 +406,9 @@ function M.check_unlocks(shortcut_appid, native_appid, game_title)
     logger:info(string.format("Observer detected %d new unlock(s) for shortcut %d", #new_unlocks, s_appid))
   end
 
-  return { new_unlocks = as_array(new_unlocks) }
+  local res = { new_unlocks = as_array(new_unlocks) }
+  if poll_ms then res.poll_ms = poll_ms end
+  return res
 end
 
 return M

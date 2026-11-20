@@ -53,6 +53,12 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
   -- skipped one), a view or the sync answers from disk only. A game from before setup ("existing") fetches as before.
   local gate_open = require("setup_store").gate_open()
   local may_fetch = require("choices_store").may_fetch(appid)
+  -- A game a store pushed (steam-cartridges-third-party) was never in Library Setup's list; the extension's "fill in missing game
+  -- info" setting is the user's say for it (once setup is done): its Game Info and media may be completed from the web sources.
+  if not may_fetch then
+    local pushed = provided_store.get(appid)
+    may_fetch = type(pushed) == "table" and pushed.fill ~= false
+  end
   if not gate_open or not may_fetch then ctx.noNetwork = true end
   if ctx.force and (not gate_open or not may_fetch) and not forced_disk_logged[appid] then
     forced_disk_logged[appid] = true
@@ -137,6 +143,9 @@ RPC.EnsureFresh = method("EnsureFresh", function(data)
       local now = now_ms()
       local cached = ach().local_part(appid)
       local due = ctx.force or not cached or fresh().is_stale(appid, "achievements", cached, now)
+      -- A pack's schema is also due when its icon sources now hold more than it was built with (a RetroAchievements key
+      -- added since): without this the 24 h cache kept the game's icon until it expired.
+      if not due and ach().icons_due(appid) then due = true end
       -- A Steam schema is also due when it belongs to another Steam game than the shortcut's match now (a re-link), or
       -- when it was built by an older reader (steam_schema.SCHEMA_VERSION; tried again at most every error TTL).
       local stored = cached and cached.data and cached.data.schema
@@ -209,8 +218,11 @@ RPC.ClearCustomMetadata = method("ClearCustomMetadata", function(data)
 end)
 
 --- Every DB record and every saved mapping, disk only. Replaces the frontend's
---- getAllMetadata preload in M5b.
-RPC.GetAllRecords = method("GetAllRecords", function(_)
+--- getAllMetadata preload in M5b. Millennium refuses an answer over 8 MB, and the stored achievements carry their icons
+--- (a 219-game library reached 11 MB), so a caller may ask for a page: `{ max_bytes, after }` answers the records whose key
+--- sorts after `after`, up to about `max_bytes` of JSON, and `next` (the last key sent) while more remain. Without
+--- `max_bytes` everything is answered at once.
+RPC.GetAllRecords = method("GetAllRecords", function(data)
   local records = {}
   local all_meta = metadata_db.get_all()
   for key, rec in pairs(all_meta) do
@@ -245,14 +257,28 @@ RPC.GetAllRecords = method("GetAllRecords", function(_)
       if achievements then records[key] = { achievements = achievements } end
     end
   end
-  return { records = records }
+  local max_bytes = tonumber(data and data.max_bytes)
+  if not max_bytes then return { records = records } end
+  local keys = {}
+  for key in pairs(records) do keys[#keys + 1] = key end
+  table.sort(keys)
+  local after = data.after ~= nil and tostring(data.after) or nil
+  local page, used, last = {}, 0, nil
+  for _, key in ipairs(keys) do
+    if after == nil or key > after then
+      local size = #require("json").encode(records[key]) + #key + 4
+      if next(page) ~= nil and used + size > max_bytes then return { records = page, next = last } end
+      page[key], used, last = records[key], used + size, key
+    end
+  end
+  return { records = page }
 end)
 
 --- New unlocks since the last check (Flow C, M6b polls this every 2 s). K1: `new_unlocks` is always a list.
 RPC.CheckUnlocks = method("CheckUnlocks", function(data)
   local appid = need(data, "appid")
   if not is_shortcut(appid) then return { error = "not a shortcut" } end
-  return require("achievements_observer").check_unlocks(tonumber(appid), tonumber(data.native) or 0, data.title)
+  return require("achievements_observer").check_unlocks(tonumber(appid), tonumber(data.native) or 0, data.title, { final = data.final == true })
 end)
 
 --- Shortcuts in shortcuts.vdf the plugin has not seen before (Flow B). The first call seeds the file

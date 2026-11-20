@@ -16,7 +16,7 @@ interface AchievementSourceDef extends Addable {
 const ALL_ACHIEVEMENT_SOURCES: AchievementSourceDef[] = [
     { id: "retroachievements", label: "RetroAchievements" },
     { id: "console_emulators", label: "Emulators" },
-    { id: "native_ports", label: "Native ports" },
+    { id: "native_ports", label: "Achievement Packs" },
 ];
 
 /** Module-level cache so reopening settings paints immediately without flicker while async status refreshes. */
@@ -50,18 +50,18 @@ export function AchievementsSection() {
                 cachedPorts = p;
                 setPorts(p);
             })
-            .catch((e) => backend.logEvent("sources", `native ports status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
+            .catch((e) => backend.logEvent("sources", `achievement packs status read failed: ${String(e?.message ?? e).slice(0, 100)}`));
     }, []);
 
-    const activeRaUser =
-        retroStatus?.emulators?.find((e) => e.authenticated && e.username)?.username ||
-        (retroStatus?.env_fallback ? retroStatus.env_username || "Configured in .env" : null);
+    // RetroAchievements counts as added only when the user saved their username and Web API key in Settings
+    // (never from reading emulator configs; RetroArch's login stays for real-time unlock checks only).
+    const hasUserRaCreds = retroStatus?.env_fallback === true && Boolean(retroStatus?.env_username);
 
-    // A source is in use once the user turned it on (nothing is on by default); RetroAchievements also needs an account.
+    // A source is in use once the user turned it on (nothing is on by default); RetroAchievements also needs user credentials.
     // While retroStatus is loading (null), preserve enabled RetroAchievements so the panel does not flicker on open.
     const activeSources = ALL_ACHIEVEMENT_SOURCES.filter((s) =>
         s.id === "retroachievements"
-            ? services.retroachievementsEnabled === true && (retroStatus === null || !!activeRaUser)
+            ? services.retroachievementsEnabled === true && (retroStatus === null || hasUserRaCreds)
             : s.id === "native_ports"
               ? services.nativePortsEnabled === true
               : services.emulatorsEnabled === true && services.rpcs3Enabled !== false,
@@ -96,7 +96,7 @@ export function AchievementsSection() {
                                             </IconButton>
                                         )}
                                         {src.id === "native_ports" && (
-                                            <IconButton onClick={() => setShowPortsModal(true)} title="Supported native ports">
+                                            <IconButton onClick={() => setShowPortsModal(true)} title="Achievement Packs: native ports and packs">
                                                 🛈
                                             </IconButton>
                                         )}
@@ -114,8 +114,8 @@ export function AchievementsSection() {
                 )}
             </Blocks>
 
-            {/* Native ports popup: every supported port and how many shortcuts launch it. */}
-            <SettingsModal title="Native Ports" isOpen={showPortsModal} onClose={() => setShowPortsModal(false)} width="480px">
+            {/* Achievement Packs popup: every supported native port and how many shortcuts launch it. */}
+            <SettingsModal title="Achievement Packs" isOpen={showPortsModal} onClose={() => setShowPortsModal(false)} width="480px">
                 <PanelSection>
                     <Blocks>
                         <>

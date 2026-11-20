@@ -108,7 +108,10 @@ export function StepIntro({
                                 Unlocks are read from the emulator's own files: RetroArch, DuckStation, PCSX2, Dolphin and PPSSPP (logs), RPCS3 and shadPS4
                                 (PlayStation 3 and 4 trophies). Add "Emulators" below to turn this on.
                             </Item>
-                            <Item label="Native PC ports">Bloodborne PC and Dusklight write their own trophy files. Add "Native ports" below to turn this on; nothing else to set up.</Item>
+                            <Item label="Achievement Packs">
+                                Native PC ports (Bloodborne PC, Dusklight) and packs for games such as AM2R: a pack names a game's achievements and where it writes
+                                its unlocks. Add "Achievement Packs" below and a pack that matches a detected game is used by itself; nothing else to set up.
+                            </Item>
                         </>
                     )}
                     {step === 2 && (

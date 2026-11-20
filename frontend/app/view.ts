@@ -57,6 +57,8 @@ export function createView(deps: ViewDeps): View {
         inflight.add(id);
         try {
             const { bucket, via } = deps.routing.getBucket(id);
+            // ADR-0109: another plugin manages this shortcut: nothing is painted or fetched, not even from disk.
+            if (via === "owned") return;
             const route: Route = { bucket, via };
             if (via === "pending") {
                 // Local Game Info and stored achievements only until collections load (ADR-0035); replayed then.

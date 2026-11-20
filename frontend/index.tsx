@@ -39,7 +39,7 @@ import { createArtwork } from "./app/artwork";
 import { createMedia } from "./app/media";
 import { createManuals } from "./app/manuals";
 import { createLibraryStats } from "./app/library-stats";
-import { fetchImage, objectUrl, objectUrlToBase64, releaseObjectUrl } from "./ports/image";
+import { fetchImage, lastImageFailure, objectUrl, objectUrlToBase64, releaseObjectUrl } from "./ports/image";
 import { pdfRenderer } from "./ports/pdf";
 import { createAchievements } from "./app/achievements";
 import { createProvided } from "./app/provided";
@@ -52,6 +52,8 @@ import { lookupStored, toShortcutId, type ShortcutId } from "./kernel/appid";
 import { isFallbackMetadata, type GameMetadata } from "./kernel/record";
 import { achCanAnswer, webCanAnswer } from "./domain/sync-scope";
 import { createExtensionRegistry, type SteamCartridgesAPI } from "./kernel/extensions";
+import { createInstallState } from "./app/install-state";
+import { createInstallStateSurface, type InstallStateSurface } from "./surfaces/install-state";
 import { createImageBin } from "./kernel/image-bin";
 import { createMediaBin } from "./kernel/media-bin";
 import { createManualShelf } from "./kernel/manual-shelf";
@@ -61,7 +63,7 @@ import { installLifecycleSensor } from "./sensors/lifecycle";
 import { installCapturesSensor } from "./sensors/captures";
 import { createCapturedActivitySurface } from "./surfaces/captured-activity";
 import { createPublisher as createCapturedActivity, SWEEP_MS as CAPTURES_SWEEP_MS, SWEEP_NO_EVENTS_MS as CAPTURES_SWEEP_NO_EVENTS_MS } from "./app/captured-activity";
-import { capturedActivityActive, playtimeActive, shouldImportOtherPlaytimes } from "./domain/merged-plugins";
+import { capturedActivityActive, ownerOf, PLUGIN_OWNERS, playtimeActive, shouldImportOtherPlaytimes } from "./domain/merged-plugins";
 import { clipsOf, screenshotsOf } from "./steam/captures";
 import { clipGameId, isShortcutAppId } from "./kernel/appid";
 import { collectionsSource } from "./sensors/collections";
@@ -176,6 +178,19 @@ const runner = createSurfaceRunner({
 const records = createRecords(bus);
 
 /** Routing (app/routing.ts, plan M4a / ADR-0040), wired to every former buckets caller through D3 setters. */
+/** ADR-0109: the plugin that manages this shortcut itself (steam-epic-games' IsEpicApp), by its PLUGIN_LIST id. */
+const managedBy = (appid: number): string | undefined => ownerOf(appid, (window as any).PLUGIN_LIST)?.pluginId;
+
+/** ADR-0107: install states extensions report (API 1.3.0); the install-state surface draws them. */
+const installState = createInstallState({
+    bus,
+    ownerOf: managedBy,
+    log: (message) => backend.logEvent("install-state", message),
+});
+let installStateSurface: InstallStateSurface | undefined;
+/** Console: PLUGIN_LIST['steam-cartridges-dev'].installStateDiagnostics() */
+export const installStateDiagnostics = () => ({ ...installState.counts(), surface: installStateSurface?.diagnostics() ?? null });
+
 const routing = createRouting({
     buckets: () => setting("buckets"),
     rules: () => setting("routingRules"),
@@ -185,6 +200,7 @@ const routing = createRouting({
     loadProfiles: async () => (await backend.getAutoRoutingProfiles())?.profiles ?? {},
     metadataAppids: () => records.store.all().filter((r) => r.metadata).map((r) => r.appid),
     report: (message) => backend.logEvent("routing", message),
+    ownerOf: managedBy,
 });
 
 /** Render queue (app/render-queue.ts, plan § 7.0 D5): coalesces record.updated into one
@@ -268,6 +284,11 @@ const artwork = createArtwork({
     titleOf: (appid) => shortcutTitle(appid),
     storeItemFor: (steamAppid) => loadStoreItem(steamAppid),
     fetchImage,
+    imageFailure: lastImageFailure,
+    fetchProvided: async (appid, which) => {
+        const res = await backend.fetchProvidedArt(appid, which, { lane: "background" });
+        return res?.base64 && res.ext ? { base64: res.base64, ext: res.ext } : null;
+    },
     allowSgdb: (appid) => setting("services").steamgriddbEnabled !== false && routing.serviceAllowed("steamgriddb", appid),
     now: () => Date.now(),
 });
@@ -322,6 +343,10 @@ const provided = createProvided({
         const route = routing.getBucket(appid);
         const identityPart = records.store.get(appid)?.identity;
         void metadata.ensure(appid, route, identityPart).then(() => media.ensure(appid, route, identityPart)).catch(() => undefined);
+    },
+    ensureArtwork: (appid, changed) => {
+        if (changed) artwork.invalidate(appid);
+        void artwork.ensure(appid, routing.getBucket(appid), records.store.get(appid)?.identity).catch(() => undefined);
     },
 });
 
@@ -425,6 +450,7 @@ const librarySetup = createLibrarySetup({
     backend,
     shortcuts: () => routing.listShortcuts(),
     collectionsOf: (appid) => routing.collectionsOf(appid),
+    ownerOf: managedBy,
     // The confirmed game is fetched, then its Game Info is filled in from what matched it (a Steam match reads Steam's own store item) so the
     // onboarding shows every field filled, for the user to check or just confirm (ADR-0100).
     fetchGames: async (appids, onProgress) => {
@@ -553,8 +579,13 @@ export function initGlobalExtensionAPI(): SteamCartridgesAPI {
         reportUnlocks: (appid, unlocks, opts) => achievements.ingestExternal(appid, unlocks, opts),
         reportGame: (appid, game, opts) => provided.reportGame(appid, game, opts),
         reportAchievementSet: (appid, set, opts) => achievements.ingestProvidedSet(appid, set, opts),
-        forgetGame: (appid, opts) => provided.forgetGame(appid, opts),
-    });
+        forgetGame: (appid, opts) => {
+            installState.forget(appid, opts?.providerId);
+            return provided.forgetGame(appid, opts);
+        },
+        reportInstallState: (appid, state, opts) => installState.report(appid, state, opts),
+        registerInstallHandler: (handler) => installState.registerHandler(handler),
+    }, { log: (line) => logger.info(line) });
     (api as any).isLocalAchievementsWatchEnabled = () => setting("watchLocalAchievements") !== false;
     (window as any).SteamCartridges = api;
 
@@ -750,6 +781,31 @@ function startCapturedActivity(): void {
     }, 8000);
 }
 
+/**
+ * ADR-0109: one `[coexist]` line per owning plugin whenever the number of shortcuts it manages changes (start-up once every
+ * plugin has loaded, then every minute). Counts only.
+ */
+function watchCoexistence(): void {
+    const last = new Map<string, number>();
+    const tick = () => {
+        try {
+            const list = (window as any).PLUGIN_LIST ?? {};
+            for (const o of PLUGIN_OWNERS) {
+                const loaded = !!list[o.pluginId];
+                let n = 0;
+                if (loaded) for (const s of routing.listShortcuts()) if (ownerOf(s.appid, list)?.pluginId === o.pluginId) n++;
+                if (last.get(o.pluginId) === (loaded ? n : -1)) continue;
+                last.set(o.pluginId, loaded ? n : -1);
+                backend.logEvent("coexist", `${o.pluginId} loaded=${loaded} manages ${n} shortcut(s)${n > 0 ? ": steam-cartridges leaves them alone" : ""}`);
+            }
+        } catch (err) {
+            logger.warn("[coexist] check failed:", err);
+        }
+    };
+    setTimeout(tick, 8000);
+    setInterval(tick, 60_000);
+}
+
 let capturedActivityDiagnostics: () => unknown = () => ({ active: false });
 let capturedActivitySweep: () => Promise<void> = async () => {};
 /** For CDP checks: what the captured-activity feature holds, and its sweep on demand. */
@@ -757,6 +813,7 @@ export const capturedActivity = { diagnostics: () => capturedActivityDiagnostics
 
 async function init() {
     const extensionApi = initGlobalExtensionAPI();
+    watchCoexistence();
     // Panels reach the app only through this context (plan M8b, § 7.0 D3).
     setPanelContext({
         routing: {
@@ -922,6 +979,14 @@ async function init() {
         );
     }
 
+    // The surface is given no backend call (ADR-0044): the disk check for screenshots deleted by hand comes in as a function.
+    const lookUpMissingScreenshots = async (gameid: string) => {
+        const res = await backend.getMissingScreenshots(gameid, { lane: "view" }).catch(() => null);
+        if (!res || res.error || typeof res.indexed !== "number") return null;
+        // An empty Lua list is encoded as `{}`, not `[]`: only an array carries names.
+        return { indexed: res.indexed, missing: Array.isArray(res.missing) ? res.missing : [] };
+    };
+
     // ===== Captures (surfaces/captures, plan M3.2) =====
     // Post-Game Summary, a shortcut's activity feed and StoreItemCache immunity (store-cache). The captures in
     // the feed are the steam-captured-activity plugin's (docs/steam-captured-activity.md).
@@ -934,6 +999,8 @@ async function init() {
                 showAchievements: setting("activityShowAchievements") === true,
             }),
             bus,
+            missingScreenshots: lookUpMissingScreenshots,
+            log: (message) => bus.emit("surface.report", { area: "captures", message }),
         }),
     );
     runner.installAll();
@@ -1045,6 +1112,17 @@ async function init() {
     // Fills in last-played dates Steam does not have, from capture timestamps.
     if (features.isEnabled("library-home")) await libraryStats.load();
     runner.register(createLibraryHomeSurface({ ...surfaceDeps, stats: libraryStats }));
+    // ===== Install state (ADR-0107) =====
+    // Only shortcuts an extension reports: with no expansion, nothing is drawn.
+    installStateSurface = createInstallStateSurface({
+        ...surfaceDeps,
+        bus,
+        stateOf: (appid) => installState.stateOf(appid),
+        reported: () => installState.reported(),
+        hasAny: () => installState.hasAny(),
+    });
+    bus.on("install-state.requested", ({ appid, kind }) => void installState.request(kind, appid));
+    runner.register(installStateSurface);
     runner.installAll();
     await libraryHomeReady();
 

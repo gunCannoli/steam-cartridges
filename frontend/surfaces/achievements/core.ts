@@ -9,7 +9,7 @@ import type { SteamAchievementItem, SteamAppAchievements, AchievementProgress } 
 export function buildSteamAchievements(
     schema: AchievementSchemaRecord | undefined,
     unlocks: Record<string, AchievementUnlockRecord> = {},
-    iconOf: (icon: string | undefined) => string = (icon) => icon ?? "",
+    iconOf: (icon: string | undefined, needsGrey?: boolean) => string = (icon) => icon ?? "",
 ): SteamAppAchievements | null {
     // asList: an empty list crosses the backend as `{}` (K1), which is not iterable.
     const items = schema ? asList<AchievementSchemaItem>(schema.achievements) : [];
@@ -31,7 +31,8 @@ export function buildSteamAchievements(
             strID: item.id,
             strName: item.name,
             strDescription: item.description,
-            strImage: iconOf(item.icon),
+            // Steam draws a locked achievement from its grey picture and an unlocked one from the colour one
+            strImage: iconOf(isUnlocked ? item.icon : item.icon_locked || item.icon, !isUnlocked && !item.icon_locked),
             bAchieved: isUnlocked,
             rtUnlocked: unlock?.unlocked_time ?? 0,
             bHidden: item.hidden === true,

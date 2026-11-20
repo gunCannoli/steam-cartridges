@@ -247,13 +247,19 @@ export function createAchievements(deps: AchievementsDeps): AchievementsService 
         return promise;
     }
 
-    async function checkNow(appid: ShortcutId, opts: { native?: number; title?: string } = {}): Promise<number> {
+    async function checkNow(appid: ShortcutId, opts: { native?: number; title?: string; final?: boolean } = {}): Promise<number> {
+        const { count } = await checkOnce(appid, opts);
+        return count;
+    }
+
+    async function checkOnce(appid: ShortcutId, opts: { native?: number; title?: string; final?: boolean } = {}): Promise<{ count: number; pollMs?: number }> {
         try {
             const native = opts.native ?? (await resolveNative(appid));
-            const res = await deps.backend.checkUnlocks(appid, native, opts.title ?? deps.titleOf(appid), { lane: "normal" });
+            const res = await deps.backend.checkUnlocks(appid, native, opts.title ?? deps.titleOf(appid), { lane: "normal", final: opts.final });
+            const pollMs = typeof res?.poll_ms === "number" && res.poll_ms >= 100 && res.poll_ms <= 60000 ? Math.floor(res.poll_ms) : undefined;
             const fresh = asList<NewUnlock>(res?.new_unlocks).filter((u) => u && typeof u.id === "string");
 
-            if (fresh.length === 0) return 0;
+            if (fresh.length === 0) return { count: 0, pollMs };
             const set = current(appid)?.data;
 
             if (set) {
@@ -267,10 +273,10 @@ export function createAchievements(deps: AchievementsDeps): AchievementsService 
             const ids = fresh.map((u) => u.id);
             logger.info(`Observer detected ${ids.length} new unlock(s) for shortcut ${appid}: ${ids.join(", ")}`);
             announce(appid, ids);
-            return ids.length;
+            return { count: ids.length, pollMs };
         } catch (e) {
             logger.error(`Error checking unlocks for ${appid}:`, e);
-            return 0;
+            return { count: 0 };
         }
     }
 
@@ -279,19 +285,19 @@ export function createAchievements(deps: AchievementsDeps): AchievementsService 
         logger.info(`Starting in-game achievement observer for shortcut ${appid}`);
         let stopped = false;
         let handle: unknown;
-        const arm = () => {
+        const arm = (delayMs = POLL_MS) => {
             handle = timers.setTimeout(() => {
-                void checkNow(appid, opts).finally(() => {
-                    if (!stopped) arm();
+                void checkOnce(appid, opts).then(({ pollMs }) => {
+                    if (!stopped) arm(pollMs ?? POLL_MS);
                 });
-            }, POLL_MS);
+            }, delayMs);
         };
         arm();
         const stop = () => {
             stopped = true;
             timers.clearTimeout(handle);
             sessions.delete(appid);
-            void checkNow(appid, opts); // final check on quit
+            void checkOnce(appid, { ...opts, final: true }); // final check + tear down pack watcher on quit
             logger.info(`Stopped in-game achievement observer for shortcut ${appid}`);
         };
         sessions.set(appid, stop);
@@ -349,7 +355,7 @@ export function createAchievements(deps: AchievementsDeps): AchievementsService 
                 logger.info(`${opts?.providerId ?? set.source} pushed ${items.length} new unlock(s) for shortcut ${id}: ${items.map((i) => i.id).join(", ")}`);
                 deps.bus.emit("achievements.synced", { appid: id, items });
             }
-            return { ok: true, new: fresh };
+            return { ok: true, new: fresh, kept: Array.isArray(res.kept) ? res.kept.map(String) : [] };
         },
         ingestExternal(appid, unlocks, opts) {
             const id = toShortcutId(Number(appid));

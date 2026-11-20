@@ -1,6 +1,6 @@
 // Game Data editor: the game's achievements (ADR-0076): where they come from, a RetroAchievements link by URL or id,
 // "No achievements" (stop looking) and "Look again". Moved here from the removed Review popup. A game without
-// achievements can be given an achievement pack from a dropdown (ADR-0083).
+// achievements can be given an achievement pack from a dropdown (ADR-0083); a pack that matches by itself needs no dropdown.
 import { useEffect, useState } from "react";
 import { DialogButton, Dropdown, Field } from "@steambrew/client";
 import { asList } from "../../kernel/lists";
@@ -17,6 +17,8 @@ const SOURCE_NAMES: Record<string, string> = {
     pack: "an achievement pack",
     rpcs3: "RPCS3",
     shadps4: "shadPS4",
+    vita3k: "Vita3K",
+    xenia: "Xenia",
     epic: "Epic Games",
     xbox: "Xbox",
 };
@@ -115,45 +117,52 @@ function PackPicker({ appid, busy, run }: { appid: number; busy: boolean; run: R
         };
     }, [appid]);
     if (!packs || packs.length === 0) return null;
+    // A pack that matched the game by itself is shown by PackLines: no dropdown, no "Use pack". One the user gave the game
+    // keeps only its way back to automatic.
+    if (current?.pack && !current.assigned) return null;
     const options = packs.map((p) => ({
         data: p.id,
         label: `${p.id} (${p.count} achievement${p.count === 1 ? "" : "s"})`,
     }));
     return (
         <>
-            <ItemRow>
-                <Field label="Achievement pack" description="Give this game the achievements of a pack, whatever program it starts" bottomSeparator="none" />
-            </ItemRow>
-            <div style={{ marginTop: -10 }}>
+            {!current?.assigned && (
+                <>
                 <ItemRow>
-                    <Field childrenContainerWidth="max">
-                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                            <div style={{ flex: 1 }}>
-                                <Dropdown
-                                    rgOptions={options}
-                                    selectedOption={chosen}
-                                    contextMenuPositionOptions={{ bMatchWidth: true }}
-                                    onChange={(o) => setChosen(String(o.data))}
-                                />
-                            </div>
-                            <DialogButton
-                                disabled={busy || !chosen || (current?.assigned === true && current.pack === chosen)}
-                                style={BUTTON_STYLE}
-                                onClick={() =>
-                                    run(async () => {
-                                        const res = await backend.setAchievementSource(appid, "pack", chosen);
-                                        if (!res.ok) return { error: res.error ?? "Could not use this pack." };
-                                        setCurrent({ ...(current ?? {}), pack: chosen, assigned: true });
-                                        return {};
-                                    }, `Using the achievement pack ${chosen}.`, "Reading the pack...", "achievements")
-                                }
-                            >
-                                Use pack
-                            </DialogButton>
-                        </div>
-                    </Field>
+                    <Field label="Achievement pack" description="Give this game the achievements of a pack, whatever program it starts" bottomSeparator="none" />
                 </ItemRow>
-            </div>
+                <div style={{ marginTop: -10 }}>
+                    <ItemRow>
+                        <Field childrenContainerWidth="max">
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                <div style={{ flex: 1 }}>
+                                    <Dropdown
+                                        rgOptions={options}
+                                        selectedOption={chosen}
+                                        contextMenuPositionOptions={{ bMatchWidth: true }}
+                                        onChange={(o) => setChosen(String(o.data))}
+                                    />
+                                </div>
+                                <DialogButton
+                                    disabled={busy || !chosen || (current?.assigned === true && current.pack === chosen)}
+                                    style={BUTTON_STYLE}
+                                    onClick={() =>
+                                        run(async () => {
+                                            const res = await backend.setAchievementSource(appid, "pack", chosen);
+                                            if (!res.ok) return { error: res.error ?? "Could not use this pack." };
+                                            setCurrent({ ...(current ?? {}), pack: chosen, assigned: true });
+                                            return {};
+                                        }, `Using the achievement pack ${chosen}.`, "Reading the pack...", "achievements")
+                                    }
+                                >
+                                    Use pack
+                                </DialogButton>
+                            </div>
+                        </Field>
+                    </ItemRow>
+                </div>
+                </>
+            )}
             {current?.assigned && (
                 <ButtonRow
                     label="Stop using this pack"

@@ -27,6 +27,7 @@ export const FEATURE_IDS = [
     "community",
     "captured-activity",
     "playtime",
+    "install-state",
 ] as const;
 export type FeatureId = (typeof FEATURE_IDS)[number];
 

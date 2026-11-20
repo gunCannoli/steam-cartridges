@@ -135,17 +135,14 @@ function config.get_twitch_credentials()
   return nil
 end
 
---- Resolve RetroAchievements credentials from .env if provided
----@return table|nil { token = string, api_key = string, username = string|nil }
+--- Resolve RetroAchievements credentials from .env (requires both username and Web API key)
+---@return table|nil { token = string, api_key = string, username = string }
 function config.get_retroachievements_credentials()
   local env_map = get_env_map()
   local api = env_map["retroachievements_api"] or env_map["ra_api_key"] or env_map["ra_key"]
   local user = env_map["retroachievements_user"] or env_map["ra_username"] or env_map["ra_user"]
-  if not user or #user == 0 then
-    user = env_map["xbox_gamertag"]
-  end
-  if api and #api > 0 then
-    return { token = api, api_key = api, username = (user and #user > 0) and user or nil }
+  if api and #api > 0 and user and #user > 0 then
+    return { token = api, api_key = api, username = user }
   end
   return nil
 end

@@ -170,3 +170,52 @@ Enhanced Notifications shows its own "all achievements" celebration for every ga
   file that changes when you unlock something.
 - Some ports only print unlocks to their console. If their launcher saves that output to a log file (SpartanPort saves
   it to `user\last_run.log`), the log works as the file.
+
+
+## Watching games without built-in achievements (`watch`, `when`, `debug`)
+
+For games that do not write an achievement file at all, a pack can declare a pure-JSON `watch` block (`file` and/or read-only `memory`) instead of `files`, and a pure-JSON `when` condition on each achievement. When the game launches, Steam Cartridges starts the watcher in the background; when the game exits, the watcher closes its handles and stops completely.
+
+```json
+{
+  "id": "am2r",
+  "exe": ["AM2R.exe"],
+  "debug": true,
+  "watch": {
+    "poll_ms": 500,
+    "memory": {
+      "process": "AM2R.exe",
+      "vars": {
+        "metroids_left": { "base": "AM2R.exe+0x004A12C0", "offsets": ["0x10", "0x24"], "type": "u32" }
+      }
+    },
+    "file": {
+      "paths": ["%LOCALAPPDATA%/AM2R/save1", "~/.config/AM2R/save1"],
+      "format": "binary",
+      "vars": {
+        "bombs": { "offset": "0x004C", "type": "u8" }
+      }
+    }
+  },
+  "achievements": [
+    {
+      "id": "first_down",
+      "name": "First Down",
+      "description": "Take down your first Metroid.",
+      "ra_icon": "242157",
+      "when": {
+        "all": [
+          { "var": "metroids_left", "op": "decreased" },
+          { "var": "metroids_left", "op": "gt", "value": 0 }
+        ]
+      }
+    }
+  ]
+}
+```
+
+- **Memory types:** `u8`, `i8`, `bool`, `u16`/`u16le`/`u16be`, `i16`/`i16le`/`i16be`, `u32`/`u32le`/`u32be`, `i32`/`i32le`/`i32be`, `u64`/`u64le`/`u64be`, `f32`/`f32le`/`f32be`, `f64`/`f64le`/`f64be`, `string`, `bytes`.
+- **File formats:** `binary` (hex `offset`, optional `magic` hex bytes), `json` (`path`), `ini` (`section`, `key`), `text` (`line`, `pattern`), `gms1_ds_list` (`index`). Optional `transforms`: `base64`, `xor:0xNN`, `xor_stride:N:0xNN`, `line:N`, `hex_to_bytes`.
+- **`when` operators:** `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `bit_set`, `bit_clear`, `mask_eq` (with `mask`), `contains`, `in`, `changed`, `increased`, `decreased`, plus `ref: "prev"` (or another var name) and combinators `all`, `any`, `not`. The first read seeds `prev` so delta rules never false-fire on load.
+- **Live debugging (`"debug": true`):** logs `[watch:<id>] seed: ...`, `[watch:<id>] <var>: <old> -> <new>`, and `[watch:<id>] unlock <ach_id>` to `steam-cartridges.log` while the game runs.
+- **Starter packs from RetroAchievements:** run `node tools/ra-pack-skeleton.mjs <ra_game_id> --id <pack_id> --exe <Game.exe> --out <path>` from the repository root to generate a starter pack with every achievement's name, description, rarity, and `ra_icon` pre-filled.

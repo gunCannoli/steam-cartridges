@@ -38,8 +38,8 @@ M.MAX_BYTES = 1024 * 1024
 M.MAX_ACHIEVEMENTS = 1000
 M.MAX_ICON_BYTES = 512 * 1024
 
-local FIELDS = { id = true, exe = true, files = true, achievements = true, icons = true, discover = true }
-local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, rarity = true, platinum = true, ra_icon = true }
+local FIELDS = { id = true, exe = true, files = true, achievements = true, icons = true, discover = true, watch = true, debug = true }
+local ACH_FIELDS = { id = true, name = true, description = true, hidden = true, rarity = true, platinum = true, ra_icon = true, when = true }
 
 local io_ = ports.io
 local norm, parent = ports.norm, ports.parent
@@ -153,9 +153,20 @@ function M.check(pack)
   for i, e in ipairs(strings("exe", "program")) do
     if type(e) == "string" and e:find("[{}%%*]") then err("exe[" .. (i - 1) .. "] must be a program name, not a path with {, % or *") end
   end
-  for i, f in ipairs(strings("files", "file")) do
-    local why = type(f) == "string" and M.check_path(f)
-    if why then err("files[" .. (i - 1) .. "] " .. why) end
+  if pack.debug ~= nil and type(pack.debug) ~= "boolean" then
+    err("debug must be true or false")
+  end
+  local watch_vars = nil
+  if pack.watch ~= nil then
+    local werrs, wvars = require("pack_watch_eval").check_watch(pack.watch, M.check_path)
+    for _, we in ipairs(werrs) do err(we) end
+    watch_vars = wvars
+  end
+  if pack.files ~= nil or pack.watch == nil then
+    for i, f in ipairs(strings("files", "file")) do
+      local why = type(f) == "string" and M.check_path(f)
+      if why then err("files[" .. (i - 1) .. "] " .. why) end
+    end
   end
   if pack.icons ~= nil then
     local why = M.check_path(pack.icons)
@@ -186,6 +197,13 @@ function M.check(pack)
         if a.platinum == true then plats = plats + 1 end
         if a.rarity ~= nil and (type(a.rarity) ~= "number" or a.rarity < 0 or a.rarity > 100) then err(at .. ": rarity must be a percent from 0 to 100") end
         if a.id ~= nil and type(a.id) ~= "string" and type(a.id) ~= "number" then err(at .. ": id must be text or a number") end
+        if a.when ~= nil then
+          if not watch_vars then
+            err(at .. ": `when` requires a top-level `watch` block")
+          else
+            require("pack_watch_eval").check_when(a.when, watch_vars, at .. ".when", errs)
+          end
+        end
         local id = a.id ~= nil and tostring(a.id) or tostring(i - 1)
         if seen[id] then err(at .. ": id \"" .. id .. "\" is used twice") end
         seen[id] = true
@@ -241,7 +259,7 @@ end
 --- A checked pack as a native ports definition. `file` and `text` are its file and contents; `bundled` when it ships
 --- with the plugin.
 function M.compile(pack, file, text, bundled)
-  local trophies, detect, plat = {}, {}, false
+  local trophies, detect, watch_rules, plat = {}, {}, {}, false
   for i, a in ipairs(pack.achievements) do
     local id = a.id ~= nil and tostring(a.id) or tostring(i - 1)
     trophies[#trophies + 1] = {
@@ -250,9 +268,12 @@ function M.compile(pack, file, text, bundled)
       ra_icon = type(a.ra_icon) == "string" and a.ra_icon or nil,
     }
     detect[#detect + 1] = { id = id, name = a.name }
+    if type(a.when) == "table" then
+      watch_rules[#watch_rules + 1] = { id = id, name = a.name, when = a.when }
+    end
     if a.platinum then plat = true end
   end
-  local files = type(pack.files) == "string" and { pack.files } or pack.files
+  local files = pack.files == nil and {} or (type(pack.files) == "string" and { pack.files } or pack.files)
   -- Besides the named paths, any folder called like the pack holding a file named like one of its files.
   local names = {}
   for _, t in ipairs(files) do
@@ -276,6 +297,9 @@ function M.compile(pack, file, text, bundled)
       end,
     },
     detect_list = detect,
+    watch = pack.watch,
+    debug = pack.debug == true,
+    watch_rules = #watch_rules > 0 and watch_rules or nil,
     icons_line = pack.icons,
     pack = { id = pack.id, file = file, revision = M.revision(text or ""), count = #trophies, bundled = bundled == true },
   }

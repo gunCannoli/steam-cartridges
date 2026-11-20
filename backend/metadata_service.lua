@@ -341,6 +341,14 @@ end
 --- The Game Info fields a source may leave empty that another can fill (titles and player flags never mix).
 M.GAP_FIELDS = { "description", "developers", "publishers", "release_date", "genres", "franchises" }
 
+--- Whether a record has an empty GAP_FIELDS entry (a store's data without genres, say).
+function M.has_gaps(rec)
+  for _, k in ipairs(M.GAP_FIELDS) do
+    if M.empty_field(rec[k]) then return true end
+  end
+  return false
+end
+
 local function empty(v)
   if v == nil then return true end
   if type(v) == "string" then return v:match("^%s*$") ~= nil end
@@ -352,6 +360,7 @@ end
 --- `meta` with its empty GAP_FIELDS (and `platforms`) taken from `other()` -> other meta, other source name, asked only
 --- when a field is empty. Records where they came from in `filled_from` (field -> source). The record keeps its own
 --- `source` and ids; the other source's id is added when the record has none.
+M.empty_field = function(v) return empty(v) end
 function M.fill_gaps(meta, source, other)
   local missing = {}
   for _, k in ipairs(M.GAP_FIELDS) do
@@ -459,6 +468,11 @@ function M.ensure(appid, ctx)
   local pushed = provided(appid)
   local pushed_meta = provided_meta(pushed)
   local use_store = pushed_meta ~= nil
+  local may_fill = use_store and pushed.fill ~= false
+  -- A game a store pushed that is also on Steam (a saved match: the user's, or the one the achievements check made) takes
+  -- Steam's own page info first; the store's data only fills what Steam leaves empty (the user, 2026-11-19).
+  local saved_id = use_store and resolve_identity.saved(appid) or nil
+  local steam_native = saved_id and saved_id.data and saved_id.data.native and tonumber(saved_id.data.native.appid) or nil
   local can_fetch = ((ctx.allowWeb or ctx.allowScreenscraper) and not ctx.noNetwork) or use_store
   if local_rec then
     -- Stale (M7a: 24 h, or ctx.force) records are refreshed when a source may be asked. A custom_override
@@ -466,6 +480,10 @@ function M.ensure(appid, ctx)
     -- as soon as the copy is known (the store comes first).
     local due = ctx.force or fresh().is_stale(appid, "metadata", { status = "ok", source = "local_db" }, now_ms())
       or (use_store and local_rec.store_source ~= pushed.source)
+      or (steam_native and local_rec.steam_appid ~= steam_native)
+      -- A store's record with gaps (no genres) is completed once, and again when an account is added (answer_signature)
+      or (may_fill and not ctx.noNetwork and (ctx.allowWeb or ctx.allowScreenscraper) and local_rec.gaps_sig ~= M.answer_signature()
+        and M.has_gaps(local_rec))
       -- An empty fallback record is asked again when the web tier can answer more than when it was saved (an
       -- account was added: the signature changed), else on the normal 24 h cadence. Re-asking every 30 min kept a
       -- setup with no accounts re-fetching its whole library on every sync (ADR-0096: a source with no account is
@@ -493,7 +511,18 @@ function M.ensure(appid, ctx)
   -- IGDB first when the user has it (a plain ScreenScraper account is the easy one, so it fills
   -- in when IGDB is not configured or finds no match), then the fallback record (M5d).
   local meta, source
-  if use_store then
+  if steam_native and not ctx.noNetwork then
+    local data, err = appdetails_fetch(steam_native)
+    if data then
+      meta, source = appdetails.to_metadata(data, appid), "steam-appdetails"
+      meta.steam_appid = steam_native
+      meta.store_source = pushed.source -- the store still wrote part of it: not asked again every time
+      local pm = pushed_meta
+      meta = M.fill_gaps(meta, source, function() return pm, pushed.source end)
+    end
+    note("steam page info for " .. tostring(appid) .. ": " .. (meta and "used" or tostring(err)))
+  end
+  if not meta and use_store then
     meta, source = pushed_meta, pushed.source
   end
   if not meta and ctx.allowWeb and not ctx.noNetwork then
@@ -515,10 +544,21 @@ function M.ensure(appid, ctx)
       -- The other web source, only for the fields this one left empty (ADR-0078): a user with one account still gets
       -- what the other has, and one with both gets the union.
       if ctx.noNetwork then return nil end
+      -- A store's data (Xbox has no tags, say): IGDB, else ScreenScraper, whichever the user turned on (ADR-0078).
+      if use_store and may_fill and source == pushed.source then
+        if ctx.allowWeb then
+          local m = igdb_fetch(appid, title, info)
+          note("igdb gap fill for " .. tostring(appid) .. ": " .. (m and ("matched " .. tostring(m.matched_title)) or "no match"))
+          if m then return m, "igdb" end
+        end
+        if ctx.allowScreenscraper then return screenscraper_fetch(appid, title, info), "screenscraper" end
+        return nil
+      end
       if source == "igdb" and ctx.allowScreenscraper then return screenscraper_fetch(appid, title, info), "screenscraper" end
       if source == "screenscraper" and ctx.allowWeb then return igdb_fetch(appid, title, info), "igdb" end
       return nil
     end)
+    if use_store and not ctx.noNetwork then meta.gaps_sig = M.answer_signature() end -- asked for this set of accounts: not again until it changes
     metadata_db.set(appid, meta)
     fresh().touch(appid, "metadata", now_ms())
     return { status = "ok", data = meta, source = source, checkedAt = now_ms() }

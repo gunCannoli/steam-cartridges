@@ -42,7 +42,7 @@ shortcut has to launch a file RetroAchievements knows: a renamed or patched ROM,
 does not match, and such a game shows "Missing achievements" in the last step, where you can link it by hand.
 
 Unlocks from console emulators (RetroArch, DuckStation, PCSX2, Dolphin and PPSSPP logs, RPCS3 and shadPS4 trophies)
-come from the **Emulators** source, and Bloodborne PC and Dusklight from **Native ports**; add them below to turn
+come from the **Emulators** source, and Bloodborne PC, Dusklight and every achievement pack from **Achievement Packs**; add them below to turn
 them on. The Steam Store Mirror is not an achievements source: Steam's achievements are a list a custom game cannot
 unlock, so a game matched to a Steam game asks for RetroAchievements, an achievement pack, or **No achievements**
 instead. What each source needs: [Achievements.md](Achievements.md).

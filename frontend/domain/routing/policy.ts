@@ -36,7 +36,9 @@ export interface BucketsConfig {
 
 export interface Resolution {
     bucket: Bucket;
-    via: 'override' | 'collection' | 'default' | 'not-a-shortcut' | 'pending';
+    via: 'override' | 'collection' | 'default' | 'not-a-shortcut' | 'pending' | 'owned';
+    /** via 'owned' (ADR-0109): the plugin that manages the shortcut, by its PLUGIN_LIST id. */
+    owner?: string;
     collectionId?: string;
     conflict?: { collectionIds: string[]; buckets: Bucket[] };
 }

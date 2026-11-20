@@ -7,6 +7,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.6-debug] - 2026-11-20
+
+A debug build for two Linux reports: thumbnails of deleted screenshots staying in the Post-Game Summary, and "There was a
+problem loading this screenshot" after clicking one. If either still happens, please send the **top** of
+`steam-cartridges.log` and every line that starts with `[captures]`. They hold counts and yes/no answers only, never a
+path, game name or id.
+
+### Added
+
+- **Log lines for screenshots and clips.** `[captures]` lines say what the plugin sees: whether Steam's screenshot index and
+  your capture folder agree (`index_file`, `game_in_index`, `game_folder`, `missing_on_disk`), what Steam handed over for the
+  Post-Game Summary (`handle_ok`, `gameid_matches`, `loopback_urls`, `not_served`, `api=` for screenshots and clips), when a
+  capture image or video fails to load (`media load failed: kind=...`), and what a click on a capture did
+  (`media click: ... viewer_opened=...`).
+- **Achievement Packs can watch a game while it runs.** A pack may name a save or settings file, and/or values in the running
+  game's memory, and unlock achievements from simple JSON rules ("this value is at least 10"). It starts when a game that
+  uses such a pack launches and stops, closing everything it opened, when the game exits. Memory is only ever **read**, from
+  outside the game: nothing is injected, hooked or written. On Linux a locked-down system (`ptrace_scope`) can refuse the
+  read; the log says so once. A pack can turn on `debug` to log the values it watches while its author builds it. Packs
+  without a watch block work as before.
+- **Vita3K and Xenia achievements.** Two more local sources next to RPCS3 and shadPS4, no sign-in, the same on Windows and
+  Linux. Vita3K reads the trophy list and unlocks Vita3K keeps for a game; Xenia reads the game's `.gpd` profile file. Read
+  when the page opens. Built from the file formats, not yet tested on a real install.
+- **Store games can show as not installed.** An expansion can report a store game's install state; Steam then draws its own
+  greyed, not-installed page, and Install opens the store. Shortcuts nobody reports are never touched.
+- **Expansions can push a game's art** (portrait, hero, wide capsule and icon) for a game with no Steam match, before any
+  SteamGridDB lookup.
+- **Fuller Game Info for a store's game:** gaps (genres, franchise) are filled from IGDB or ScreenScraper, whichever you turned
+  on, with their trailers and extra screenshots; Steam's own page info comes first for a game on Steam. Needs the new "Fill in
+  missing game info" setting of Steam Cartridges: Third Party (on by default).
+
+### Changed
+
+- **Screenshots deleted by hand no longer linger in the Post-Game Summary.** A shot is dropped when its file is missing on disk
+  or Steam's own image server cannot serve it. If every image fails while nothing is missing on disk, the check is ignored.
+- **"Native ports" is now "Achievement Packs", and applies once you added it.** A port or pack is matched to a detected game by
+  itself only after the Achievement Packs source is added and onboarding or Library Setup ran; a pack you gave a game by hand
+  always works. A pack that matched a game is shown once (no dropdown).
+- **Settings:** each expansion has its own panel in Millennium's plugin list; this panel lists them. Track Playtime is one
+  toggle (on, or off when steam-non-steam-playtimes is installed).
+- **Steam's achievements are the main source of icons and rarity** for sets an expansion pushes: a matching game takes Steam's
+  icon, grey locked icon, rarity and hidden flag. Locked achievements are drawn grey like Steam's. Icons and rarity are also
+  filled for stores with their own achievement ids (EA).
+- Stands aside for the Epic Games plugin: a shortcut `steam-epic-games` manages is left alone.
+
+### Fixed
+
+- A Steam game whose achievement pictures Steam does not serve keeps the store's own pictures instead of blank boxes.
+- Achievement pictures from Steam no longer show blank for a shortcut; a store's game that is also on Steam shows Steam's page
+  info.
+- A game's Activity feed no longer throws "AddAchievementEvent is not a function".
+- Start-up preload works with a big library (a 219-game library passed Millennium's 8 MB answer limit).
+- An achievement pack gets its RetroAchievements badges as soon as a key is added, without extra requests.
+
 ## [0.7.3.3-debug] - 2026-11-13
 
 A debug build for "Search failed: offline" when linking a game by hand, and for places that can fail the same way. If

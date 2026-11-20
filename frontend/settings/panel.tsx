@@ -1,5 +1,6 @@
 // Settings panel shell (migration plan M8c): the sections in their fixed order.
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { Field, PanelSection } from "@steambrew/client";
 import { MetadataSection } from "./panels/metadata";
 import { AchievementsSection } from "./panels/achievements";
 import { ActivitySection } from "./panels/activity";
@@ -9,30 +10,24 @@ import { RevisionSection } from "./panels/audit";
 import { LibrarySetupSection } from "./panels/library-setup";
 
 import { SyncProgressBar } from "./sync-progress";
-import { COLUMN_STYLE } from "./components";
+import { Blocks, COLUMN_STYLE, ItemRow } from "./components";
 
-class ExtensionErrorBoundary extends Component<{ id: string; children: ReactNode }, { hasError: boolean; error?: Error }> {
-    constructor(props: any) {
-        super(props);
-        this.state = { hasError: false };
-    }
-    static getDerivedStateFromError(error: Error) {
-        return { hasError: true, error };
-    }
-    override componentDidCatch(error: Error, info: any) {
-        console.warn(`[steam-cartridges] Extension settings panel '${this.props.id}' crashed:`, error, info);
-    }
-    override render() {
-        if (this.state.hasError) {
-            return (
-                <div style={{ padding: "12px", margin: "8px 0", background: "rgba(255, 0, 0, 0.1)", border: "1px solid rgba(255, 0, 0, 0.3)", borderRadius: "4px" }}>
-                    <div style={{ color: "#ff8888", fontWeight: "bold" }}>Failed to render settings for extension: {this.props.id}</div>
-                    <div style={{ color: "#aaaaaa", fontSize: "12px", marginTop: "4px" }}>{this.state.error?.message}</div>
-                </div>
-            );
-        }
-        return this.props.children;
-    }
+/** ADR-0108: an expansion's settings live in its own panel in Millennium's plugin list; here, one line pointing there. */
+function ExpansionsSection({ panels }: { panels: { id: string; title: string }[] }) {
+    if (panels.length === 0) return null;
+    return (
+        <PanelSection title="Expansions">
+            <Blocks>
+                <>
+                    {panels.map((p) => (
+                        <ItemRow key={p.id}>
+                            <Field label={p.title} description="Its settings are in its own panel in Millennium's plugin list." />
+                        </ItemRow>
+                    ))}
+                </>
+            </Blocks>
+        </PanelSection>
+    );
 }
 
 export function SettingsPanel() {
@@ -46,14 +41,7 @@ export function SettingsPanel() {
         return () => clearInterval(t);
     }, []);
 
-    const extPanels = ((window as any).SteamCartridges?.getSettingsPanels?.() ?? []) as Array<{
-        id: string;
-        title: string;
-        order?: number;
-        render: () => any;
-    }>;
-    const prePanels = extPanels.filter((p) => (p.order ?? 50) < 40);
-    const postPanels = extPanels.filter((p) => (p.order ?? 50) >= 40);
+    const extPanels = ((window as any).SteamCartridges?.getSettingsPanels?.() ?? []) as Array<{ id: string; title: string }>;
 
     return (
         <div style={{ ...COLUMN_STYLE, paddingBottom: "70px", position: "relative" }}>
@@ -65,18 +53,9 @@ export function SettingsPanel() {
             >
             <MetadataSection />
             <AchievementsSection />
-            {prePanels.map((p) => (
-                <ExtensionErrorBoundary key={p.id} id={p.id}>
-                    {p.render()}
-                </ExtensionErrorBoundary>
-            ))}
             <ActivitySection />
             <CommunitySection />
-            {postPanels.map((p) => (
-                <ExtensionErrorBoundary key={p.id} id={p.id}>
-                    {p.render()}
-                </ExtensionErrorBoundary>
-            ))}
+            <ExpansionsSection panels={extPanels} />
             <RulesSection />
             <RevisionSection />
 

@@ -20,14 +20,27 @@ M.SOURCE = "native_port"
 
 --- Injectable for tests. nil = the real dependency.
 M.deps = {
+  enabled = nil, -- fun() -> boolean ; nil = the user added the "Achievement Packs" source and Library Setup is done
   icons = nil, -- fun(trp_path, ids) -> { [id] = data URL } | nil ; nil = trophy_pack_icons.from_trp
 }
 
 local function packs() return require("achievement_packs") end
 
+--- Whether packs and native ports may be matched to a shortcut by themselves: the user added the "Achievement Packs"
+--- source (nothing is on by default) and onboarding or Library Setup has run (setup_store.gate_open). A pack the user
+--- gave a game by hand (assigned_def) is their own choice and needs neither.
+function M.enabled()
+  if M.deps.enabled then return M.deps.enabled() == true end
+  local ok, on = pcall(function()
+    local services = require("settings_store").get_all().services
+    return type(services) == "table" and services.nativePortsEnabled == true and require("setup_store").gate_open() == true
+  end)
+  return ok and on == true
+end
+
 --- The built-in port a shortcut entry launches, or nil.
 function M.builtin(entry)
-  if type(entry) ~= "table" or type(ports.find) ~= "function" then return nil end
+  if type(entry) ~= "table" or type(ports.find) ~= "function" or not M.enabled() then return nil end
   return ports.find(entry.exe, entry.launch_options)
 end
 
@@ -54,7 +67,7 @@ function M.pack_port(entry)
   if type(entry) ~= "table" then return nil end
   local oka, given = pcall(packs().assigned_def, entry)
   if oka and given then return pack_port_of(given, entry) end
-  if M.builtin(entry) then return nil end
+  if not M.enabled() or M.builtin(entry) then return nil end
   local ok, pack = pcall(function() return (packs().best(entry.exe)) end)
   if ok and pack then return pack_port_of(pack, entry) end
   return nil
@@ -144,6 +157,19 @@ local function answer(port, entry, stored)
   end
   return { schema = ports.schema(port, icons, entry.name), unlocks = unlocks, key = ports.schema_key(port),
     rebuilt = true, added = {}, source = source }
+end
+
+--- Whether a pack's stored schema holds fewer icons than its sources can give now (a RetroAchievements key was added
+--- after it was built, a dump or an icon folder appeared). record_rpc serves a stored schema for 24 h without asking
+--- the sources, so it asks this to come due earlier. File checks and the badge cache only: no request, no decoding.
+function M.icons_due(entry, stored)
+  local schema = stored and stored.schema
+  if type(entry) ~= "table" or type(schema) ~= "table" or not schema.native_port then return false end
+  local port = M.port(entry) or M.pack_port(entry)
+  if not port or not port.def.pack or schema.native_port ~= port.def.id then return false end
+  if (schema.icons or 0) >= #port.def.game.trophies then return false end
+  local ok, available = pcall(packs().icon_count, port.def, port.root)
+  return ok and (available or 0) > (schema.icons or 0)
 end
 
 --- What to keep for a shortcut where built-in ports stand: nil and why when it launches none, else

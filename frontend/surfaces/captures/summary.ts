@@ -1,5 +1,7 @@
 import { logger } from '../../logger';
+import { deps } from './deps';
 import {
+  captureApiState,
   clipsSince,
   screenshotsSince,
   spotlightStore,
@@ -106,6 +108,76 @@ async function collectAll(context: SummaryContext): Promise<Required<SummaryCont
   return { screenshots, clips };
 }
 
+/** Does Steam's loopback server still serve this image? Only an explicit load error says no; a slow answer counts as yes. */
+function imageServed(url: string, timeoutMs = 4000): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const done = (ok: boolean) => {
+        img.onload = img.onerror = null;
+        resolve(ok);
+      };
+      img.onload = () => done(true);
+      img.onerror = () => done(false);
+      setTimeout(() => done(true), timeoutMs);
+      img.src = url;
+    } catch {
+      resolve(true);
+    }
+  });
+}
+
+/**
+ * Drop screenshots whose file the user deleted outside Steam. Steam keeps such a shot in its index and the summary
+ * keeps showing it, so two independent checks run: the backend compares the index with the disk, and the image
+ * itself is requested from Steam's loopback server (a 404 or load error means it is gone). Each outcome is logged
+ * (counts only), so a report shows which check saw what.
+ */
+const toldSummary = new Map<string, string>();
+
+async function dropDeletedScreenshots(gameid: string, shots: SteamScreenshot[]): Promise<SteamScreenshot[]> {
+  if (shots.length === 0) {
+    // Steam listed nothing: normal for a game without screenshots, a problem when the API itself failed.
+    if (captureApiState.screenshots !== 'ok') {
+      const line = `summary screenshots: steam=0 api=${captureApiState.screenshots}`;
+      if (toldSummary.get(gameid) !== line) {
+        toldSummary.set(gameid, line);
+        deps.log(line);
+      }
+    }
+    return shots;
+  }
+
+  const disk = await deps.missingScreenshots(gameid).catch(() => null);
+  const gone = new Set(disk?.missing ?? []);
+  const byDisk = (s: SteamScreenshot) => [...gone].some((name) => typeof s.strUrl === 'string' && s.strUrl.includes(name));
+
+  const probed = await Promise.all(
+    shots.slice(0, 80).map(async (s) => (typeof s.strUrl === 'string' && s.strUrl ? imageServed(s.strUrl) : true)),
+  );
+  const byProbe = (index: number) => index < probed.length && probed[index] === false;
+
+  const probeDropsAll = probed.length > 0 && probed.every((ok) => !ok) && gone.size === 0;
+  const kept = shots.filter((s, i) => !byDisk(s) && (probeDropsAll || !byProbe(i)));
+
+  const dropped = shots.length - kept.length;
+  const count = (test: (s: SteamScreenshot) => boolean) => shots.filter(test).length;
+  const line =
+    `summary screenshots: steam=${shots.length} index=${disk?.indexed ?? 'unknown'} ` +
+    `missing_on_disk=${gone.size} not_served=${probed.filter((ok) => !ok).length} dropped=${dropped} ` +
+    `handle_ok=${count((s) => Number(s.hHandle) > 0)} gameid_matches=${count((s) => String(s.strGameID) === gameid)} ` +
+    `loopback_urls=${count((s) => /^https:\/\/steamloopback\.host\/screenshots\//.test(String(s.strUrl)))} ` +
+    `api=${captureApiState.screenshots}` +
+    (probeDropsAll ? ' (every image failed to load with nothing missing on disk: probe ignored)' : '') +
+    (disk === null ? ' (backend check unavailable)' : '');
+  // One line per game and outcome: a page view repeats the same answer and must not repeat the line.
+  if (toldSummary.get(gameid) !== line) {
+    toldSummary.set(gameid, line);
+    deps.log(line);
+  }
+  return kept;
+}
+
 /**
  * An event waiting to be pushed, before Steam's own shape is applied.
  *
@@ -143,7 +215,9 @@ export async function publishSummary(appid: number, gameid: string, since = 0): 
     return 0;
   }
 
-  const { screenshots, clips } = await collectAll({ appid, gameid, since });
+  const collected = await collectAll({ appid, gameid, since });
+  const clips = collected.clips;
+  const screenshots = await dropDeletedScreenshots(gameid, collected.screenshots);
 
   const events: PendingEvent[] = [
     ...screenshots.map((screenshot): PendingEvent => ({ kind: 'screenshot', screenshot })),
@@ -178,6 +252,14 @@ export async function publishSummary(appid: number, gameid: string, since = 0): 
   } catch (error) {
     logger.warn('Could not publish the summary for', appid, error);
     return 0;
+  }
+
+  const clipLine = `summary clips: count=${clips.length} api=${captureApiState.clips}`;
+  if (clips.length > 0 || captureApiState.clips !== 'ok') {
+    if (toldSummary.get(`${gameid}|clips`) !== clipLine) {
+      toldSummary.set(`${gameid}|clips`, clipLine);
+      deps.log(clipLine);
+    }
   }
 
   logger.info(

@@ -17,6 +17,8 @@ export interface LibrarySetupDeps {
     fetchGames(appids: number[], onProgress?: (done: number, total: number, name?: string) => void): Promise<void>;
     /** Forget every saved setting (settings.ts): the "start from zero" of the new-onboarding prompt. */
     resetSettings(): Promise<void>;
+    /** ADR-0109: the plugin that manages this shortcut itself, or undefined: such a game is left out of Library Setup. */
+    ownerOf?(appid: number): string | undefined;
 }
 
 /** What the "new onboarding" prompt lets the user keep (ADR-0093). */
@@ -159,8 +161,13 @@ export function createLibrarySetup(deps: LibrarySetupDeps): LibrarySetup {
             }
             const res = await deps.backend.libraryScan(collections);
             if (res?.error) return { games: [], platforms: [], error: res.error };
+            const all = asList<SetupGame>(res?.games);
+            const games = deps.ownerOf ? all.filter((g) => !deps.ownerOf!(g.appid)) : all;
+            if (games.length !== all.length) {
+                deps.backend.logEvent("coexist", `library setup leaves out ${all.length - games.length} game(s) another plugin manages`);
+            }
             return {
-                games: asList<SetupGame>(res?.games).map((g) => ({ ...normalize(g), collections: deps.collectionsOf(g.appid) })),
+                games: games.map((g) => ({ ...normalize(g), collections: deps.collectionsOf(g.appid) })),
                 platforms: asList<SetupPlatform>(res?.platforms),
             };
         },

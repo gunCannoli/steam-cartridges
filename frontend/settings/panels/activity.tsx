@@ -1,15 +1,9 @@
 // Settings: General (Game Info start) and the Activity Feed cards (migration plan M8c).
-import { Dropdown, Field, PanelSection } from "@steambrew/client";
+import { Field, PanelSection } from "@steambrew/client";
 import { DESCRIPTION_MAX_LENGTH, useSetting } from "../settings";
 import { Blocks, ItemRow, SliderRow, ToggleRow } from "../components";
 import { usePanelContext } from "../context";
-import type { PlaytimeMode } from "../../domain/merged-plugins";
-
-const PLAYTIME_OPTIONS: { data: PlaytimeMode; label: string }[] = [
-    { data: "auto", label: "Automatic" },
-    { data: "on", label: "On" },
-    { data: "off", label: "Off" },
-];
+import { playtimeActive } from "../../domain/merged-plugins";
 
 // ===========================================================================
 // 4. General & {Activity} Feed Section
@@ -24,12 +18,11 @@ export function ActivitySection() {
     const [showAchievements, setShowAchievements] = useSetting(
         "activityShowAchievements",
     );
-    const [watchLocal, setWatchLocal] = useSetting("watchLocalAchievements");
     const [capturedActivity, setCapturedActivity] = useSetting("capturedActivity");
     const [playtimeMode, setPlaytimeMode] = useSetting("playtimeMode");
     const ctx = usePanelContext();
-    const otherLoaded = ctx.playtime?.otherLoaded?.() === true;
-    const playtimeOnNow = ctx.playtime?.enabled() === true;
+    // One toggle. Until the user touches it ("auto") it follows what is installed: on, or off when steam-non-steam-playtimes is.
+    const playtimeOn = playtimeActive(playtimeMode, ctx.playtime?.otherLoaded?.() === true);
     const [maxDescLength, setMaxDescLength] = useSetting(
         "descriptionMaxLength",
     );
@@ -68,29 +61,11 @@ export function ActivitySection() {
                         value={capturedActivity}
                         onChange={setCapturedActivity}
                     />
-                    <ItemRow>
-                        <Field
-                            label="Track Playtime"
-                            description={`Count how long non-Steam games are played and show it in Steam's Play Time. ${
-                                playtimeMode === "auto"
-                                    ? otherLoaded
-                                        ? "Automatic: off, steam-non-steam-playtimes is installed and keeps tracking."
-                                        : "Automatic: on, off whenever steam-non-steam-playtimes is installed."
-                                    : `${playtimeOnNow ? "On" : "Off"}, whatever is installed.`
-                            }`}
-                        >
-                            <Dropdown
-                                rgOptions={PLAYTIME_OPTIONS}
-                                selectedOption={playtimeMode}
-                                onChange={(o) => setPlaytimeMode(o.data as PlaytimeMode)}
-                            />
-                        </Field>
-                    </ItemRow>
                     <ToggleRow
-                        label="Track Local Achievements"
-                        description="Detect achievement unlocks by monitoring local files and game logs"
-                        value={watchLocal !== false}
-                        onChange={setWatchLocal}
+                        label="Track Playtime"
+                        description="Play time of non-Steam games. On by default, off if steam-non-steam-playtimes is installed"
+                        value={playtimeOn}
+                        onChange={(on: boolean) => setPlaytimeMode(on ? "on" : "off")}
                     />
                 </>
                 <>

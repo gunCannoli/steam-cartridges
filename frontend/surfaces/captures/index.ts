@@ -6,6 +6,7 @@
 import type { Surface, SurfaceDeps } from "../../kernel/surface";
 import { ensureStoreCacheHooked, setAchievementSource, setNativeActivitySource } from "./activity";
 import { deps } from "./deps";
+import { attachMediaSensors } from "./media-sensor";
 import { onRecordChanged, unpatch } from "./publish";
 
 export { patch, refresh, unpatch } from "./publish";
@@ -24,7 +25,9 @@ function part(id: string, install: () => unknown): void {
     }
 }
 
-export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activityOptions" | "bus">): Surface {
+export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activityOptions" | "bus" | "missingScreenshots" | "log">): Surface {
+    deps.log = d.log;
+    deps.missingScreenshots = d.missingScreenshots;
     deps.isEnabled = d.isEnabled;
     deps.reportError = d.reportError;
     deps.activityOptions = d.activityOptions;
@@ -42,6 +45,7 @@ export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activi
         reads: ["identity", "achievements"],
         install() {
             part("store-cache", ensureStoreCacheHooked);
+            part("captures", attachMediaSensors);
         },
         render(appid, record) {
             // Captures are Steam's own data, read live (ADR-0022); the native activity source (a mapped shortcut's

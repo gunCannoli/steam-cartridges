@@ -27,6 +27,10 @@ export interface ArtworkDeps {
     storeItemFor(steamAppid: number): Promise<any | null>;
     /** The image bytes (ports/image); `forcePng` for the logo. */
     fetchImage(url: string, forcePng?: boolean): Promise<{ base64: string; ext: string } | null>;
+    /** The backend fetches a picture a store pushed for the shortcut, when the page's own fetch of it failed. */
+    fetchProvided?(appid: number, which: { url?: string; slot?: string }): Promise<{ base64: string; ext: string } | null>;
+    /** Why the last fetch failed (ports/image), for the warning. */
+    imageFailure?(): string;
     /** services.steamgriddbEnabled and the routing rules for "steamgriddb". */
     allowSgdb(appid: ShortcutId): boolean;
     now(): number;
@@ -57,12 +61,12 @@ export function createArtwork(deps: ArtworkDeps): ArtworkResolver {
                 const key = SLOT_KEYS[slot];
                 const url = key ? plan.urls[key as keyof ArtworkUrls] : undefined;
                 if (!key || !url) return;
-                const image = await deps.fetchImage(url, slot === 2).catch(() => null);
+                const image = (await deps.fetchImage(url, slot === 2).catch(() => null)) ?? (await deps.fetchProvided?.(appid, { slot: key }).catch(() => null)) ?? null;
                 if (image) deps.images.put(appid, key, image);
                 // A logo is optional: many Steam apps (a store page with no logo asset, e.g. an unreleased game) have none,
                 // so its 404 is an answer, not a fault. Any other slot missing is still a warning.
                 else if (slot === 2) logger.info(`Artwork ${appid}: no logo on the source (the other slots are unaffected)`);
-                else logger.warn(`Artwork ${appid}: ${key} image not fetched`);
+                else logger.warn(`Artwork ${appid}: ${key} image not fetched (${deps.imageFailure?.() || "no reason"})`);
             }),
         );
     }
@@ -71,7 +75,7 @@ export function createArtwork(deps: ArtworkDeps): ArtworkResolver {
      *  `fallback` is fetched when the 184 px `url` is not served (a 404 on Steam's CDN for some apps). */
     async function storeIcon(appid: ShortcutId, first: string, plan: ArtworkPlan, fallback?: string): Promise<ArtworkPlan["icon"]> {
         let url = first;
-        let image = await deps.fetchImage(url).catch(() => null);
+        let image = (await deps.fetchImage(url).catch(() => null)) ?? (await deps.fetchProvided?.(appid, { slot: "icon" }).catch(() => null)) ?? null;
         if (!image && fallback) {
             url = fallback;
             image = await deps.fetchImage(url).catch(() => null);
@@ -90,13 +94,15 @@ export function createArtwork(deps: ArtworkDeps): ArtworkResolver {
     }
 
     async function resolve(appid: ShortcutId, route: Route, identity: Part<Identity> | undefined, opts?: { lane?: "background" | "normal" }): Promise<Part<ArtworkPlan>> {
-        if (route.bucket === "none") {
+        // A "none" route fetches nothing from the web (ADR-0035), but art an extension pushed is fetched by the frontend: it goes on.
+        if (route.bucket === "none" && deps.records.get(appid)?.provided?.status !== "ok") {
             const part: Part<ArtworkPlan> = { status: "unsupported" };
             deps.records.update(appid, { artwork: part });
             return part;
         }
         // steam-store: wait until identity is known (the backend would say pending too).
-        if (route.bucket === "steam-store" && (!identity || identity.status === "pending" || identity.status === "error")) {
+        const pushed = deps.records.get(appid)?.provided?.status === "ok";
+        if (route.bucket === "steam-store" && !pushed && (!identity || identity.status === "pending" || identity.status === "error")) {
             return { status: "pending" };
         }
 

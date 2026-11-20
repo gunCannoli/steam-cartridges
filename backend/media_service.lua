@@ -58,7 +58,7 @@ local function igdb_query(q) return (M.deps.igdb_query or require("web_igdb").qu
 local function provided_items(appid)
   local rec = M.deps.provided and M.deps.provided(appid) or require("provided_store").get(appid)
   if type(rec) ~= "table" or type(rec.media) ~= "table" then return nil, nil end
-  return rec.media, rec.source
+  return rec.media, rec.source, rec.fill ~= false
 end
 
 local function ss_jeu(appid, title, info)
@@ -119,18 +119,25 @@ function M.ensure(appid, ctx)
   local igdb_id = tonumber(ctx.igdb_id)
   local use_igdb = ctx.allowWeb and igdb_id ~= nil
   local use_ss = ctx.allowScreenscraper and true or false
-  local pushed, pushed_source = provided_items(appid)
+  local pushed, pushed_source, pushed_fill = provided_items(appid)
   local use_store = pushed ~= nil
+  -- A store's game whose extension turned "fill from other sources" off keeps the store's media alone.
+  if use_store and pushed_fill == false then use_igdb, use_ss = false, false end
   local can_fetch = ((use_igdb or use_ss) and not ctx.noNetwork) or use_store
   if stored then
     local due = ctx.force or fresh().is_stale(appid, "media", { status = "ok" }, now_ms())
     if use_store and not ctx.noNetwork and not due then
       -- Pushed media the stored list does not have yet (an extension reported after the last refresh): refresh now.
-      local has = false
+      local has, seen, dup = false, {}, false
       for _, it in ipairs(type(stored.items) == "table" and stored.items or {}) do
-        if it.source == pushed_source then has = true break end
+        if it.source == pushed_source then has = true end
+        local id = it.url or it.youtube
+        if id then
+          if seen[id] then dup = true end
+          seen[id] = true
+        end
       end
-      due = not has
+      due = not has or dup -- a list saved before pictures were deduplicated is built again
     end
     if not (due and can_fetch) then return part("ok", stored, { source = "local" }) end
   elseif not can_fetch then

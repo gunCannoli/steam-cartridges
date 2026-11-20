@@ -128,6 +128,27 @@ RPC.GetLibraryStats = method("GetLibraryStats", function(_)
   return out
 end)
 
+--- Post-Game Summary: which indexed screenshots of a game are gone from disk { gameid } -> { indexed, missing, ... }.
+--- Logs one line per game and answer (counts and yes/no only), so an empty or odd answer says why.
+local M_missing_logged = {}
+RPC.GetMissingScreenshots = method("GetMissingScreenshots", function(data)
+  local game_id = tostring(data.gameid or "")
+  if not game_id:match("^%d+$") then return { error = "gameid must be digits" } end
+  local paths, err = steam_paths.resolve()
+  if not paths then return { error = err or "could not resolve Steam paths" } end
+
+  local info = captures.missing_files(paths, game_id)
+  local line = ("screenshots: indexed=%d missing_on_disk=%d thumbnails_missing=%d capture_folder=%s index_file=%s games_in_index=%d " ..
+    "game_in_index=%s game_folder=%s"):format(info.indexed, #info.missing, info.thumbs_missing, tostring(info.root),
+    tostring(info.vdf), info.games, tostring(info.game_in_index), tostring(info.folder))
+  -- Said once per game and answer: a page view asks again and gets the same line.
+  if M_missing_logged[game_id] ~= line then
+    M_missing_logged[game_id] = line
+    pcall(function() require("plog").event("captures", line) end)
+  end
+  return info
+end)
+
 --- Diagnostic: what the backend can see. Used by the smoke test.
 RPC.GetDiagnostics = method("GetDiagnostics", function(_)
   local paths, err = steam_paths.resolve()

@@ -87,6 +87,21 @@ local function without(list, drop)
   return out
 end
 
+--- The art an extension pushed for the shortcut (ADR-0067: reportGame's `artwork`), or nil.
+local function provided_art(appid)
+  local ok, rec = pcall(function() return require("provided_store").get(appid) end)
+  return ok and type(rec) == "table" and type(rec.art) == "table" and rec.art or nil
+end
+
+--- The unmatched-art answer's base (SteamGridDB and an extension's push share it): only the empty slots nobody tried, and the
+--- library icon when it may be set. `data.origin` says who the URLs will come from ("provided" or "sgdb"), for the log.
+local function unmatched_base(appid, exists, applied, origin)
+  local tried = applied and applied.source == "steamgriddb" and applied.tried or {}
+  local eligible = without(empty_slots(appid, exists), tried)
+  local icon_ok = M.icon_eligible(appid, "steamgriddb", nil)
+  return { urls = {}, source = "steamgriddb", origin = origin, emptySlots = eligible, iconEligible = icon_ok }, eligible, icon_ok
+end
+
 local function has_urls(urls)
   for _, slot in ipairs(SLOTS) do if urls[SLOT_KEY[slot]] then return true end end
   return urls.icon ~= nil
@@ -150,7 +165,9 @@ function M.ensure(appid, ctx)
   local route = ctx.route or {}
 
   if route.via == "pending" then return { status = "pending", checkedAt = now_ms() } end
-  if route.bucket == "none" then return { status = "unsupported", checkedAt = now_ms() } end
+  -- An extension's art needs no network call from here (the frontend fetches the images), so it also serves a "none" route.
+  local pushed = provided_art(appid)
+  if route.bucket == "none" and not pushed then return { status = "unsupported", checkedAt = now_ms() } end
 
   local exists = grid_exists()
   if exists then pcall(store.prune_missing_slots, appid, exists) end
@@ -176,6 +193,15 @@ function M.ensure(appid, ctx)
     }
   end
 
+  -- No Steam match (yet) and an extension pushed art (a store game: Xbox ...): its URLs fill the empty slots, before any SteamGridDB
+  -- lookup, and without waiting for an identity (Library Setup may not have run). Same rules as SteamGridDB: a slot with a grid
+  -- file, or one already tried, is never touched. A Steam match that comes later takes over through the usual plan.
+  if pushed then
+    local base = unmatched_base(appid, exists, applied, "provided")
+    base.urls = pushed
+    return { status = "ok", source = "steamgriddb", data = base, fetchedAt = now_ms(), checkedAt = now_ms() }
+  end
+
   if route.bucket == "steam-store" and (not identity or identity.status == "pending" or identity.status == "error") then
     -- Identity not resolved yet: wait (as metadata's local-only tier).
     return { status = "pending", checkedAt = now_ms() }
@@ -184,10 +210,7 @@ function M.ensure(appid, ctx)
   -- No Steam match: SteamGridDB, empty slots only, and the library icon whenever it may be set (the user's choice
   -- 2026-10-04: a shortcut without a Steam match always gets SteamGridDB's icon, never the exe's 32x32 one). The icon
   -- rides along with a slot lookup; with every slot set it is asked alone, and a miss is remembered (negative cache).
-  local tried = applied and applied.source == "steamgriddb" and applied.tried or {}
-  local eligible = without(empty_slots(appid, exists), tried)
-  local icon_ok = M.icon_eligible(appid, "steamgriddb", nil)
-  local base = { urls = {}, source = "steamgriddb", emptySlots = eligible, iconEligible = icon_ok }
+  local base, eligible, icon_ok = unmatched_base(appid, exists, applied, "sgdb")
   local icon_only = #eligible == 0 and icon_ok == true
 
   if ctx.allowSgdb == false or ctx.noNetwork or (#eligible == 0 and not icon_only) then

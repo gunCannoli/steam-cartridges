@@ -77,6 +77,24 @@ export interface ProvidedGameReport {
      *  release_date, ...). */
     metadata?: Record<string, unknown>;
     media?: ProvidedMediaItem[];
+    /**
+     * The game's own art, as https image URLs (the core fetches them): the three capsule slots and the library icon. Used only
+     * for a shortcut with no Steam match, on the slots nobody filled (a grid file, or a slot already tried, is never touched),
+     * the way SteamGridDB's art is (app/artwork).
+     */
+    artwork?: ProvidedArtwork;
+    /**
+     * May the core fill what the extension's data leaves empty (genres, publishers, trailers, more screenshots) from IGDB and
+     * ScreenScraper, whichever the user turned on. Default true. Steam's own page info always comes first for a game on Steam.
+     */
+    fill?: boolean;
+}
+
+export interface ProvidedArtwork {
+    portrait?: string;
+    hero?: string;
+    wide?: string;
+    icon?: string;
 }
 
 /** The player's achievements as an extension found them (ADR-0067). The extension is the truth: unlocks are replaced. */
@@ -109,11 +127,36 @@ export interface LibrarySourceProvider {
     onAfterQuit?(context: AppContext): Promise<void>;
 }
 
+/**
+ * ADR-0108: an expansion's settings live in its own panel in Millennium's plugin list. Registering lets the core show a
+ * one-line pointer to it; `render` (expansions built before ADR-0108) is kept in the type and never called.
+ */
 export interface SettingsPanelExtension {
     id: string;
     title: string;
     order?: number;
-    render: () => any;
+    render?: () => any;
+}
+
+/**
+ * API 1.3.0 (ADR-0107): a shortcut's install state as the extension that owns it knows it. false draws Steam's own
+ * not-installed state (greyed tile, out of the Installed collection, Install on the play bar). The one shape:
+ * domain/install-state.ts checks it, surfaces/install-state/core.ts draws it.
+ */
+export interface ReportedInstallState {
+    installed: boolean;
+    /** Bytes on disk when installed, bytes required when not (0 or absent = unknown). */
+    sizeBytes?: number;
+    /** Steam's Install button routes to the extension's handler. */
+    canInstall?: boolean;
+    canUninstall?: boolean;
+}
+
+/** Where Steam's Install / Uninstall for a reported shortcut goes: the handler whose `id` is the report's `providerId`. */
+export interface InstallHandler {
+    id: string;
+    install(appid: number): Promise<{ ok: boolean }> | { ok: boolean };
+    uninstall?(appid: number): Promise<{ ok: boolean }> | { ok: boolean };
 }
 
 export interface SummaryContribution {
@@ -147,10 +190,18 @@ export interface SteamCartridgesAPI {
     reportUnlocks(appid: number, unlocks: AchievementUnlockItem[], opts: ReportUnlocksOptions): Promise<{ accepted: string[] }>;
     /** Extensions push a game's Game Info and media (ADR-0067). Resolves to whether the core's copy changed. */
     reportGame(appid: number, game: ProvidedGameReport, opts: ReportOptions): Promise<{ ok: boolean; changed?: boolean }>;
-    /** Extensions push a player's whole achievement set (ADR-0067). Resolves to the ids that were new. */
-    reportAchievementSet(appid: number, set: ProvidedAchievementSet, opts: ReportOptions): Promise<{ ok: boolean; new: string[] }>;
+    /**
+     * Extensions push a player's whole achievement set (ADR-0067). Resolves to the ids that were new and, once Steam's own list
+     * is the primary source of icons and rarity, `kept`: the ids whose icon is still the extension's own (no Steam match, or no
+     * Steam icon), which the extension may still fix (a wide picture cut to a square).
+     */
+    reportAchievementSet(appid: number, set: ProvidedAchievementSet, opts: ReportOptions): Promise<{ ok: boolean; new: string[]; kept?: string[] }>;
     /** The shortcut is no longer the extension's game: drop what it pushed (ADR-0067). */
     forgetGame(appid: number, opts: ReportOptions): Promise<{ ok: boolean }>;
+    /** 1.3.0: the shortcut's install state (ADR-0107). Not kept across Steam starts: report again at start-up. */
+    reportInstallState(appid: number, state: ReportedInstallState, opts: ReportOptions): Promise<{ ok: boolean }>;
+    /** 1.3.0: Steam's Install / Uninstall for the appids this extension reported call the handler, never Steam's wizard. */
+    registerInstallHandler(handler: InstallHandler): () => void;
 }
 
 /** Where the registry hands what extensions push (index.tsx wires app/achievements and app/provided). */
@@ -159,6 +210,8 @@ export interface ExtensionSink {
     reportGame: SteamCartridgesAPI["reportGame"];
     reportAchievementSet: SteamCartridgesAPI["reportAchievementSet"];
     forgetGame: SteamCartridgesAPI["forgetGame"];
+    reportInstallState: SteamCartridgesAPI["reportInstallState"];
+    registerInstallHandler: SteamCartridgesAPI["registerInstallHandler"];
 }
 
 const NO_SINK: ExtensionSink = {
@@ -166,12 +219,19 @@ const NO_SINK: ExtensionSink = {
     reportGame: async () => ({ ok: false }),
     reportAchievementSet: async () => ({ ok: false, new: [] }),
     forgetGame: async () => ({ ok: false }),
+    reportInstallState: async () => ({ ok: false }),
+    registerInstallHandler: () => () => undefined,
 };
 
-export function createExtensionRegistry(sink: Partial<ExtensionSink> = {}): SteamCartridgesAPI {
+export interface RegistryOptions {
+    /** One line for the plugin log (index.tsx passes the logger). */
+    log?: (line: string) => void;
+}
+
+export function createExtensionRegistry(sink: Partial<ExtensionSink> = {}, opts: RegistryOptions = {}): SteamCartridgesAPI {
     const out: ExtensionSink = { ...NO_SINK, ...sink };
     /** A push never throws into the extension (ADR-0014): a failure resolves to the sink's empty answer. */
-    function guarded<K extends keyof ExtensionSink>(key: K, args: Parameters<ExtensionSink[K]>): ReturnType<ExtensionSink[K]> {
+    function guarded<K extends Exclude<keyof ExtensionSink, "registerInstallHandler">>(key: K, args: Parameters<ExtensionSink[K]>): ReturnType<ExtensionSink[K]> {
         const empty = (NO_SINK[key] as (...a: unknown[]) => Promise<unknown>)();
         try {
             return ((out[key] as (...a: unknown[]) => Promise<unknown>)(...args).catch(() => empty)) as ReturnType<ExtensionSink[K]>;
@@ -188,7 +248,7 @@ export function createExtensionRegistry(sink: Partial<ExtensionSink> = {}): Stea
     const quitListeners: ((context: AppContext) => void)[] = [];
 
     const api: SteamCartridgesAPI = {
-        version: "1.2.0",
+        version: "1.3.0",
         registerAchievementProvider(provider) {
             const existing = achievementProviders.findIndex((p) => p.id === provider.id);
             if (existing >= 0) achievementProviders.splice(existing, 1);
@@ -209,7 +269,15 @@ export function createExtensionRegistry(sink: Partial<ExtensionSink> = {}): Stea
             };
         },
         registerSettingsPanel(panel) {
+            if (!panel || typeof panel.id !== "string" || typeof panel.title !== "string") return () => undefined;
             const existing = settingsPanels.findIndex((p) => p.id === panel.id);
+            if (existing < 0) {
+                try {
+                    opts.log?.(`[extensions] ${panel.id} registered; its settings are in its own plugin panel${panel.render ? " (its old in-panel render is ignored)" : ""}`);
+                } catch {
+                    // logging never breaks a registration (ADR-0014)
+                }
+            }
             if (existing >= 0) settingsPanels.splice(existing, 1);
             settingsPanels.push(panel);
             settingsPanels.sort((a, b) => (a.order ?? 50) - (b.order ?? 50));
@@ -280,6 +348,18 @@ export function createExtensionRegistry(sink: Partial<ExtensionSink> = {}): Stea
         },
         forgetGame(appid, opts) {
             return guarded("forgetGame", [appid, opts]);
+        },
+        reportInstallState(appid, state, opts) {
+            return guarded("reportInstallState", [appid, state, opts]);
+        },
+        registerInstallHandler(handler) {
+            if (!handler || typeof handler.id !== "string" || typeof handler.install !== "function") return () => undefined;
+            try {
+                const off = out.registerInstallHandler(handler);
+                return typeof off === "function" ? off : () => undefined;
+            } catch {
+                return () => undefined; // Fail-silent isolation (ADR-0014)
+            }
         },
         notifyAppQuit(ctx) {
             for (const cb of quitListeners) {

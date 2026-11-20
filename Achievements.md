@@ -11,6 +11,8 @@ Steam Cartridges can link it to a source.
 - [Native PC ports](#native-pc-ports) (Bloodborne PC, Dusklight)
 - [RPCS3](#rpcs3-playstation-3) (PlayStation 3)
 - [shadPS4](#shadps4-playstation-4) (PlayStation 4)
+- [Vita3K](#vita3k-playstation-vita) (PlayStation Vita)
+- [Xenia](#xenia-xbox-360) (Xbox 360)
 - [Achievement packs](#achievement-packs) (any other game that keeps its own achievement file)
 - [Linking a game by hand](#linking-a-game-by-hand)
 - [Troubleshooting](#troubleshooting)
@@ -27,8 +29,10 @@ simply has no achievements section, and nothing is requested for it.
 | 2 | Native PC ports | the shortcut runs a supported port | the port, installed as it ships |
 | 3 | RPCS3 | the shortcut points at a PS3 game with its trophy data | RPCS3 |
 | 4 | shadPS4 | the shortcut points at a PS4 game with its trophy data | shadPS4 |
-| 5 | RetroAchievements | the shortcut's command names a ROM file that exists | a RetroAchievements account |
-| 6 | Achievement packs | a pack in your packs folder matches the shortcut's program | a pack file ([Achievement-Packs.md](Achievement-Packs.md)) |
+| 5 | Vita3K | the shortcut starts a Vita game (its `PCSx#####` id) in Vita3K, booted once | Vita3K |
+| 6 | Xenia | the shortcut starts a game that has a profile file in Xenia | Xenia |
+| 7 | RetroAchievements | the shortcut's command names a ROM file that exists | a RetroAchievements account |
+| 8 | Achievement packs | a pack in your packs folder matches the shortcut's program | a pack file ([Achievement-Packs.md](Achievement-Packs.md)) |
 
 Unlocks reach Steam two ways: when you open the game's page (what the source has now), and **while you play**, when
 Steam Cartridges watches the source's files or the emulator's log and shows Steam's own unlock toast.
@@ -177,6 +181,41 @@ shadPS4's trophy save.
 3. **shadPS4's trophy saves**, created when you earn trophies in it.
 
 shadPS4's log is also read while you play. Like RPCS3, this source is not yet tested on a real installation.
+
+## Vita3K (PlayStation Vita)
+
+For PS Vita games in [Vita3K](https://vita3k.org). The trophy list and icons come from the copy Vita3K makes of the game's
+trophy data on its first boot, the unlocks from Vita3K's own progress file. No sign-in, nothing is sent anywhere; it works
+the same on Windows and Linux.
+
+### What you need
+
+1. **The game's title id in the shortcut's command:** Vita3K's own `-r` option, for example
+   `"C:\Emulators\Vita3K\Vita3K.exe" -r PCSE00001`.
+2. **The game booted once in Vita3K**, so its trophy definitions exist (a game never started says so in the log).
+3. **Vita3K's folder:** found next to the program (a `portable` folder, or `pref-path` in `config.yml`), or at Vita3K's
+   usual place (`%APPDATA%\Vita3K\Vita3K`; `~/.local/share/Vita3K/Vita3K` on Linux, also inside a Flatpak). With several
+   user profiles, the one `config.yml` names, else the first, is read.
+
+Unlocks are read when the game's page opens; this source has no live in-game watcher yet. It is built from Vita3K's source
+and PlayniteAchievements' reader and not yet tested on a real installation; please report what you see.
+
+## Xenia (Xbox 360)
+
+For Xbox 360 games in [Xenia](https://xenia.jp) (Canary included). The list, texts, icons and gamerscore come from the
+game's profile file, which Xenia writes when the game runs; no sign-in, nothing is sent anywhere.
+
+### What you need
+
+1. **A Xenia command that Steam Cartridges can tie to one game:** the game's `.xex` in the command (its title id is read from
+   the file), or a folder or file named after the title id, or, for an `.iso`, a shortcut **name** that matches the game's
+   title in Xenia (punctuation and case do not matter).
+2. **The game played once in Xenia**, so `content\<profile>\FFFE07D1\00010000\<account>\<TITLEID>.gpd` exists next to the
+   account's `Account` file. Every Xenia build's folder named in a command, and the usual `Xenia` folders in your user
+   folders, are searched; an achievement unlocked in any build's copy counts, with its earliest time.
+
+Rarity is a tier by gamerscore (Xenia has no global statistics). Like Vita3K this is built from the file format and not yet
+tested on a real installation; please report what you see.
 
 ## Linking a game by hand
 

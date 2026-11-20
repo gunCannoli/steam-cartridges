@@ -1,6 +1,6 @@
 {
   "name": "steam-cartridges",
-  "version": "0.7.3.3-debug",
+  "version": "0.7.3.6-debug",
   "private": true,
   "description": "Makes non-Steam games feel native: Steam's own activity page from your captures, plus optional metadata and artwork.",
   "scripts": {
@@ -9,7 +9,7 @@
     "build:dev": "millennium-ttc --build dev",
     "dev": "powershell -ExecutionPolicy Bypass -File dev.ps1",
     "test:ts": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:lua": "lua tests/test_backend.lua && lua tests/test_steam_store.lua && lua tests/test_migrate.lua && lua tests/test_identity.lua && lua tests/test_metadata_service.lua && lua tests/test_art_service.lua && lua tests/test_ach_service.lua && lua tests/test_freshness.lua && lua tests/test_media_service.lua && lua tests/test_globals.lua && lua tests/test_portability.lua && lua tests/test_bin_http.lua && lua tests/test_host_tools.lua && lua tests/test_rom_hash.lua && lua tests/test_disc_hash.lua && lua tests/test_achievements_reset.lua && lua tests/test_native_ports.lua && lua tests/test_unlock_detect.lua && lua tests/test_achievement_packs.lua && lua tests/test_prune_removed.lua && lua tests/test_plog.lua && lua tests/test_net.lua && lua tests/test_platform_verdict.lua && lua tests/test_setup_gate.lua && lua tests/test_library_service.lua && lua tests/test_platform.lua && lua tests/test_shortcuts.lua && lua tests/test_steam_paths.lua && lua tests/test_settings_store.lua && lua tests/test_secret_store.lua && lua tests/test_plugin_version.lua && lua tests/test_settings_summary.lua && lua tests/test_ra_login_shape.lua && lua tests/test_ps3_trophies.lua && lua tests/test_playtime_store.lua",
+    "test:lua": "lua tests/test_backend.lua && lua tests/test_steam_store.lua && lua tests/test_migrate.lua && lua tests/test_identity.lua && lua tests/test_metadata_service.lua && lua tests/test_art_service.lua && lua tests/test_ach_service.lua && lua tests/test_freshness.lua && lua tests/test_media_service.lua && lua tests/test_globals.lua && lua tests/test_portability.lua && lua tests/test_bin_http.lua && lua tests/test_host_tools.lua && lua tests/test_rom_hash.lua && lua tests/test_disc_hash.lua && lua tests/test_achievements_reset.lua && lua tests/test_native_ports.lua && lua tests/test_unlock_detect.lua && lua tests/test_achievement_packs.lua && lua tests/test_prune_removed.lua && lua tests/test_plog.lua && lua tests/test_net.lua && lua tests/test_platform_verdict.lua && lua tests/test_setup_gate.lua && lua tests/test_library_service.lua && lua tests/test_platform.lua && lua tests/test_shortcuts.lua && lua tests/test_steam_paths.lua && lua tests/test_settings_store.lua && lua tests/test_secret_store.lua && lua tests/test_plugin_version.lua && lua tests/test_settings_summary.lua && lua tests/test_ra_login_shape.lua && lua tests/test_ps3_trophies.lua && lua tests/test_vita3k_trophies.lua && lua tests/test_xenia_achievements.lua && lua tests/test_playtime_store.lua && lua tests/test_captures_missing.lua",
     "test": "npm run test:ts && npm run test:lua",
     "test:live": "node tests/live/run-quiet.mjs",
     "test:live:drive": "node tests/live/run.mjs",

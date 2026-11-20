@@ -45,7 +45,8 @@ function M.valid(name)
   return type(name) == "string" and #name >= 1 and #name <= M.MAX_NAME and name:match("^%w+$") ~= nil
 end
 
---- Whether the player has a RetroAchievements key (the gate; the key itself is never read here).
+--- Whether the player has added their RetroAchievements username and Web API key (the gate; never reads emulator files,
+--- never logs or stores the key).
 function M.enabled()
   if M.deps.key then return M.deps.key() and true or false end
   local ok, creds = pcall(function() return require("web_config").get_retroachievements_credentials() end)

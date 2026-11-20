@@ -8,7 +8,8 @@ import type { SteamAppAchievements } from "../../steam/achievement-types";
 import { buildAchievementProgress, buildAchievementQueries, buildSteamAchievements, getAchievementsAction } from "./core";
 import { onPinGivenUp, pinQueryData } from "../../steam/query-client";
 import { resolveSingleton } from "../../steam/modules";
-import { achievementIcon } from "../../steam/achievement-icon";
+import { achievementIcon, steamIconUrl } from "../../steam/achievement-icon";
+import { greyIconOf, whenGreyReady } from "../../steam/grey-icon";
 
 /** Set by createAchievementsSurface (plan § 7.0 D6); open defaults until then. */
 export const deps: SurfaceDeps = { isEnabled: () => true, reportError: () => {} };
@@ -452,6 +453,13 @@ export function setShortcutAchievements(
 
 }
 
+/** The last state given per shortcut: the list is built again when a grey picture becomes ready. */
+const lastState = new Map<number, { nativeAppId: number; schema: AchievementSchemaRecord | undefined; unlocks: Record<string, AchievementUnlockRecord> }>();
+const rebuild = () => {
+    for (const [id, st] of lastState) updateShortcutState(id, st.nativeAppId, st.schema, st.unlocks);
+};
+whenGreyReady(rebuild);
+
 /**
  * Updates full state from backend schema & unlocks.
  */
@@ -470,7 +478,13 @@ export function updateShortcutState(
     }
     unlocksMap.set(rawId, unlocks);
 
-    const built = buildSteamAchievements(schema, unlocks, (icon) => achievementIcon(icon, rawId));
+    const iconOwner = Number(schema?.native_appid) > 0 ? Number(schema?.native_appid) : nativeAppId;
+    const built = buildSteamAchievements(schema, unlocks, (icon, needsGrey) => {
+        const url = steamIconUrl(icon, iconOwner);
+        // A locked achievement with no grey picture of its own: Steam draws it grey, so a colour one is greyed here.
+        return achievementIcon(needsGrey && url ? (greyIconOf(url) ?? url) : url, rawId);
+    });
+    lastState.set(rawId, { nativeAppId, schema, unlocks });
     if (built) {
         setShortcutAchievements(rawId, built);
     }

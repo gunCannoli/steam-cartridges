@@ -163,4 +163,18 @@ function M.ensure(appid, ctx)
   return { status = "ok", data = {}, source = "search", checkedAt = now_ms() }
 end
 
+--- The Steam app a title names exactly (the store search's exact hit), or nil. Looks only: no mapping is saved and no suggestion
+--- is stored, so the caller must still check that the game is the same one (the achievements' names agree: provided_rpc).
+--- Remembered for the session (a push comes with every start). Injectable like `ensure`: M.deps.http_get.
+local title_memo = {}
+function M.exact_title_native(title)
+  if type(title) ~= "string" or normalize.normalize(title) == "" then return nil end
+  local key = title:lower()
+  if title_memo[key] ~= nil then return title_memo[key] or nil end
+  local ok, res = pcall(search.search, title, M.deps.http_get or throttle.http_get, store)
+  local native = ok and type(res) == "table" and res.exact and tonumber(res.exact.appid) or nil
+  title_memo[key] = native or false
+  return native
+end
+
 return M

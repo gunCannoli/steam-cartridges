@@ -82,7 +82,7 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
         }
         if (selected === "native_ports") {
             setServices({ ...services, nativePortsEnabled: true });
-            return done("Native ports added");
+            return done("Achievement Packs added");
         }
         if (selected === "screenscraper") {
             if (!ssUser.trim() || !ssPass.trim()) return fail("Username and password are required.");

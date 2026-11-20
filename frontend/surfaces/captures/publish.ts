@@ -3,6 +3,7 @@ import { clearActivity, publishActivity } from "./activity";
 import { toGameId, toShortcutId, type ShortcutId } from "../../kernel/appid";
 import { clearSummary, publishSummary } from "./summary";
 import { deps } from "./deps";
+import { attachMediaSensors } from "./media-sensor";
 
 /**
  * Brings the native app detail sections to a non-Steam game's page.
@@ -48,6 +49,7 @@ export async function patch(appid: number): Promise<void> {
     const id = toShortcutId(appid);
     if (id === undefined) return;
     viewing.add(appid);
+    attachMediaSensors();
     const gameid = toGameId(id);
 
     try {

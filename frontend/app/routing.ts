@@ -40,6 +40,8 @@ export interface RoutingInputs {
     metadataAppids(): Iterable<number>;
     /** One line in the plugin log under [routing]. */
     report?(message: string): void;
+    /** ADR-0109: the plugin that manages this shortcut itself (domain/merged-plugins ownerOf), or undefined. */
+    ownerOf?(appid: number): string | undefined;
 }
 
 const TTL_MS = 2000;
@@ -146,6 +148,9 @@ export function createRouting(inputs: RoutingInputs) {
     const memo = new Map<number, Resolution>();
 
     function getBucket(appid: number): Resolution {
+        // ADR-0109: asked every time (not memoised): the owning plugin may load after us, or be removed.
+        const owner = appid >= NON_STEAM_APPID_MIN ? inputs.ownerOf?.(appid) : undefined;
+        if (owner) return { bucket: 'none', via: 'owned', owner };
         const hit = memo.get(appid);
         if (hit) return hit;
         const cfg = inputs.buckets();

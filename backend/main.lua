@@ -49,6 +49,7 @@ require("net").gate = function() return require("setup_store").gate_open() end
 -- Millennium exposes globals to the frontend as callable methods.
 GetLibraryStats = RPC.GetLibraryStats
 GetDiagnostics  = RPC.GetDiagnostics
+GetMissingScreenshots = RPC.GetMissingScreenshots
 TestServiceConnection = RPC.TestServiceConnection
 
 -- Web metadata + artwork handlers keep their raw payload_json signatures.
@@ -105,6 +106,7 @@ PruneMediaCache = RECORD_RPC.PruneMediaCache
 -- Extensions push a game's data (ADR-0067: Game Info, media, achievements; Epic and Xbox from steam-cartridges-third-party).
 ProvideGame         = PROVIDED_RPC.ProvideGame
 ForgetProvidedGame  = PROVIDED_RPC.ForgetProvidedGame
+FetchProvidedArt    = PROVIDED_RPC.FetchProvidedArt
 ProvideAchievements = PROVIDED_RPC.ProvideAchievements
 
 -- Achievement packs (ADR-0081, ADR-0083): the Game Data editor's achievements block.

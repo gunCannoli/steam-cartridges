@@ -303,6 +303,14 @@ interface AppsApi {
  * This is why the plugin no longer needs base64 image transport for the
  * summary - Steam was always willing to serve these.
  */
+/** How the last read of each capture source went, for the log: "ok", "missing" (the API is not there) or "error:<name>". */
+export const captureApiState = { screenshots: "unused", clips: "unused" };
+
+function errorState(error: unknown): string {
+    const name = String((error as { name?: string } | null)?.name ?? "Error").replace(/[^\w]/g, "").slice(0, 24);
+    return `error:${name || "Error"}`;
+}
+
 export async function screenshotsSince(
     appid: number,
     since: number,
@@ -315,11 +323,17 @@ export async function screenshotsSince(
         | undefined;
     const apps = client?.Apps;
     const fn = apps?.GetScreenshotsInTimeRange;
-    if (typeof fn !== "function") return [];
+    if (typeof fn !== "function") {
+        captureApiState.screenshots = "missing";
+        return [];
+    }
 
     try {
-        return (await fn.call(apps, appid, since, 0)) ?? [];
-    } catch {
+        const list = (await fn.call(apps, appid, since, 0)) ?? [];
+        captureApiState.screenshots = "ok";
+        return list;
+    } catch (error) {
+        captureApiState.screenshots = errorState(error);
         return [];
     }
 }
@@ -337,15 +351,21 @@ export async function clipsSince(
     since: number,
 ): Promise<SteamClip[]> {
     const service = gameRecordingService();
-    if (!service) return [];
+    if (!service) {
+        captureApiState.clips = "missing";
+        return [];
+    }
 
     try {
         const response = await service.GetClips({
             game_id: gameid,
             created_after: since,
         });
-        return (response.Body().clip() ?? []).map((c) => c.toObject());
-    } catch {
+        const clips = (response.Body().clip() ?? []).map((c) => c.toObject());
+        captureApiState.clips = "ok";
+        return clips;
+    } catch (error) {
+        captureApiState.clips = errorState(error);
         return [];
     }
 }
