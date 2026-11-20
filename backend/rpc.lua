@@ -139,8 +139,8 @@ RPC.GetMissingScreenshots = method("GetMissingScreenshots", function(data)
 
   local info = captures.missing_files(paths, game_id)
   local line = ("screenshots: indexed=%d missing_on_disk=%d thumbnails_missing=%d capture_folder=%s index_file=%s games_in_index=%d " ..
-    "game_in_index=%s game_folder=%s"):format(info.indexed, #info.missing, info.thumbs_missing, tostring(info.root),
-    tostring(info.vdf), info.games, tostring(info.game_in_index), tostring(info.folder))
+    "game_in_index=%s game_folder=%s other_accounts_with_index=%d"):format(info.indexed, #info.missing, info.thumbs_missing,
+    tostring(info.root), tostring(info.vdf), info.games, tostring(info.game_in_index), tostring(info.folder), info.other_indexes or 0)
   -- Said once per game and answer: a page view asks again and gets the same line.
   if M_missing_logged[game_id] ~= line then
     M_missing_logged[game_id] = line

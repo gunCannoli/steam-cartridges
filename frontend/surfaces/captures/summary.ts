@@ -1,5 +1,9 @@
 import { logger } from '../../logger';
 import { deps } from './deps';
+import { steamQueryClients } from '../../steam/query-client';
+import { ensureInViewerCache, keepViewerCache, onViewerCacheGivenUp, rememberScreenshots } from './viewer-cache';
+
+onViewerCacheGivenUp(() => deps.log('viewer cache: Steam keeps rewriting its screenshot lists; the repair stopped for this session'));
 import {
   captureApiState,
   clipsSince,
@@ -152,9 +156,26 @@ async function dropDeletedScreenshots(gameid: string, shots: SteamScreenshot[]):
   const gone = new Set(disk?.missing ?? []);
   const byDisk = (s: SteamScreenshot) => [...gone].some((name) => typeof s.strUrl === 'string' && s.strUrl.includes(name));
 
-  const probed = await Promise.all(
-    shots.slice(0, 80).map(async (s) => (typeof s.strUrl === 'string' && s.strUrl ? imageServed(s.strUrl) : true)),
+  // Two probes per image: the HTTP answer (no cache) and the image element. A 404/410 or a load error means it is gone.
+  const probes = await Promise.all(
+    shots.slice(0, 80).map(async (s) => {
+      const url = typeof s.strUrl === 'string' ? s.strUrl : '';
+      if (!url) return { status: undefined as number | undefined, img: true };
+      const [status, img] = await Promise.all([deps.probeStatus(url), imageServed(url)]);
+      return { status, img };
+    }),
   );
+  const isGone = (p: { status: number | undefined; img: boolean }) => p.status === 404 || p.status === 410 || (p.status === undefined && !p.img);
+  const probed = probes.map((p) => !isGone(p));
+  const statusCounts = { ok: 0, notFound: 0, other: 0, none: 0 };
+  for (const p of probes) {
+    if (p.status === undefined) statusCounts.none += 1;
+    else if (p.status < 400) statusCounts.ok += 1;
+    else if (p.status === 404 || p.status === 410) statusCounts.notFound += 1;
+    else statusCounts.other += 1;
+  }
+  // The image element drew it although the server says it is gone: the browser cache, the stale thumbnail itself.
+  const cachedOnly = probes.filter((p) => isGone(p) && p.img).length;
   const byProbe = (index: number) => index < probed.length && probed[index] === false;
 
   const probeDropsAll = probed.length > 0 && probed.every((ok) => !ok) && gone.size === 0;
@@ -167,7 +188,8 @@ async function dropDeletedScreenshots(gameid: string, shots: SteamScreenshot[]):
     `missing_on_disk=${gone.size} not_served=${probed.filter((ok) => !ok).length} dropped=${dropped} ` +
     `handle_ok=${count((s) => Number(s.hHandle) > 0)} gameid_matches=${count((s) => String(s.strGameID) === gameid)} ` +
     `loopback_urls=${count((s) => /^https:\/\/steamloopback\.host\/screenshots\//.test(String(s.strUrl)))} ` +
-    `api=${captureApiState.screenshots}` +
+    `http_ok=${statusCounts.ok} http_404=${statusCounts.notFound} http_other=${statusCounts.other} http_none=${statusCounts.none} ` +
+    `drawn_from_cache_only=${cachedOnly} api=${captureApiState.screenshots}` +
     (probeDropsAll ? ' (every image failed to load with nothing missing on disk: probe ignored)' : '') +
     (disk === null ? ' (backend check unavailable)' : '');
   // One line per game and outcome: a page view repeats the same answer and must not repeat the line.
@@ -218,6 +240,25 @@ export async function publishSummary(appid: number, gameid: string, since = 0): 
   const collected = await collectAll({ appid, gameid, since });
   const clips = collected.clips;
   const screenshots = await dropDeletedScreenshots(gameid, collected.screenshots);
+
+  // Steam's viewer finds a clicked screenshot in its own cache, not in what the summary was given: put the missing ones there.
+  try {
+    rememberScreenshots(screenshots);
+    const viewerClients = steamQueryClients();
+    keepViewerCache(viewerClients);
+    const viewer = ensureInViewerCache(screenshots, viewerClients);
+    if (screenshots.length > 0) {
+      const line =
+        `viewer cache: summary=${screenshots.length} missing_before=${viewer.missing} added=${viewer.added} ` +
+        `clients_with_cache=${viewer.clients} state=${viewer.state}`;
+      if (toldSummary.get(`${gameid}|viewer`) !== line) {
+        toldSummary.set(`${gameid}|viewer`, line);
+        deps.log(line);
+      }
+    }
+  } catch (error) {
+    logger.warn('Could not add screenshots to the viewer cache for', appid, error);
+  }
 
   const events: PendingEvent[] = [
     ...screenshots.map((screenshot): PendingEvent => ({ kind: 'screenshot', screenshot })),

@@ -7,6 +7,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.7-debug] - 2026-11-20
+
+A debug build for the Linux reports about the Post-Game Summary: clicking a screenshot shows "There was a problem loading this
+screenshot", and thumbnails of deleted screenshots stay. If either still happens, please send the **top** of
+`steam-cartridges.log` and every line that starts with `[captures]` (counts and yes/no answers only, never a path, name or id).
+
+### Added
+
+- Log lines that say why: `viewer cache:` (did Steam's viewer know the screenshots the summary showed, and how many were added),
+  `media click:` (the clicked image, whether the viewer knew it, whether it was repaired before opening),
+  `media viewer showed its load error ...` (Steam's own error text appeared after a click, and whether adding the screenshot
+  cured it), and in the summary line `http_ok / http_404 / http_other / http_none` plus `drawn_from_cache_only` (an image that
+  only the browser's cache could still draw) and, for the screenshot folder, `other_accounts_with_index`.
+
+### Fixed
+
+- **Clicking a screenshot in the Post-Game Summary no longer ends in "There was a problem loading this screenshot".** Steam's
+  viewer looks the screenshot up in its own list, which Steam builds once and extends only from its own capture notifications, so
+  a screenshot taken later was missing there. The plugin adds the summary's screenshots to that list when the page opens, puts
+  them back if Steam rewrites the list without them, adds one just before it opens on a click, and adds it again if the error
+  still shows.
+- **Thumbnails of screenshots deleted by hand are found by asking Steam's image server directly** (without the browser's cache,
+  which could still draw a deleted file), and dropped from the summary.
+
 ## [0.7.3.6-debug] - 2026-11-20
 
 A debug build for two Linux reports: thumbnails of deleted screenshots staying in the Post-Game Summary, and "There was a

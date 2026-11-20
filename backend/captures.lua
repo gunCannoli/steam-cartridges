@@ -174,6 +174,18 @@ function captures.missing_files(paths, game_id)
     folder = fs.is_directory(fs.join(paths.screenshots_root, tostring(game_id))) == true,
   }
   for _ in pairs(games) do info.games = info.games + 1 end
+  -- Other Steam accounts on this machine that hold a screenshot index of their own: a shot taken while another one was signed
+  -- in sits in that account's folder, not the one read here (a count only).
+  info.other_indexes = 0
+  pcall(function()
+    for _, entry in ipairs(fs.list(paths.userdata) or {}) do
+      local name = entry.name or ""
+      if name:match("^%d+$") and name ~= tostring(paths.user_id)
+        and fs.is_file(fs.join(paths.userdata, name, "760", "screenshots.vdf")) then
+        info.other_indexes = info.other_indexes + 1
+      end
+    end
+  end)
   -- No capture folder at all: say so, but do not call every shot missing (an unreadable or remapped folder would
   -- then hide real screenshots).
   if not info.root then return info end

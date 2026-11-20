@@ -39,6 +39,7 @@ import { createArtwork } from "./app/artwork";
 import { createMedia } from "./app/media";
 import { createManuals } from "./app/manuals";
 import { createLibraryStats } from "./app/library-stats";
+import { loopbackStatus } from "./ports/loopback";
 import { fetchImage, lastImageFailure, objectUrl, objectUrlToBase64, releaseObjectUrl } from "./ports/image";
 import { pdfRenderer } from "./ports/pdf";
 import { createAchievements } from "./app/achievements";
@@ -1000,6 +1001,7 @@ async function init() {
             }),
             bus,
             missingScreenshots: lookUpMissingScreenshots,
+            probeStatus: loopbackStatus,
             log: (message) => bus.emit("surface.report", { area: "captures", message }),
         }),
     );

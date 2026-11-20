@@ -25,7 +25,8 @@ function part(id: string, install: () => unknown): void {
     }
 }
 
-export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activityOptions" | "bus" | "missingScreenshots" | "log">): Surface {
+export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activityOptions" | "bus" | "missingScreenshots" | "log" | "probeStatus">): Surface {
+    deps.probeStatus = d.probeStatus;
     deps.log = d.log;
     deps.missingScreenshots = d.missingScreenshots;
     deps.isEnabled = d.isEnabled;

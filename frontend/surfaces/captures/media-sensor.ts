@@ -1,5 +1,7 @@
 import { deps } from "./deps";
-import { captureKind, routeShape } from "./media-kinds";
+import { steamQueryClients } from "../../steam/query-client";
+import { captureKind } from "./media-kinds";
+import { ensureInViewerCache, inViewerCache, knownScreenshot } from "./viewer-cache";
 
 /**
  * Sensors for the screenshots and clips Steam draws on a game's page (the Post-Game Summary and the media viewer).
@@ -35,11 +37,29 @@ function hostOk(url: string): boolean {
     return /^https:\/\/steamloopback\.host\//.test(url);
 }
 
+/** Steam's own words for "the viewer could not show this screenshot", in the user's language (English if it is not found). */
+function viewerErrorText(): string {
+    try {
+        const text = (globalThis as any).LocalizationManager?.LocalizeString?.("#ScreenshotUploader_FailedToLoadScreenshot");
+        if (typeof text === "string" && text && !text.startsWith("#")) return text;
+    } catch {
+        // English below.
+    }
+    return "There was a problem loading this screenshot";
+}
+
+function viewerErrorShown(doc: Document): boolean {
+    try {
+        return (doc.body?.innerText ?? "").includes(viewerErrorText());
+    } catch {
+        return false;
+    }
+}
+
 /** Watch one document. Safe to call twice. */
 function watch(doc: Document): void {
     if (attached.has(doc)) return;
     attached.add(doc);
-    const win = doc.defaultView;
 
     doc.addEventListener(
         "error",
@@ -55,6 +75,8 @@ function watch(doc: Document): void {
         true,
     );
 
+    // Capture phase: this runs before Steam's own click handler opens the viewer, so a screenshot the viewer cannot find
+    // is put in its list in time (the viewer reads the list when it opens).
     doc.addEventListener(
         "click",
         (ev: Event) => {
@@ -63,16 +85,41 @@ function watch(doc: Document): void {
             const kind = captureKind(url);
             if (!img || !kind) return;
             const loaded = (img as HTMLImageElement).complete === true && (img as HTMLImageElement).naturalWidth > 0;
-            const before = routeShape(win?.location?.pathname ?? "");
-            setTimeout(() => {
-                const after = routeShape(win?.location?.pathname ?? "");
-                // The first click per kind and outcome is enough to see whether the viewer opens and from what state.
-                say(
-                    `click|${kind}|${loaded}|${after.startsWith("/media")}`,
-                    `media click: kind=${kind} image_loaded=${loaded} route_before=${before} route_after=${after} ` +
-                        `viewer_opened=${after.startsWith("/media")}`,
-                );
-            }, 1500);
+            const shot = knownScreenshot(url);
+            const clients = steamQueryClients();
+            const before = shot ? inViewerCache(shot, clients) : undefined;
+            let repaired = false;
+            if (shot && before === false) {
+                try {
+                    repaired = ensureInViewerCache([shot], clients).added > 0;
+                } catch {
+                    // The log line below says nothing was added.
+                }
+            }
+            say(
+                `click|${kind}|${loaded}|${before}|${repaired}`,
+                `media click: kind=${kind} image_loaded=${loaded} known_to_summary=${shot !== undefined} ` +
+                    `in_viewer_cache=${before === undefined ? "unknown" : before} repaired_before_open=${repaired}`,
+            );
+
+            // Steam's own error text appearing within a few seconds is the failure the reporter sees. Heal it once, and say so.
+            if (!shot) return;
+            for (const wait of [500, 1500, 3000]) {
+                setTimeout(() => {
+                    if (!viewerErrorShown(doc)) return;
+                    let healed = false;
+                    try {
+                        healed = ensureInViewerCache([shot], steamQueryClients()).added > 0;
+                    } catch {
+                        // Said in the line below.
+                    }
+                    say(
+                        `viewer-error|${wait}|${healed}`,
+                        `media viewer showed its load error ${wait} ms after a click: in_viewer_cache_after=${inViewerCache(shot, steamQueryClients())} ` +
+                            `added_now=${healed} image_loaded=${loaded}`,
+                    );
+                }, wait);
+            }
         },
         true,
     );

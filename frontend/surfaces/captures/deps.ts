@@ -20,10 +20,13 @@ export const deps: SurfaceDeps & {
     report(message: string): void;
     /** One line in the plugin log under [captures] (screenshot and media sensors), sent on the bus. */
     log(message: string): void;
+    /** HTTP status of an image on Steam's loopback server asked without the browser cache; undefined when it could not be asked. */
+    probeStatus(url: string): Promise<number | undefined>;
     /** File names of indexed screenshots whose file is gone from disk (deleted by hand); null when unknown. */
     missingScreenshots(gameid: string): Promise<{ indexed: number; missing: string[] } | null>;
 } = {
     missingScreenshots: async () => null,
+    probeStatus: async () => undefined,
     log(message) {
         deps.bus.emit("surface.report", { area: "captures", message });
     },
