@@ -180,6 +180,7 @@ function M.find_trophy_dir(cmd, launch_options)
           local name = type(e) == "table" and (e.name or e.path) or tostring(e)
           name = tostring(name):gsub("\\", "/"):match("([^/]+)$") or tostring(name)
           if name:match("^NPWR%d+_%d+$") then
+            pack_id = pack_id or name
             local child_path = sp .. "/" .. name
             if file_exists(child_path .. "/TROPCONF.SFM") then
               schema_dir = child_path
@@ -210,34 +211,7 @@ function M.find_trophy_dir(cmd, launch_options)
     end
   end
 
-  -- 2. Check RPCS3 install paths if no schema found yet
-  local appdata = (require("platform").getenv("APPDATA") or ""):gsub("\\", "/")
-  local default_rpcs3_trophies = {
-    appdata .. "/rpcs3/dev_hdd0/home/00000001/trophy",
-  }
-
-  for _, p in ipairs(candidates) do
-    if p:lower():find("rpcs3") then
-      local dir = p:match("^(.*)[/\\][^/\\]+$") or p
-      table.insert(default_rpcs3_trophies, 1, dir .. "/dev_hdd0/home/00000001/trophy")
-    end
-  end
-
-  if not schema_dir then
-    for _, r_path in ipairs(default_rpcs3_trophies) do
-      if file_exists(r_path .. "/TROPCONF.SFM") then
-        schema_dir = r_path
-        pack_id = r_path:match("(NPWR%d+_%d+)")
-        break
-      end
-    end
-  end
-
-  if not schema_dir then
-    return nil
-  end
-
-  -- 3. Resolve user-state directory (TROPUSR.DAT)
+  -- User-side trophy roots (TROPUSR.DAT, and the schema when the game side has none)
   local user_roots = {}
   local seen_roots = {}
   local function add_root(r)
@@ -248,38 +222,56 @@ function M.find_trophy_dir(cmd, launch_options)
     end
   end
 
-  for _, p in ipairs(candidates) do
-    local dev_hdd0 = p:match("^(.-[/\\]dev_hdd0)")
-    if dev_hdd0 then
-      local home_dir = dev_hdd0:gsub("\\", "/") .. "/home"
-      for _, e in ipairs(list_entries(home_dir)) do
-        local uname = type(e) == "table" and (e.name or e.path) or tostring(e)
-        uname = tostring(uname):gsub("\\", "/"):match("([^/]+)$") or tostring(uname)
-        add_root(home_dir .. "/" .. uname .. "/trophy")
-      end
-      add_root(home_dir .. "/00000001/trophy")
+  local function add_home(home_dir)
+    for _, e in ipairs(list_entries(home_dir)) do
+      local uname = type(e) == "table" and (e.name or e.path) or tostring(e)
+      uname = tostring(uname):gsub("\\", "/"):match("([^/]+)$") or tostring(uname)
+      add_root(home_dir .. "/" .. uname .. "/trophy")
     end
+    add_root(home_dir .. "/00000001/trophy")
+  end
 
-    if p:lower():find("rpcs3") then
-      local dir = p:match("^(.*)[/\\][^/\\]+$") or p
-      local exe_home = dir:gsub("\\", "/") .. "/dev_hdd0/home"
-      for _, e in ipairs(list_entries(exe_home)) do
-        local uname = type(e) == "table" and (e.name or e.path) or tostring(e)
-        uname = tostring(uname):gsub("\\", "/"):match("([^/]+)$") or tostring(uname)
-        add_root(exe_home .. "/" .. uname .. "/trophy")
-      end
-      add_root(exe_home .. "/00000001/trophy")
+  for _, p in ipairs(candidates) do
+    -- A path inside the emulator's own dev_hdd0 (a game, a save): the install is the folder above it.
+    local dev_hdd0 = p:match("^(.-[/\\]dev_hdd0)")
+    if dev_hdd0 then add_home(dev_hdd0:gsub("\\", "/") .. "/home") end
+
+    -- The emulator itself (rpcs3.exe, rpcs3-linux.AppImage): the folder holding it is the portable install.
+    -- Only the file name counts, so a game stored under a folder called "rpcs3" is not mistaken for it.
+    local base = p:match("([^/\\]+)$") or p
+    if base:lower():find("rpcs3") and not dev_hdd0 then
+      add_home((p:match("^(.*)[/\\][^/\\]+$") or p):gsub("\\", "/") .. "/dev_hdd0/home")
     end
   end
 
-  if #appdata > 0 then
-    local app_home = appdata .. "/rpcs3/dev_hdd0/home"
-    for _, e in ipairs(list_entries(app_home)) do
-      local uname = type(e) == "table" and (e.name or e.path) or tostring(e)
-      uname = tostring(uname):gsub("\\", "/"):match("([^/]+)$") or tostring(uname)
-      add_root(app_home .. "/" .. uname .. "/trophy")
+  -- Per-user installs: %APPDATA%/rpcs3, ~/.config/rpcs3, Flatpak ~/.var/app/net.rpcs3.RPCS3/config/rpcs3
+  for _, install in ipairs(require("platform").locate({ "rpcs3", "RPCS3" }, dir_exists)) do
+    add_home(install .. "/dev_hdd0/home")
+  end
+
+  -- Split layout: the game-side NPWR folder named the pack, the schema lives in the user-side trophy root
+  if not schema_dir and pack_id then
+    for _, root in ipairs(user_roots) do
+      if file_exists(root .. "/" .. pack_id .. "/TROPCONF.SFM") then
+        schema_dir = root .. "/" .. pack_id
+        break
+      end
     end
-    add_root(app_home .. "/00000001/trophy")
+  end
+
+  -- Flat layout: a trophy root that is itself the pack (TROPCONF.SFM directly inside)
+  if not schema_dir then
+    for _, root in ipairs(user_roots) do
+      if file_exists(root .. "/TROPCONF.SFM") then
+        schema_dir = root
+        pack_id = pack_id or root:match("(NPWR%d+_%d+)")
+        break
+      end
+    end
+  end
+
+  if not schema_dir then
+    return nil
   end
 
   local unlocks_path = nil
@@ -354,6 +346,7 @@ function M.get_or_fetch(shortcut_appid)
   -- 3. Locate Trophy Directory
   local trop = M.find_trophy_dir(sc.exe, sc.launch_options)
   if not trop then
+    logger:info(string.format("RPCS3: no trophy folder found (os=%s)", require("platform").os_name()))
     return nil, "rpcs3 trophy directory not found"
   end
 

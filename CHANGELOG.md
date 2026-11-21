@@ -7,6 +7,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.4-beta] - 2026-11-21
+
+### Fixed
+
+- **RPCS3 trophies now load when the game's trophy schema is only in RPCS3's user folder**: the game's own `NPWRxxxxx_xx` pack
+  name is kept and the schema and unlocks are looked up under it in `dev_hdd0/home/<user>/trophy`, for portable installs too
+  (reported with a portable RPCS3 under a folder with a space in its name).
+- **RPCS3 portable installs**: the emulator's folder is only taken from the emulator's own file, never from a game that
+  happens to sit in a folder called "rpcs3". Linux and Flatpak installs of RPCS3 are found as well.
+- **shadPS4 trophies**: a command line with a shadPS4 game no longer fails outright (an internal error stopped every
+  lookup), a game stored inside the shadPS4 folder finds its trophy folder, and Linux and Flatpak installs are found.
+- When no trophy folder is found for RPCS3 or shadPS4, the log now says so (no paths).
+
 ## [0.7.3.8-debug] - 2026-11-21
 
 A debug build for the "There was a problem loading this screenshot" report. Please: launch a non-Steam game the plugin

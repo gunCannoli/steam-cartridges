@@ -184,29 +184,44 @@ function M.find_trophy_dir(cmd, launch_options)
     table.insert(candidates, q)
   end
   for token in full:gmatch("(%S+)") do
-    table.insert(candidates, token:gsub('"', ''))
+    table.insert(candidates, (token:gsub('"', '')))
   end
 
   -- Search for CUSA or Title ID in command line
   local cusa_id = full:match("(CUSA%d+)") or full:match("(cusa%d+)")
   if cusa_id then cusa_id = cusa_id:upper() end
 
-  local appdata = (require("platform").getenv("APPDATA") or ""):gsub("\\", "/")
-  local localappdata = (require("platform").getenv("LOCALAPPDATA") or ""):gsub("\\", "/")
+  local platform = require("platform")
+  local function dir_exists(p)
+    local ok, res = pcall(fs.is_directory, p)
+    return ok and res == true
+  end
 
-  local root_dirs = {
-    appdata .. "/shadps4/user/trophy",
-    appdata .. "/shadps4/home/1000/trophy",
-    localappdata .. "/shadps4/user/trophy",
-  }
-
-  -- Also check next to exe
+  -- Installs, best first. Portable: the folder holding the emulator itself (only the file name counts, so a game stored
+  -- under a folder called "shadPS4" is not mistaken for it). Per-user: %APPDATA%, ~/.local/share/shadPS4, Flatpak.
+  local installs, seen_inst = {}, {}
+  local function add_install(d)
+    d = tostring(d):gsub("\\", "/"):gsub("/+$", "")
+    if d ~= "" and not seen_inst[d] then seen_inst[d] = true installs[#installs + 1] = d end
+  end
   for _, p in ipairs(candidates) do
-    if p:lower():find("shadps4") then
-      local dir = p:match("^(.*)[/\\][^/\\]+$") or p
-      table.insert(root_dirs, 1, dir .. "/user/trophy")
-      table.insert(root_dirs, 2, dir .. "/home/1000/trophy")
+    local base = p:match("([^/\\]+)$") or p
+    if base:lower():find("shadps4") then
+      add_install(p:match("^(.*)[/\\][^/\\]+$") or p)
     end
+    -- A game stored inside the emulator's folder (<install>/shadPS4/games/CUSA.../eboot.bin): the install is that folder.
+    local _, ej = p:lower():find("^.-[/\\]shadps4[/\\]")
+    if ej then add_install(p:sub(1, ej - 1)) end
+    -- A path inside the emulator's own user folder (a game, a save): that folder's parent is the install.
+    local user_parent = p:match("^(.-)[/\\]user[/\\]")
+    if user_parent then add_install(user_parent) end
+  end
+  for _, d in ipairs(platform.locate({ "shadps4", "shadPS4" }, dir_exists)) do add_install(d) end
+
+  local root_dirs = {}
+  for _, d in ipairs(installs) do
+    root_dirs[#root_dirs + 1] = d .. "/user/trophy"
+    root_dirs[#root_dirs + 1] = d .. "/home/1000/trophy"
   end
 
   -- 1. If we have a CUSA ID, check root_dirs/[CUSA_ID]
@@ -282,6 +297,7 @@ function M.get_or_fetch(shortcut_appid)
   -- 3. Locate Trophy Directory
   local trop_dir, detected_id = M.find_trophy_dir(sc.exe, sc.launch_options)
   if not trop_dir then
+    logger:info(string.format("shadPS4: no trophy folder found (os=%s, cusa=%s)", require("platform").os_name(), tostring(detected_id ~= nil)))
     return nil, "shadps4 trophy directory not found"
   end
 
