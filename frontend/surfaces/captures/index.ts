@@ -8,6 +8,7 @@ import { ensureStoreCacheHooked, setAchievementSource, setNativeActivitySource }
 import { deps } from "./deps";
 import { attachMediaSensors } from "./media-sensor";
 import { onRecordChanged, unpatch } from "./publish";
+import { installTrail } from "./trail";
 
 export { patch, refresh, unpatch } from "./publish";
 export { setNativeActivitySource } from "./activity";
@@ -47,6 +48,7 @@ export function createCapturesSurface(d: SurfaceDeps & Pick<typeof deps, "activi
         install() {
             part("store-cache", ensureStoreCacheHooked);
             part("captures", attachMediaSensors);
+            part("captures", installTrail);
         },
         render(appid, record) {
             // Captures are Steam's own data, read live (ADR-0022); the native activity source (a mapped shortcut's

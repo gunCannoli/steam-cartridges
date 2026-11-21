@@ -7,6 +7,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.3.8-debug] - 2026-11-21
+
+A debug build for the "There was a problem loading this screenshot" report. Please: launch a non-Steam game the plugin
+manages, take a screenshot (F12) and quit; on the game's page click that screenshot's thumbnail in the Post-Game Summary and
+note what the window shows; delete the screenshot (in that window, or the file itself), then go back to the game page. Send the
+**top** of `steam-cartridges.log` and every line that starts with `[captures]` (counts and yes/no answers only, never a path,
+name or id).
+
+### Added
+
+- **The screenshot trail**: log lines that follow one screenshot through the steps a reporter takes, under `[captures]`
+  (booleans, counts, states and a per-session `shot=#n`, never a path, name, handle or id):
+  - `trail 1/4 taken`: Steam said a screenshot of a shortcut was saved; two seconds later, whether Steam's summary store
+    holds it, the summary is shown, the thumbnail is drawn, the viewer cache has it, Steam knows it by handle, and the image
+    server answers (`file_http`).
+  - `trail 2/4 click`: a click on a thumbnail **inside the Post-Game Summary** (no other click is looked at), whether the
+    viewer knew it, and whether it was added before the viewer opened.
+  - `trail 3/4 viewer`: the window Steam opened for it (on desktop a separate Media window), found or not, what the viewer
+    draws (`shown`, `error`, `loading`, `image-broken`), whether the screenshot is in Steam's own list (what the viewer
+    builds its cache from), and on an error its cause (`not-in-steam-list`, `not-in-viewer-cache`, `image`, `query`),
+    with `trail 3/4 viewer after repair` when adding it again was tried.
+  - `trail 4/4 deleted`: Steam said it was deleted, or the file vanished from Steam's image server (`via=disk`); two
+    seconds later, whether the summary store, the page, the viewer cache and Steam's lookup still hold it.
+  - `media load failed` now says where the image was (`viewer`, `post-game-summary`, `other`), and it also watches the
+    Media window a summary click opens.
+
+### Changed
+
+- The `media click:` and `media viewer showed its load error` lines are replaced by the trail's click and viewer lines: the
+  old ones only looked at the library window, while on desktop the viewer opens in its own window, so the error never
+  reached the log.
+
 ## [0.7.3.7-debug] - 2026-11-20
 
 A debug build for the Linux reports about the Post-Game Summary: clicking a screenshot shows "There was a problem loading this

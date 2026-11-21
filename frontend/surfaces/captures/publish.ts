@@ -4,6 +4,8 @@ import { toGameId, toShortcutId, type ShortcutId } from "../../kernel/appid";
 import { clearSummary, publishSummary } from "./summary";
 import { deps } from "./deps";
 import { attachMediaSensors } from "./media-sensor";
+import { attachTrailClicks } from "./trail";
+import { viewing } from "./viewing";
 
 /**
  * Brings the native app detail sections to a non-Steam game's page.
@@ -26,13 +28,7 @@ import { attachMediaSensors } from "./media-sensor";
 /** Apps whose summary or activity we have published, so a quitting game can refresh them. */
 const published = new Set<number>();
 
-/**
- * Shortcuts whose page is open (between shortcut.viewed and shortcut.left). A record change re-publishes only these
- * (`onRecordChanged`): the start-up achievements preload updates every shortcut's record, and publishing all of them
- * sent ~450 `GetClips` calls to Steam's recording service within seconds of every start, after which Steam listed no
- * clips at all for the session, its own media view included (found 2026-10-07; with this part off, all 8 came back).
- */
-const viewing = new Set<number>();
+// Shortcuts whose page is open: viewing.ts (shared with the screenshot trail).
 
 /** Report whether an app has content (`captures.published`; the sections surface drops its placeholder, M10). */
 function setHasContent(appid: number, hasContent: boolean): void {
@@ -50,6 +46,7 @@ export async function patch(appid: number): Promise<void> {
     if (id === undefined) return;
     viewing.add(appid);
     attachMediaSensors();
+    attachTrailClicks();
     const gameid = toGameId(id);
 
     try {

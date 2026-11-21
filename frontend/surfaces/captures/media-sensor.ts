@@ -1,19 +1,14 @@
 import { deps } from "./deps";
-import { steamQueryClients } from "../../steam/query-client";
 import { captureKind } from "./media-kinds";
-import { ensureInViewerCache, inViewerCache, knownScreenshot } from "./viewer-cache";
 
 /**
- * Sensors for the screenshots and clips Steam draws on a game's page (the Post-Game Summary and the media viewer).
+ * Sensor for the screenshots and clips Steam draws (the Post-Game Summary and the media viewer): an image or video of a
+ * capture that fails to load. It changes nothing; it leaves a log line (booleans, counts and the kind of file, never a
+ * path, a game name or an id).
  *
- * They change nothing. They only leave log lines, because a Linux reporter saw thumbnails of deleted screenshots and a
- * "problem loading this screenshot" page after a click, and neither shows up in any other log. Lines carry booleans,
- * counts and the kind of file, never a path, a game name or an id.
- *
- * Two sensors, attached to every Steam window we can reach (the library window opens after us, so `attach` runs again
- * on each page view; a document is only ever attached once):
- *   - an image or video of a capture that fails to load (the `error` event does not bubble, so it is caught on capture);
- *   - a click on a capture image, with what the image was doing and where Steam went next.
+ * Attached to the windows reachable at each page view, and to the Media window a Post-Game Summary click opens (the
+ * screenshot trail, trail.ts, finds that window and calls `watchDocument`). A click on a summary thumbnail and what the
+ * viewer shows next are the trail's lines, not this sensor's.
  */
 
 const MAX_LINES = 20;
@@ -37,30 +32,12 @@ function hostOk(url: string): boolean {
     return /^https:\/\/steamloopback\.host\//.test(url);
 }
 
-/** Steam's own words for "the viewer could not show this screenshot", in the user's language (English if it is not found). */
-function viewerErrorText(): string {
-    try {
-        const text = (globalThis as any).LocalizationManager?.LocalizeString?.("#ScreenshotUploader_FailedToLoadScreenshot");
-        if (typeof text === "string" && text && !text.startsWith("#")) return text;
-    } catch {
-        // English below.
-    }
-    return "There was a problem loading this screenshot";
-}
-
-function viewerErrorShown(doc: Document): boolean {
-    try {
-        return (doc.body?.innerText ?? "").includes(viewerErrorText());
-    } catch {
-        return false;
-    }
-}
-
-/** Watch one document. Safe to call twice. */
-function watch(doc: Document): void {
+/** Watch one document for capture images that fail to load. Safe to call twice. */
+export function watchDocument(doc: Document): void {
     if (attached.has(doc)) return;
     attached.add(doc);
 
+    // The `error` event does not bubble, so it is caught on capture.
     doc.addEventListener(
         "error",
         (ev: Event) => {
@@ -70,56 +47,15 @@ function watch(doc: Document): void {
             const url = sourceOf(target);
             const kind = captureKind(url);
             if (!kind) return;
-            say(`error|${kind}|${hostOk(url)}`, `media load failed: kind=${kind} element=${tag.toLowerCase()} loopback_host=${hostOk(url)}`);
-        },
-        true,
-    );
-
-    // Capture phase: this runs before Steam's own click handler opens the viewer, so a screenshot the viewer cannot find
-    // is put in its list in time (the viewer reads the list when it opens).
-    doc.addEventListener(
-        "click",
-        (ev: Event) => {
-            const img = (ev.target as HTMLElement | null)?.closest?.("img, video") ?? null;
-            const url = sourceOf(img);
-            const kind = captureKind(url);
-            if (!img || !kind) return;
-            const loaded = (img as HTMLImageElement).complete === true && (img as HTMLImageElement).naturalWidth > 0;
-            const shot = knownScreenshot(url);
-            const clients = steamQueryClients();
-            const before = shot ? inViewerCache(shot, clients) : undefined;
-            let repaired = false;
-            if (shot && before === false) {
-                try {
-                    repaired = ensureInViewerCache([shot], clients).added > 0;
-                } catch {
-                    // The log line below says nothing was added.
-                }
-            }
+            const where = target?.closest?.(".FocusedScreenshotImageContainer, .FocusedScreenshots")
+                ? "viewer"
+                : target?.closest?.(".GamePlaySummaryContainer")
+                  ? "post-game-summary"
+                  : "other";
             say(
-                `click|${kind}|${loaded}|${before}|${repaired}`,
-                `media click: kind=${kind} image_loaded=${loaded} known_to_summary=${shot !== undefined} ` +
-                    `in_viewer_cache=${before === undefined ? "unknown" : before} repaired_before_open=${repaired}`,
+                `error|${kind}|${hostOk(url)}|${where}`,
+                `media load failed: kind=${kind} element=${tag.toLowerCase()} loopback_host=${hostOk(url)} where=${where}`,
             );
-
-            // Steam's own error text appearing within a few seconds is the failure the reporter sees. Heal it once, and say so.
-            if (!shot) return;
-            for (const wait of [500, 1500, 3000]) {
-                setTimeout(() => {
-                    if (!viewerErrorShown(doc)) return;
-                    let healed = false;
-                    try {
-                        healed = ensureInViewerCache([shot], steamQueryClients()).added > 0;
-                    } catch {
-                        // Said in the line below.
-                    }
-                    say(
-                        `viewer-error|${wait}|${healed}`,
-                        `media viewer showed its load error ${wait} ms after a click: in_viewer_cache_after=${inViewerCache(shot, steamQueryClients())} ` +
-                            `added_now=${healed} image_loaded=${loaded}`,
-                    );
-                }, wait);
-            }
         },
         true,
     );
@@ -131,7 +67,7 @@ export function attachMediaSensors(): void {
         const windows = (globalThis as any).SteamUIStore?.WindowStore?.SteamUIWindows ?? [];
         for (const w of windows) {
             const doc: Document | undefined = w?.BrowserWindow?.document;
-            if (doc) watch(doc);
+            if (doc) watchDocument(doc);
         }
     } catch {
         // A window that cannot be reached is not worth a line of its own.

@@ -101,6 +101,71 @@ export interface ScreenshotNotification {
     strOperation: "started" | "written" | "deleted" | string;
     unAppID: number;
     hScreenshot?: number;
+    /** The screenshot itself, on "written" (Steam's spotlight store pushes exactly this into the summary). */
+    details?: SteamScreenshot;
+}
+
+function screenshotsApi(): Record<string, any> | undefined {
+    return (Reflect.get(globalThis, "SteamClient") as any)?.Screenshots;
+}
+
+/**
+ * Does Steam's own per-handle lookup still know this screenshot (`Screenshots.GetLocalScreenshotByHandle`, the call its
+ * upload code uses)? `undefined` when the API is missing or failed.
+ */
+export async function steamKnowsScreenshot(gameid: string, handle: number): Promise<boolean | undefined> {
+    const api = screenshotsApi();
+    if (typeof api?.GetLocalScreenshotByHandle !== "function") return undefined;
+    try {
+        const s = await api.GetLocalScreenshotByHandle(gameid, handle);
+        return !!s && Number(s.hHandle) === Number(handle);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Is this screenshot in the list Steam's media viewer builds its cache from (`GetAllAppsLocalScreenshotsRange`, read in
+ * pages of 1000 as Steam does)? `listed` is undefined when the API is missing or failed.
+ */
+export async function steamViewerListHas(gameid: string, handle: number): Promise<{ listed: boolean | undefined; total: number }> {
+    const api = screenshotsApi();
+    if (typeof api?.GetAllAppsLocalScreenshotsCount !== "function" || typeof api?.GetAllAppsLocalScreenshotsRange !== "function") {
+        return { listed: undefined, total: 0 };
+    }
+    try {
+        const total = Number(await api.GetAllAppsLocalScreenshotsCount()) || 0;
+        for (let from = 0; from < total; from += 1000) {
+            const page: SteamScreenshot[] = (await api.GetAllAppsLocalScreenshotsRange(from, Math.min(total - 1, from + 999))) ?? [];
+            if (page.some((s) => String(s.strGameID) === gameid && Number(s.hHandle) === Number(handle))) return { listed: true, total };
+        }
+        return { listed: false, total };
+    } catch {
+        return { listed: undefined, total: 0 };
+    }
+}
+
+/** The documents of every Steam window open now (`g_PopupManager`, which also holds the Media window). */
+export function steamPopupDocuments(): Document[] {
+    const docs: Document[] = [];
+    try {
+        const manager = (globalThis as any).g_PopupManager;
+        for (const p of manager?.GetPopups?.() ?? []) {
+            const doc = p?.m_popup?.document ?? p?.window?.document;
+            if (doc && !docs.includes(doc)) docs.push(doc);
+        }
+    } catch {
+        // No popup manager: the caller falls back to the windows it already knows.
+    }
+    try {
+        for (const w of (globalThis as any).SteamUIStore?.WindowStore?.SteamUIWindows ?? []) {
+            const doc = w?.BrowserWindow?.document;
+            if (doc && !docs.includes(doc)) docs.push(doc);
+        }
+    } catch {
+        // As above.
+    }
+    return docs;
 }
 
 /**
