@@ -18,6 +18,7 @@ import {
 import { createView } from "./app/view";
 import { createIngest } from "./app/ingest";
 import { createLibrarySetup } from "./app/library-setup";
+import { checkAccount } from "./app/service-check";
 import { createNativeLinksSurface, wrapNavigators } from "./surfaces/native-links";
 import { createArtworkSurface } from "./surfaces/artwork";
 import { createCommunitySurface } from "./surfaces/community";
@@ -72,6 +73,7 @@ import { listShortcuts, shortcutTitle, shortcutData } from "./sensors/shortcuts"
 import { watchProgressCache } from "./sensors/progress-cache";
 import { createSurfaceRunner, type SurfaceDeps } from "./kernel/surface";
 import { backend } from "./ports/backend";
+import { transportDiagnostics } from "./ports/transport";
 import {
     createSectionsSurface,
     onCapturesPublished as sectionsOnCapturesPublished,
@@ -870,6 +872,7 @@ async function init() {
         dialog: { open: (element, title, onClose, from, scale) => showDialog(element, { title, ...screenSize(from, scale), onClose, parent: from }) },
         setup: librarySetup,
         editor: gameEditor,
+        accounts: { check: (service, label, credentials) => checkAccount({ backend, runningCall: () => transportDiagnostics().running?.name }, service, label, credentials) },
     });
 
     // The sections surface drops Steam's placeholder once captures has published content (captures.published).

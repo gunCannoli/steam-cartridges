@@ -7,6 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.7.5-beta] - 2026-11-27
+
+### Fixed
+
+- **Adding a source no longer hangs on "Checking the account..."** (Settings and onboarding, reported with RetroAchievements):
+  the check gives up after 60 seconds and the Add button becomes **Retry**. The status says why in a few words: timed out,
+  the plugin is busy, the service is offline or unreachable, or it answered with an HTTP error. A refused account still shows
+  the service's own reason. An account that did not pass is never left saved.
+
 ## [0.7.4-beta] - 2026-11-21
 
 ### Fixed

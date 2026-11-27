@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react";
 import { DialogButton, Dropdown, PanelSection } from "@steambrew/client";
 import { useSetting } from "../settings";
-import { usePanelContext } from "../context";
+import { usePanelContext, type AccountCheck } from "../context";
 import { ActionRow, Blocks, BUTTON_STYLE, CredentialsNote, FullWidthRows, TextRows, WindowFrame } from "../components";
-import { saveAndCheck } from "../service-check";
 import { backend } from "../../ports/backend";
 
 /** The popup's share of the screen. */
@@ -43,6 +42,8 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
     const [raToken, setRaToken] = useState("");
     const [msg, setMsg] = useState("");
     const [saving, setSaving] = useState(false);
+    /** The last check failed for a reason a second try may fix (timeout, offline, server error): Add reads Retry. */
+    const [retry, setRetry] = useState(false);
 
     useEffect(() => {
         setAvailable(options);
@@ -61,12 +62,19 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
             setSelected(remaining[0].id);
         }
         setSaving(false);
+        setRetry(false);
         onAdded?.(); // the opener re-reads, so the source leaves its list of what can still be added
     };
-    const fail = (text: string) => {
+    const fail = (text: string, kind = "input") => {
         setMsg(text);
-        backend.logEvent("sources", `${selected} add failed: ${text.slice(0, 120)}`);
+        backend.logEvent("sources", `${selected} add failed (${kind}): ${text.slice(0, 120)}`);
+        setRetry(kind !== "input" && kind !== "refused");
         setSaving(false);
+    };
+    const settle = (res: AccountCheck, enable: () => void) => {
+        if (!res.ok) return fail(res.message, res.failure ?? "error");
+        enable();
+        return done(res.message.replace(/^✓\s*/, ""));
     };
 
     const add = async () => {
@@ -87,30 +95,26 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
         if (selected === "screenscraper") {
             if (!ssUser.trim() || !ssPass.trim()) return fail("Username and password are required.");
             setMsg("Checking the account...");
-            const res = await saveAndCheck("screenscraper", "ScreenScraper", { screenscraper_user: ssUser.trim(), screenscraper_pass: ssPass.trim() });
-            if (res.ok) setServices({ ...services, screenscraperEnabled: true });
-            return res.ok ? done(res.message.replace(/^✓\s*/, "")) : fail(res.message);
+            const res = await ctx.accounts.check("screenscraper", "ScreenScraper", { screenscraper_user: ssUser.trim(), screenscraper_pass: ssPass.trim() });
+            return settle(res, () => setServices({ ...services, screenscraperEnabled: true }));
         }
         if (selected === "igdb") {
             if (!igdbId.trim() || !igdbSecret.trim()) return fail("Client ID and Secret are required.");
             setMsg("Checking the account...");
-            const res = await saveAndCheck("igdb", "IGDB", { twitch_client_id: igdbId.trim(), twitch_client_secret: igdbSecret.trim() });
-            if (res.ok) setServices({ ...services, igdbEnabled: true });
-            return res.ok ? done(res.message.replace(/^✓\s*/, "")) : fail(res.message);
+            const res = await ctx.accounts.check("igdb", "IGDB", { twitch_client_id: igdbId.trim(), twitch_client_secret: igdbSecret.trim() });
+            return settle(res, () => setServices({ ...services, igdbEnabled: true }));
         }
         if (selected === "steamgriddb") {
             if (!sgdbKey.trim()) return fail("An API key is required.");
             setMsg("Checking the account...");
-            const res = await saveAndCheck("steamgriddb", "SteamGridDB", { steamgriddb_api: sgdbKey.trim() });
-            if (res.ok) setServices({ ...services, steamgriddbEnabled: true });
-            return res.ok ? done(res.message.replace(/^✓\s*/, "")) : fail(res.message);
+            const res = await ctx.accounts.check("steamgriddb", "SteamGridDB", { steamgriddb_api: sgdbKey.trim() });
+            return settle(res, () => setServices({ ...services, steamgriddbEnabled: true }));
         }
         if (selected === "retroachievements") {
             if (!raUser.trim() || !raToken.trim()) return fail("Username and API token are required.");
             setMsg("Checking the account...");
-            const res = await saveAndCheck("retroachievements", "RetroAchievements", { retroachievements_user: raUser.trim(), retroachievements_api: raToken.trim() });
-            if (res.ok) setServices({ ...services, retroachievementsEnabled: true });
-            return res.ok ? done(res.message.replace(/^✓\s*/, "")) : fail(res.message);
+            const res = await ctx.accounts.check("retroachievements", "RetroAchievements", { retroachievements_user: raUser.trim(), retroachievements_api: raToken.trim() });
+            return settle(res, () => setServices({ ...services, retroachievementsEnabled: true }));
         }
     };
 
@@ -120,7 +124,7 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
                 <ActionRow message={msg}>
                     {available.length > 0 && (
                         <DialogButton disabled={saving} onClick={() => void add()} style={BUTTON_STYLE}>
-                            Add
+                            {retry ? "Retry" : "Add"}
                         </DialogButton>
                     )}
                     <DialogButton onClick={() => closeModal?.()} style={BUTTON_STYLE}>
@@ -143,6 +147,7 @@ export function AddServiceWindow({ title, options, onAdded, closeModal }: { titl
                                     setSelected(o.data as AddableId);
                                     setMsg("");
                                     setSaving(false);
+                                    setRetry(false);
                                 }}
                                 contextMenuPositionOptions={{ bMatchWidth: true }}
                             />

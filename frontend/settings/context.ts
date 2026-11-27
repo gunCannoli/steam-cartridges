@@ -110,6 +110,19 @@ export interface PanelContext {
         /** Forgets what the plugin fetched or learned about one game; the session's copies go too. */
         deleteMetadata(appid: number): Promise<void>;
     };
+    /** Adding an account (app/service-check checkAccount): save, check, give up after 60 s. */
+    accounts: {
+        check(service: AccountService, label: string, credentials: Record<string, string>): Promise<AccountCheck>;
+    };
+}
+
+export type AccountService = 'igdb' | 'screenscraper' | 'steamgriddb' | 'retroachievements';
+
+/** Structural copy of app/service-check.ts CheckResult. `failure`: refused (Retry will not help), or timeout, busy, offline, server, error. */
+export interface AccountCheck {
+    ok: boolean;
+    message: string;
+    failure?: 'refused' | 'timeout' | 'busy' | 'offline' | 'server' | 'error';
 }
 
 const EMPTY_PROGRESS: SyncProgress = { isSyncing: false, total: 0, current: 0, currentGame: '', phase: 'idle', failed: 0 };
@@ -165,6 +178,7 @@ const INERT: PanelContext = {
         previewScreenscraper: async () => ({ error: 'not ready' }),
         deleteMetadata: async () => {},
     },
+    accounts: { check: async () => ({ ok: false, failure: 'error', message: 'Not ready yet, try again.' }) },
 };
 
 let context: PanelContext = INERT;
